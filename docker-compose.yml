@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: podium-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: podium
+      POSTGRES_PASSWORD: podium
+      POSTGRES_DB: podium
+    ports:
+      - "5432:5432"
+    volumes:
+      - podium_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U podium"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  podium_pg_data:

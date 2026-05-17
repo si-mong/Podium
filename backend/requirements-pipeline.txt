@@ -1,0 +1,8 @@
+# 파이프라인(전처리/STT/음성분석/슬라이드 추출) 단계에서만 필요.
+# API 서버 띄울 때는 안 깔아도 됨.
+# 무거운 패키지(PyTorch 포함)이므로 파이프라인 작성 시점에 설치.
+
+openai-whisper==20240930
+librosa==0.10.2.post1
+opencv-python==4.10.0.84
+pdfplumber==0.11.4
