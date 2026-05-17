@@ -1,7 +1,7 @@
 <div align="center">
 
 # Podium
-2026-CBNU CapstoneDesign — presentation analysis
+2026-CBNU CapstoneDesign
 ### **당신의 발표, AI가 다시 봅니다.**
 
 발표 영상 하나로 음성·자세·시선·제스처까지<br/>
