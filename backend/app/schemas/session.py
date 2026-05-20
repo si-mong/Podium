@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict
 
@@ -19,13 +20,13 @@ class SessionRead(BaseModel):
     session_id: int
     project_id: int
     status: str
-    full_video_path: str | None
-    pdf_path: str | None
+    full_video_path: Optional[str]
+    pdf_path: Optional[str]
     created_at: datetime
 
 
 class SessionDetail(SessionRead):
-    chunks: list[ChunkRead] = []
+    chunks: List[ChunkRead] = []
 
 
 class UploadResult(BaseModel):
@@ -37,5 +38,5 @@ class PreprocessResult(BaseModel):
     session_id: int
     status: str
     full_audio_path: str
-    total_duration_sec: float | None
+    total_duration_sec: Optional[float]
     chunk_count: int

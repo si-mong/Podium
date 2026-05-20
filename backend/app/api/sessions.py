@@ -18,6 +18,7 @@ from app.api._dev_auth import get_current_user_id
 from app.core.database import get_db
 from app.models import Chunk, Project, Session
 from app.pipeline.step1_preprocess import concat_audio, extract_chunk_audio, probe_duration
+from app.pipeline import step2_video_analysis
 from app.schemas.session import (
     PreprocessResult,
     SessionDetail,
@@ -131,17 +132,25 @@ def end_session(session_id: int, db: DbSession = Depends(get_db)):
 
     upload_dir = _settings_upload_dir()
     wav_paths = []
+    chunk_webm_paths = []
     for c in chunks:
         webm = upload_dir / c.file_path
         wav = storage.chunk_audio_path(session_id, c.chunk_index)
         extract_chunk_audio(webm, wav)
         wav_paths.append(wav)
+        chunk_webm_paths.append(webm)
 
     full_audio = storage.full_audio_path(session_id)
     concat_audio(wav_paths, full_audio)
     total_duration = probe_duration(full_audio)
 
-    session.status = "preprocessed"
+    step2_video_analysis.run(
+        session_id=session_id,
+        chunk_paths=chunk_webm_paths,
+        output_dir=storage.session_dir(session_id),
+    )
+
+    session.status = "analyzed"
     db.commit()
 
     return PreprocessResult(
