@@ -36,14 +36,15 @@ def health():
     return {"status": "ok"}
 
 
-# DEBUG 모드일 때만 _legacy 프론트엔드를 /legacy 로 서빙 (전처리 동작 검증용).
-# 사용: 브라우저에서 http://localhost:8000/legacy/?project=<project_id>
-# Next.js 본 프론트엔드가 촬영 페이지를 만들면 이 mount는 제거.
+# DEBUG 모드일 때만 검증용 정적 페이지를 /dev 로 서빙.
+# 사용: 브라우저에서 http://localhost:8000/dev/?project=<project_id>
+# (실제 파일: backend/dev_static/recorder.html — html=True라 /dev/가 index 역할)
+# Next.js 본 프론트엔드가 촬영 페이지를 만들면 이 mount + dev_static 디렉터리 제거.
 if settings.debug:
-    _legacy_dir = Path(__file__).resolve().parents[2] / "_legacy" / "frontend"
-    if _legacy_dir.exists():
+    _dev_static_dir = Path(__file__).resolve().parents[1] / "dev_static"
+    if _dev_static_dir.exists():
         app.mount(
-            "/legacy",
-            StaticFiles(directory=str(_legacy_dir), html=True),
-            name="legacy",
+            "/dev",
+            StaticFiles(directory=str(_dev_static_dir), html=True),
+            name="dev",
         )

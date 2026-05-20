@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Podium Recorder</title>
+<style>
+  :root { color-scheme: light; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    margin: 0; padding: 24px; max-width: 880px; margin-inline: auto;
+    color: #111;
+  }
+  h1 { margin: 0 0 16px; font-size: 22px; }
+  video { width: 100%; background: #000; border-radius: 10px; aspect-ratio: 16/9; }
+  .row { display: flex; align-items: center; gap: 8px; margin: 12px 0; flex-wrap: wrap; }
+  button {
+    padding: 9px 18px; font-size: 15px; border: 0; border-radius: 8px;
+    cursor: pointer; font-weight: 600;
+  }
+  button.primary { background: #111; color: #fff; }
+  button.danger  { background: #d32f2f; color: #fff; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .pill {
+    display: inline-block; padding: 4px 10px; border-radius: 999px;
+    background: #eee; font-size: 13px;
+  }
+  .pill.live  { background: #d32f2f; color: #fff; }
+  .pill.done  { background: #2e7d32; color: #fff; }
+  .pill.error { background: #b71c1c; color: #fff; }
+  code { background: #f1f1f1; padding: 2px 6px; border-radius: 4px; }
+  #log {
+    background: #0f0f0f; color: #d8e3ff; padding: 12px;
+    border-radius: 8px; margin-top: 16px;
+    font-family: ui-monospace, Menlo, Monaco, monospace;
+    font-size: 12.5px; max-height: 320px; overflow-y: auto;
+    white-space: pre-wrap;
+  }
+</style>
+</head>
+<body>
+  <h1>Podium Recorder · 30s chunking demo</h1>
+  <div class="row"><span class="pill">project: <code id="projectId">—</code></span></div>
+  <video id="preview" autoplay muted playsinline></video>
+
+  <div class="row">
+    <button id="start" class="primary">Start recording</button>
+    <button id="stop"  class="danger" disabled>Stop & finalize</button>
+    <span id="status" class="pill">idle</span>
+    <span id="timer"  class="pill">00:00</span>
+    <span id="chunkCounter" class="pill">chunks: 0</span>
+  </div>
+  <div>session: <code id="sessionId">—</code></div>
+  <pre id="log"></pre>
+
+<script>
+const API = ""; // same-origin (served by FastAPI). Use "http://localhost:8000" if hosted separately.
+const CHUNK_MS = 30_000;
+
+// project_id는 쿼리스트링에서 받음: /legacy/?project=1
+// 미리 POST /projects 로 프로젝트 만들고 그 id를 URL에 붙일 것.
+const PROJECT_ID = new URLSearchParams(location.search).get("project");
+document.getElementById("projectId").textContent = PROJECT_ID || "(missing)";
+
+let stream = null;              // 원본 스트림 (미리보기 + 청크 recorder 용)
+let fullStream = null;          // 풀 recorder 전용 클론 스트림 (간섭 방지)
+let recorder = null;            // rotating chunk recorder (for VLM)
+let fullRecorder = null;        // single continuous recorder (for replay)
+let fullParts = [];
+let chunkIndex = 0;
+let sessionId = null;
+let recording = false;
+let chunkTimer = null;
+let elapsedTimer = null;
+let elapsedSec = 0;
+let pendingUploads = [];
+
+const $ = (id) => document.getElementById(id);
+const log = (msg) => {
+  const t = new Date().toLocaleTimeString();
+  $("log").textContent += `[${t}] ${msg}\n`;
+  $("log").scrollTop = $("log").scrollHeight;
+};
+const setStatus = (text, cls = "") => {
+  const el = $("status");
+  el.className = "pill " + cls;
+  el.textContent = text;
+};
+
+function pickMime() {
+  const candidates = [
+    "video/webm;codecs=vp9,opus",
+    "video/webm;codecs=vp8,opus",
+    "video/webm",
+  ];
+  for (const m of candidates) {
+    if (window.MediaRecorder && MediaRecorder.isTypeSupported(m)) return m;
+  }
+  return ""; // browser default
+}
+
+async function startSession() {
+  const url = `${API}/projects/${PROJECT_ID}/sessions/start`;
+  const res = await fetch(url, { method: "POST" });
+  if (!res.ok) throw new Error(`start failed: ${res.status} ${await res.text()}`);
+  const data = await res.json();
+  sessionId = data.session_id;
+  $("sessionId").textContent = sessionId;
+  log(`session started: ${sessionId} (project=${PROJECT_ID})`);
+}
+
+async function uploadFullVideo(blob) {
+  const fd = new FormData();
+  fd.append("file", blob, "full_video.webm");
+  const p = fetch(`${API}/sessions/${sessionId}/video`, { method: "POST", body: fd })
+    .then((r) => r.json())
+    .then((data) => {
+      log(`✓ uploaded full video (${(blob.size / 1024 / 1024).toFixed(2)} MB)`);
+      return data;
+    })
+    .catch((e) => log(`✗ full video upload failed: ${e}`));
+  pendingUploads.push(p);
+  return p;
+}
+
+async function uploadChunk(blob, idx) {
+  const fd = new FormData();
+  fd.append("file", blob, `chunk_${String(idx).padStart(3, "0")}.webm`);
+  const url = `${API}/sessions/${sessionId}/chunks?chunk_index=${idx}`;
+  const p = fetch(url, { method: "POST", body: fd })
+    .then((r) => r.json())
+    .then((data) => {
+      log(`✓ uploaded chunk ${idx} (${(blob.size / 1024).toFixed(1)} KB)`);
+      $("chunkCounter").textContent = `chunks: ${idx + 1}`;
+      return data;
+    })
+    .catch((e) => log(`✗ upload failed for chunk ${idx}: ${e}`));
+  pendingUploads.push(p);
+  return p;
+}
+
+function startRecorderForChunk() {
+  const idx = chunkIndex++;
+  const parts = [];
+  const mimeType = pickMime();
+  const r = mimeType
+    ? new MediaRecorder(stream, { mimeType })
+    : new MediaRecorder(stream);
+  r.ondataavailable = (e) => { if (e.data && e.data.size > 0) parts.push(e.data); };
+  r.onstop = () => {
+    const blob = new Blob(parts, { type: r.mimeType || "video/webm" });
+    log(`chunk ${idx} closed (${(blob.size / 1024).toFixed(1)} KB)`);
+    uploadChunk(blob, idx);
+  };
+  r.start();
+  log(`chunk ${idx} started`);
+  return r;
+}
+
+function rotateRecorder() {
+  if (!recording) return;
+  const old = recorder;
+  recorder = startRecorderForChunk();    // new one running before old one stops
+  if (old && old.state === "recording") old.stop();  // old flushes async
+  chunkTimer = setTimeout(rotateRecorder, CHUNK_MS);
+}
+
+async function start() {
+  if (!PROJECT_ID) {
+    alert("URL 쿼리스트링에 ?project=<project_id>를 붙이세요. (예: /legacy/?project=1)\n먼저 POST /projects 로 프로젝트를 만든 뒤 그 id를 사용하세요.");
+    return;
+  }
+  $("start").disabled = true;
+  setStatus("starting…");
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: true,
+    });
+    $("preview").srcObject = stream;
+
+    await startSession();
+    chunkIndex = 0;
+    elapsedSec = 0;
+    pendingUploads = [];
+    fullParts = [];
+    recording = true;
+
+    // 풀 recorder는 트랙을 clone() 해서 별도 MediaStream으로 띄운다.
+    // 같은 스트림에 두 MediaRecorder를 동시에 start() 하면 인코더 초기화가
+    // 충돌해서 두 파일 모두 헤더만 있는 빈 webm이 만들어지는 이슈가 있음.
+    fullStream = new MediaStream(stream.getTracks().map((t) => t.clone()));
+
+    const fullMime = pickMime();
+    fullRecorder = fullMime
+      ? new MediaRecorder(fullStream, { mimeType: fullMime })
+      : new MediaRecorder(fullStream);
+    fullRecorder.ondataavailable = (e) => {
+      if (e.data && e.data.size > 0) fullParts.push(e.data);
+    };
+    fullRecorder.onstop = () => {
+      const blob = new Blob(fullParts, { type: fullRecorder.mimeType || "video/webm" });
+      log(`full video closed (${(blob.size / 1024 / 1024).toFixed(2)} MB)`);
+      uploadFullVideo(blob);
+    };
+    fullRecorder.start();
+    log("full recorder started (cloned stream)");
+
+    // Rotating chunk recorder (for VLM) — 원본 스트림 사용
+    recorder = startRecorderForChunk();
+    chunkTimer = setTimeout(rotateRecorder, CHUNK_MS);
+
+    elapsedTimer = setInterval(() => {
+      elapsedSec += 1;
+      const mm = String(Math.floor(elapsedSec / 60)).padStart(2, "0");
+      const ss = String(elapsedSec % 60).padStart(2, "0");
+      $("timer").textContent = `${mm}:${ss}`;
+    }, 1000);
+
+    setStatus("recording", "live");
+    $("stop").disabled = false;
+  } catch (e) {
+    log(`error: ${e}`);
+    setStatus("error", "error");
+    $("start").disabled = false;
+  }
+}
+
+async function stop() {
+  $("stop").disabled = true;
+  recording = false;
+  clearTimeout(chunkTimer);
+  clearInterval(elapsedTimer);
+
+  const stopPromises = [];
+  if (recorder && recorder.state === "recording") {
+    stopPromises.push(new Promise((resolve) => {
+      recorder.addEventListener("stop", () => resolve(), { once: true });
+      recorder.stop();
+    }));
+  }
+  if (fullRecorder && fullRecorder.state === "recording") {
+    stopPromises.push(new Promise((resolve) => {
+      fullRecorder.addEventListener("stop", () => resolve(), { once: true });
+      fullRecorder.stop();
+    }));
+  }
+  await Promise.all(stopPromises);
+  // 원본 + 클론 스트림 트랙을 모두 정지해야 카메라/마이크 LED가 꺼진다.
+  if (stream) stream.getTracks().forEach((t) => t.stop());
+  if (fullStream) fullStream.getTracks().forEach((t) => t.stop());
+
+  setStatus("uploading + finalizing…");
+  log("waiting for pending uploads…");
+  await Promise.allSettled(pendingUploads);
+
+  log("calling /end (audio extract + concat)…");
+  try {
+    const res = await fetch(`${API}/sessions/${sessionId}/end`, { method: "POST" });
+    const data = await res.json();
+    if (!res.ok) throw new Error(JSON.stringify(data));
+    log(`✓ done. chunks=${data.chunk_count}, total_duration=${data.total_duration_sec}s`);
+    log(`  full_audio: ${data.full_audio_path}`);
+    setStatus("done", "done");
+  } catch (e) {
+    log(`finalize error: ${e}`);
+    setStatus("error", "error");
+  }
+  $("start").disabled = false;
+}
+
+$("start").addEventListener("click", start);
+$("stop").addEventListener("click", stop);
+</script>
+</body>
+</html>

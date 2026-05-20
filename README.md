@@ -122,8 +122,8 @@ curl -X POST http://localhost:8000/projects \
   -H 'Content-Type: application/json' -d '{"title":"테스트"}'
 # 응답에서 project_id 받기 (예: 1)
 
-# 2. 브라우저로 시스템 내 촬영 (DEBUG 모드일 때만 /legacy mount됨)
-open "http://localhost:8000/legacy/?project=1"
+# 2. 브라우저로 시스템 내 촬영 (DEBUG 모드일 때만 /dev mount됨)
+open "http://localhost:8000/dev/?project=1"
 # Start recording → 30초+ 촬영 → Stop & finalize
 
 # 3. 결과 확인
@@ -133,7 +133,7 @@ docker compose exec postgres psql -U podium -d podium -c \
 # status='preprocessed' 이면 성공
 ```
 
-`/legacy` mount는 Next.js 촬영 페이지가 생기면 제거 예정 (현재 임시).
+`/dev` mount(`backend/dev_static/`)는 Next.js 촬영 페이지가 생기면 제거 예정 (현재 임시).
 
 ---
 

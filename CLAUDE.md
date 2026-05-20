@@ -98,6 +98,8 @@ Podium/
 │   │   ├── audio/chunk_NNN.wav
 │   │   ├── full_video.webm
 │   │   └── full_audio.wav
+│   ├── dev_static/                    ★ DEBUG일 때 /dev로 임시 mount되는 검증용 정적 페이지 (시스템 촬영). Next.js 촬영 페이지 생기면 제거
+│   │   └── index.html
 │   ├── requirements.txt               API 서버용
 │   ├── requirements-pipeline.txt      AI 패키지 (파이프라인 작업 시 별도 설치)
 │   └── .env.example                   DEBUG=true 기본
@@ -109,8 +111,7 @@ Podium/
 ├── README.md
 ├── .gitignore
 │
-├── _legacy/                           중간발표 데모 (gitignored)
-│   └── frontend/index.html            ★ DEBUG일 때 /legacy로 임시 mount — 슬라이스 1에서 Next.js로 대체 예정
+├── _legacy/                           중간발표 데모 (gitignored, 참고용)
 └── _refs/                             기획 문서 + 가이드 (gitignored)
     ├── 프로젝트 설명.md
     ├── 프레임워크.md
@@ -136,7 +137,7 @@ Podium/
 | GET | `/sessions/{session_id}` | 세션 + chunks 배열 |
 | DELETE | `/sessions/{session_id}` | DB 행 cascade 삭제 + uploads/ 폴더 삭제 |
 
-DEBUG 모드일 때 `/legacy/?project=<id>` mount — `_legacy/frontend/index.html` 임시 서빙. 슬라이스 1에서 Next.js 촬영 페이지 만들면 제거.
+DEBUG 모드일 때 `/dev/?project=<id>` mount — `backend/dev_static/index.html` 임시 서빙 (전처리 검증용). 슬라이스 1에서 Next.js 촬영 페이지 만들면 mount + `dev_static/` 디렉터리 제거.
 
 ---
 
@@ -165,7 +166,7 @@ curl -X POST http://localhost:8000/projects \
 # → 응답에서 project_id 받기 (예: 1)
 
 # 2. 브라우저로 촬영 (시스템 내 촬영이 본 흐름이라 진짜 촬영으로 검증)
-open "http://localhost:8000/legacy/?project=1"
+open "http://localhost:8000/dev/?project=1"
 # Start recording → 30초+ 촬영 → Stop & finalize
 
 # 3. 결과 확인
@@ -222,7 +223,7 @@ alembic current                               # 현재 적용된 버전
   - `schemas/project.py`, `schemas/session.py`
   - `api/projects.py`, `api/sessions.py` — 9개 엔드포인트
   - `api/_dev_auth.py` — 임시 더미 사용자 시드 (lifespan에서 자동 실행)
-  - `_legacy/frontend/index.html`을 새 API에 맞게 살짝 수정 + DEBUG일 때 `/legacy` mount
+  - `backend/dev_static/index.html` — 시스템 촬영 검증용 정적 페이지 (DEBUG일 때 `/dev` mount)
 - **전처리 end-to-end 검증 통과** — 시스템 촬영 → 청크/영상 저장 → DB 행 → ffmpeg 전처리 → full_audio.wav 생성
 
 ### 🟡 현재 브랜치
