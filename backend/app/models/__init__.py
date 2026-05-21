@@ -1,4 +1,5 @@
 from app.models.analysis import (
+    ChunkAnalysis,
     Feedback,
     Segment,
     SegmentAnalysis,
@@ -15,6 +16,7 @@ __all__ = [
     "Project",
     "Session",
     "Chunk",
+    "ChunkAnalysis",
     "SttSentence",
     "VoiceRaw",
     "Segment",

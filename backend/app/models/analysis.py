@@ -66,6 +66,10 @@ class Segment(Base):
 
 
 class SegmentAnalysis(Base):
+    """구간(segment) 단위 종합 분석 결과.
+
+    STEP 4(LLM 구간 분리) 후 청크 단위 결과(chunk_analyses)를 segment 시간 범위로 집계해 저장.
+    """
     __tablename__ = "segment_analyses"
 
     segment_id: Mapped[int] = mapped_column(
@@ -77,12 +81,39 @@ class SegmentAnalysis(Base):
     wpm: Mapped[float | None] = mapped_column(Float, nullable=True)
     silence_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     filler_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    posture: Mapped[str | None] = mapped_column(Text, nullable=True)
-    eye_contact: Mapped[str | None] = mapped_column(Text, nullable=True)
-    gesture: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # VLM 동작 분석 (구간 집계): 카테고리별 카운트 dict.
+    # 키셋은 step2_video_analysis.py 의 카테고리 enum과 일치.
+    gesture_counts: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    posture_counts: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    eye_contact_counts: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     motion_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     segment: Mapped["Segment"] = relationship(back_populates="analysis")
+
+
+class ChunkAnalysis(Base):
+    """청크 단위 VLM 분석 결과 (캐시 역할).
+
+    VLM 호출이 비싸므로 청크별 결과를 영구 저장. STEP 4 후 segment 시간 범위로
+    집계해 SegmentAnalysis 에 옮겨짐. 회차별 청크 단위 비교에도 활용.
+    """
+    __tablename__ = "chunk_analyses"
+
+    chunk_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("chunks.chunk_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    # semi-enum 자유 텍스트 (한정 옵션 — step2_video_analysis.py 프롬프트 참고)
+    posture: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    eye_contact: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    gesture: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # 정적 enum 카운트
+    gesture_counts: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    chunk: Mapped["Chunk"] = relationship(back_populates="analysis")  # noqa: F821
 
 
 class Feedback(Base):
