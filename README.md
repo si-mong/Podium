@@ -74,3 +74,9 @@
 ![Railway](https://img.shields.io/badge/Railway-0B0D0E?style=flat-square&logo=railway&logoColor=white)
 
 </div>
+---
+
+## 개발 가이드
+
+- 팀원용 빠른 시작 / 폴더 구조 / 진행 상황 / 컨벤션 → [`docs/개발가이드.md`](./docs/개발가이드.md)
+- 상세 컨텍스트 / 결정사항 / 임시 코드 → [`docs/CLAUDE.md`](./docs/CLAUDE.md)
