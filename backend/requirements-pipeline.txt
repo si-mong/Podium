@@ -6,3 +6,7 @@ openai-whisper==20240930
 librosa==0.10.2.post1
 opencv-python==4.10.0.84
 pdfplumber==0.11.4
+
+# STEP 2 VLM (Gemini)
+google-genai==0.3.0
+python-dotenv==1.0.1

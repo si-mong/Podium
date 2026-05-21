@@ -40,3 +40,11 @@ class PreprocessResult(BaseModel):
     full_audio_path: str
     total_duration_sec: Optional[float]
     chunk_count: int
+
+
+class MotionAnalysisResult(BaseModel):
+    session_id: int
+    status: str
+    chunk_count: int
+    analyzed_count: int
+    json_output_path: str

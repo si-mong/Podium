@@ -1,12 +1,13 @@
 """세션 라이프사이클 라우터.
 
 흐름:
-  POST /projects/{project_id}/sessions/start   -> 빈 세션 생성
-  POST /sessions/{id}/chunks?chunk_index=N     -> 30초 webm 청크 업로드 (반복)
-  POST /sessions/{id}/video                    -> 전체 연속 webm 업로드 (Stop 시 1회)
-  POST /sessions/{id}/end                      -> 오디오 추출 + concat (전처리 완료)
-  GET    /sessions/{id}                        -> 메타 + 청크 목록
-  DELETE /sessions/{id}                        -> 세션 (DB + 파일) 삭제
+  POST /projects/{project_id}/sessions/start    -> 빈 세션 생성
+  POST /sessions/{id}/chunks?chunk_index=N      -> 30초 webm 청크 업로드 (반복)
+  POST /sessions/{id}/video                     -> 전체 연속 webm 업로드 (Stop 시 1회)
+  POST /sessions/{id}/end                       -> 오디오 추출 + concat (전처리만 완료)
+  POST /sessions/{id}/analyze/motion            -> STEP 2 VLM 동작 분석 (별도 호출)
+  GET    /sessions/{id}                         -> 메타 + 청크 목록
+  DELETE /sessions/{id}                         -> 세션 (DB + 파일) 삭제
 """
 from __future__ import annotations
 
@@ -16,10 +17,10 @@ from sqlalchemy.orm import Session as DbSession, selectinload
 
 from app.api._dev_auth import get_current_user_id
 from app.core.database import get_db
-from app.models import Chunk, Project, Session
+from app.models import Chunk, ChunkAnalysis, Project, Session
 from app.pipeline.step1_preprocess import concat_audio, extract_chunk_audio, probe_duration
-from app.pipeline import step2_video_analysis
 from app.schemas.session import (
+    MotionAnalysisResult,
     PreprocessResult,
     SessionDetail,
     SessionRead,
@@ -144,13 +145,9 @@ def end_session(session_id: int, db: DbSession = Depends(get_db)):
     concat_audio(wav_paths, full_audio)
     total_duration = probe_duration(full_audio)
 
-    step2_video_analysis.run(
-        session_id=session_id,
-        chunk_paths=chunk_webm_paths,
-        output_dir=storage.session_dir(session_id),
-    )
-
-    session.status = "analyzed"
+    # STEP 2 VLM 호출은 분리된 라우터(/analyze/motion)에서 수행.
+    # /end 는 전처리만 책임지므로 응답 시간 짧고 timeout 위험 없음.
+    session.status = "preprocessed"
     db.commit()
 
     return PreprocessResult(
@@ -159,6 +156,72 @@ def end_session(session_id: int, db: DbSession = Depends(get_db)):
         full_audio_path=str(full_audio.relative_to(upload_dir)),
         total_duration_sec=total_duration,
         chunk_count=len(chunks),
+    )
+
+
+# ---------------------------------------------------------------------------
+# STEP 2: VLM 동작 분석 (별도 호출, /end 이후)
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/sessions/{session_id}/analyze/motion",
+    response_model=MotionAnalysisResult,
+)
+def analyze_motion(session_id: int, db: DbSession = Depends(get_db)):
+    """청크 영상에 대해 VLM 동작 분석을 수행하고 chunk_analyses 테이블에 저장.
+
+    /end (전처리) 이후 호출. 비싼 호출이라 idempotent하지 않음 — 호출당 Gemini 청구 발생.
+    재호출 시 기존 chunk_analyses 행은 덮어씀.
+    """
+    session = _get_owned_session(db, session_id)
+    if session.status not in ("preprocessed", "analyzed"):
+        raise HTTPException(400, f"session status must be preprocessed (got {session.status!r}); call /end first")
+
+    chunks = db.scalars(
+        select(Chunk).where(Chunk.session_id == session_id).order_by(Chunk.chunk_index)
+    ).all()
+    if not chunks:
+        raise HTTPException(400, "no chunks uploaded")
+
+    upload_dir = _settings_upload_dir()
+    chunk_paths = [upload_dir / c.file_path for c in chunks]
+
+    # lazy import — google-genai 가 미설치된 환경에서도 API 서버는 정상 동작.
+    from app.pipeline import step2_video_analysis
+
+    result = step2_video_analysis.run(
+        session_id=session_id,
+        chunk_paths=chunk_paths,
+        output_dir=storage.session_dir(session_id),
+    )
+
+    # VLM 결과를 chunk_analyses 에 저장 (UPSERT — 같은 chunk_id 재호출 시 덮어씀).
+    # result["VLM_segment_result"] 의 인덱스 i 가 chunks[i] 와 대응.
+    vlm_items = result.get("VLM_segment_result", [])
+    for chunk, item in zip(chunks, vlm_items):
+        existing = db.get(ChunkAnalysis, chunk.chunk_id)
+        fields = dict(
+            posture=item.get("posture"),
+            eye_contact=item.get("eye_contact"),
+            gesture=item.get("gesture"),
+            gesture_counts=item.get("gesture_counts"),
+            notes=item.get("notes"),
+        )
+        if existing is None:
+            db.add(ChunkAnalysis(chunk_id=chunk.chunk_id, **fields))
+        else:
+            for k, v in fields.items():
+                setattr(existing, k, v)
+
+    session.status = "analyzed"
+    db.commit()
+
+    return MotionAnalysisResult(
+        session_id=session_id,
+        status=session.status,
+        chunk_count=len(chunks),
+        analyzed_count=len(vlm_items),
+        json_output_path=str((storage.session_dir(session_id) / "vlm_analysis.json").relative_to(upload_dir)),
     )
 
 
