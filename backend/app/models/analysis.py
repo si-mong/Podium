@@ -77,9 +77,17 @@ class SegmentAnalysis(Base):
     wpm: Mapped[float | None] = mapped_column(Float, nullable=True)
     silence_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     filler_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    posture: Mapped[str | None] = mapped_column(Text, nullable=True)
-    eye_contact: Mapped[str | None] = mapped_column(Text, nullable=True)
-    gesture: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # VLM 동작 분석: 정적 카테고리 enum별 카운트.
+    # 형식: {"<category_name>": <count>, ...}
+    #   gesture_counts:     예) {"scratching_head": 3, "crossing_arms": 1}
+    #   posture_counts:     예) {"standing_upright": 5, "leaning_forward": 2}
+    #   eye_contact_counts: 예) {"camera_focused": 8, "looking_down": 1}
+    # 카테고리 enum은 app/pipeline/step2_motion.py 에 상수로 정의.
+    # 모르는 카테고리는 motion_notes로 fallback.
+    gesture_counts: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    posture_counts: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    eye_contact_counts: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     motion_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     segment: Mapped["Segment"] = relationship(back_populates="analysis")
