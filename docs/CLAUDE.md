@@ -17,8 +17,8 @@
 - 인원: 2명
 - 일정: 약 2~3개월
 - 분담:
-  - **사용자(주)**: 파이프라인 STEP 1/3/4/5 + 백엔드 전체
-  - **팀원**: 파이프라인 STEP 2 (VLM) + 프론트엔드 전체
+    - **사용자(주)**: 파이프라인 STEP 1/3/4/5 + 백엔드 전체
+    - **팀원**: 파이프라인 STEP 2 (VLM) + 프론트엔드 전체
 
 ### 개발 방식 — 하이브리드
 
@@ -218,12 +218,12 @@ alembic current                               # 현재 적용된 버전
 - 인프라: Backend/Frontend 스캐폴드, Postgres docker, requirements 분리
 - DB: SQLAlchemy 모델 10개 + Alembic 초기 마이그레이션 적용
 - 전처리 (STEP 1):
-  - `pipeline/step1_preprocess.py` — ffmpeg 청크 wav 추출 + concat + ffprobe duration
-  - `services/storage.py` — 파일 경로/IO
-  - `schemas/project.py`, `schemas/session.py`
-  - `api/projects.py`, `api/sessions.py` — 9개 엔드포인트
-  - `api/_dev_auth.py` — 임시 더미 사용자 시드 (lifespan에서 자동 실행)
-  - `backend/dev_static/index.html` — 시스템 촬영 검증용 정적 페이지 (DEBUG일 때 `/dev` mount)
+    - `pipeline/step1_preprocess.py` — ffmpeg 청크 wav 추출 + concat + ffprobe duration
+    - `services/storage.py` — 파일 경로/IO
+    - `schemas/project.py`, `schemas/session.py`
+    - `api/projects.py`, `api/sessions.py` — 9개 엔드포인트
+    - `api/_dev_auth.py` — 임시 더미 사용자 시드 (lifespan에서 자동 실행)
+    - `backend/dev_static/index.html` — 시스템 촬영 검증용 정적 페이지 (DEBUG일 때 `/dev` mount)
 - **전처리 end-to-end 검증 통과** — 시스템 촬영 → 청크/영상 저장 → DB 행 → ffmpeg 전처리 → full_audio.wav 생성
 
 ### 🟡 현재 브랜치
@@ -234,10 +234,10 @@ alembic current                               # 현재 적용된 버전
 
 **파이프라인 PoC 단계 마무리** (~2주):
 1. **사용자**: STEP 3 (Whisper STT + 음성 수치화 — filler/silence/wpm)
-   - `requirements-pipeline.txt` 설치 필요 → Python 3.13 + whisper 이슈 해결 우선
-   - 함수 단위로 검증 (input: full_audio.wav, output: STT 문장 + voice_raw dict)
+    - `requirements-pipeline.txt` 설치 필요 → Python 3.13 + whisper 이슈 해결 우선
+    - 함수 단위로 검증 (input: full_audio.wav, output: STT 문장 + voice_raw dict)
 2. **팀원**: STEP 2 (VLM 동작 분석) — `pipeline/step2_motion.py` 파일 추가
-   - 함수 시그니처 합의 예: `analyze_motion(chunk_paths: list[Path]) -> dict`
+    - 함수 시그니처 합의 예: `analyze_motion(chunk_paths: list[Path]) -> dict`
 
 **수직 슬라이스 단계** (3주~):
 - 슬라이스 1: 영상 업로드 + STT 자막 표시 (사용자 백 / 팀원 프론트)
