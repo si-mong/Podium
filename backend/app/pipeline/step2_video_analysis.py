@@ -8,6 +8,7 @@ Step 2: 영상 분석 (VLM)
 출력: VLM 분석 결과 JSON 파일
 """
 
+import concurrent.futures
 import json
 import logging
 import os
@@ -21,10 +22,8 @@ from google.genai import types
 logger = logging.getLogger(__name__)
 
 # ── 재시도 정책 ───────────────────────────────────────────────────────────────
-# Gemini API 일시 오류 대비. 청크 1개당 최대 MAX_ATTEMPTS 회 시도.
-# 모두 실패하면 placeholder 결과로 진행 (전체 파이프라인은 멈추지 않음).
-MAX_ATTEMPTS = 3
-RETRY_WAIT_SEC = 30
+# Gemini API 일시 오류 대비. 성공할 때까지 무제한 재시도.
+RETRY_WAIT_SEC = 10
 
 _GESTURE_KEYS = (
     "hand_movement",
@@ -96,11 +95,64 @@ def _analyze_chunk(client, uploaded_file):
     return json.loads(response.text)
 
 
+# ── 청크 1개 처리 (병렬 실행 단위) ───────────────────────────────────────────
+
+def _process_one_chunk(client, i, chunk_path, total):
+    """청크 하나를 분석하고 (인덱스, 결과dict) 를 반환. ThreadPoolExecutor에서 호출됨."""
+    logger.info("[%d/%d] 분석 시작: %s", i + 1, total, chunk_path.name)
+
+    result = None
+    attempt = 0
+
+    while result is None:
+        attempt += 1
+        uploaded_file = None
+        try:
+            uploaded_file = _upload_and_wait(client, chunk_path)
+            raw = _analyze_chunk(client, uploaded_file)
+
+            raw_counts = raw.get("gesture_counts", {})
+            result = {
+                "segment_id": i + 1,
+                "segment_name": "chunk_{}".format(i + 1),
+                "posture": raw.get("posture", "분석 불가"),
+                "eye_contact": raw.get("eye_contact", "분석 불가"),
+                "gesture": raw.get("gesture", "분석 불가"),
+                "notes": raw.get("notes", ""),
+                "gesture_counts": {k: int(raw_counts.get(k, 0)) for k in _GESTURE_KEYS},
+            }
+            logger.info(
+                "[%d/%d] 완료 (시도 %d회) → posture=%s  eye=%s  gesture=%s  counts=%s",
+                i + 1, total, attempt,
+                result["posture"], result["eye_contact"], result["gesture"],
+                result["gesture_counts"],
+            )
+
+        except Exception as e:
+            logger.warning(
+                "[%d/%d] 시도 %d회 실패: %s",
+                i + 1, total, attempt, e,
+            )
+            logger.info("[%d/%d] %d초 후 재시도...", i + 1, total, RETRY_WAIT_SEC)
+            time.sleep(RETRY_WAIT_SEC)
+
+        finally:
+            # 분석 완료 후 구글 서버에서 즉시 삭제하여 용량 확보
+            if uploaded_file is not None:
+                try:
+                    client.files.delete(name=uploaded_file.name)
+                    logger.info("[%d/%d] 구글 서버 임시 파일 삭제 완료", i + 1, total)
+                except Exception as del_err:
+                    logger.warning("임시 파일 삭제 실패: %s", del_err)
+
+    return i, result
+
+
 # ── 공개 API ──────────────────────────────────────────────────────────────────
 
 def run(session_id, chunk_paths, output_dir=None):
     """
-    30초 단위 청크 영상 목록을 받아 Gemini로 분석하고 JSON 파일로 저장합니다.
+    30초 단위 청크 영상 목록을 받아 Gemini로 병렬 분석하고 JSON 파일로 저장합니다.
 
     Args:
         session_id: 세션 ID (출력 파일명에 사용)
@@ -119,76 +171,26 @@ def run(session_id, chunk_paths, output_dir=None):
         raise EnvironmentError("GEMINI_API_KEY 환경변수가 설정되지 않았습니다.")
     client = genai.Client(api_key=api_key)
 
-    results = []
     chunk_paths_sorted = sorted(chunk_paths)
     total = len(chunk_paths_sorted)
 
-    for i, chunk_path in enumerate(chunk_paths_sorted):
-        logger.info("[%d/%d] 분석 시작: %s", i + 1, total, chunk_path.name)
+    # 결과를 인덱스 → 결과dict 로 저장 (병렬 완료 순서가 뒤섞이므로)
+    results_map = {}
 
-        result = None
-        last_error = None
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        # 모든 청크를 동시에 제출
+        futures = {
+            executor.submit(_process_one_chunk, client, i, chunk_path, total): i
+            for i, chunk_path in enumerate(chunk_paths_sorted)
+        }
 
-        for attempt in range(1, MAX_ATTEMPTS + 1):
-            uploaded_file = None
-            try:
-                uploaded_file = _upload_and_wait(client, chunk_path)
-                raw = _analyze_chunk(client, uploaded_file)
+        # 완료되는 순서대로 결과 수집
+        for future in concurrent.futures.as_completed(futures):
+            idx, result = future.result()
+            results_map[idx] = result
 
-                raw_counts = raw.get("gesture_counts", {})
-                result = {
-                    "segment_id": i + 1,
-                    "segment_name": "chunk_{}".format(i + 1),
-                    "posture": raw.get("posture", "분석 불가"),
-                    "eye_contact": raw.get("eye_contact", "분석 불가"),
-                    "gesture": raw.get("gesture", "분석 불가"),
-                    "notes": raw.get("notes", ""),
-                    "gesture_counts": {k: int(raw_counts.get(k, 0)) for k in _GESTURE_KEYS},
-                }
-                logger.info(
-                    "[%d/%d] 완료 → posture=%s  eye=%s  gesture=%s  counts=%s",
-                    i + 1, total,
-                    result["posture"], result["eye_contact"], result["gesture"],
-                    result["gesture_counts"],
-                )
-                break  # 성공 → 재시도 루프 탈출
-
-            except Exception as e:
-                last_error = e
-                logger.warning(
-                    "[%d/%d] 시도 %d/%d 실패: %s",
-                    i + 1, total, attempt, MAX_ATTEMPTS, e,
-                )
-                if attempt < MAX_ATTEMPTS:
-                    logger.info("[%d/%d] %d초 후 재시도...", i + 1, total, RETRY_WAIT_SEC)
-                    time.sleep(RETRY_WAIT_SEC)
-
-            finally:
-                # 분석 완료 후 구글 서버에서 즉시 삭제하여 용량 확보
-                if uploaded_file is not None:
-                    try:
-                        client.files.delete(name=uploaded_file.name)
-                        logger.info("[%d/%d] 구글 서버 임시 파일 삭제 완료", i + 1, total)
-                    except Exception as del_err:
-                        logger.warning("임시 파일 삭제 실패: %s", del_err)
-
-        if result is None:
-            # MAX_ATTEMPTS 회 모두 실패 — placeholder 로 진행, 키셋은 동일 유지
-            logger.error(
-                "[%d/%d] %d회 모두 실패. placeholder 로 진행. 마지막 오류: %s",
-                i + 1, total, MAX_ATTEMPTS, last_error,
-            )
-            result = {
-                "segment_id": i + 1,
-                "segment_name": "chunk_{}".format(i + 1),
-                "posture": "분석 실패",
-                "eye_contact": "분석 실패",
-                "gesture": "분석 실패",
-                "notes": "VLM 분석 {}회 실패: {}".format(MAX_ATTEMPTS, last_error),
-                "gesture_counts": {k: 0 for k in _GESTURE_KEYS},
-            }
-
-        results.append(result)
+    # 청크 번호 순서대로 정렬해서 최종 목록 생성
+    results = [results_map[i] for i in range(total)]
 
     output = {"VLM_segment_result": results}
 
