@@ -66,3 +66,8 @@ class Chunk(Base):
     t_end: Mapped[float] = mapped_column(Float, nullable=False)
 
     session: Mapped["Session"] = relationship(back_populates="chunks")
+    analysis: Mapped["ChunkAnalysis | None"] = relationship(  # noqa: F821
+        back_populates="chunk",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )

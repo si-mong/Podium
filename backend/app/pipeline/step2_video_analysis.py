@@ -20,6 +20,25 @@ from google.genai import types
 
 logger = logging.getLogger(__name__)
 
+# ── 재시도 정책 ───────────────────────────────────────────────────────────────
+# Gemini API 일시 오류 대비. 청크 1개당 최대 MAX_ATTEMPTS 회 시도.
+# 모두 실패하면 placeholder 결과로 진행 (전체 파이프라인은 멈추지 않음).
+MAX_ATTEMPTS = 3
+RETRY_WAIT_SEC = 30
+
+_GESTURE_KEYS = (
+    "hand_movement",
+    "touching_face_or_hair",
+    "pointing",
+    "emphasizing_hand_movement",
+    "head_nodding",
+    "leaning_forward",
+    "fidgeting_with_objects",
+    "arms_crossed",
+    "swaying_body",
+    "scratching",
+)
+
 # ── 프롬프트 ──────────────────────────────────────────────────────────────────
 
 _PROMPT = """\
@@ -104,21 +123,19 @@ def run(session_id, chunk_paths, output_dir=None):
     chunk_paths_sorted = sorted(chunk_paths)
     total = len(chunk_paths_sorted)
 
-    retry_wait = 30  # 실패 시 재시도 대기 시간 (초)
-
     for i, chunk_path in enumerate(chunk_paths_sorted):
         logger.info("[%d/%d] 분석 시작: %s", i + 1, total, chunk_path.name)
 
         result = None
-        attempt = 0
+        last_error = None
 
-        while result is None:
-            attempt += 1
+        for attempt in range(1, MAX_ATTEMPTS + 1):
             uploaded_file = None
             try:
                 uploaded_file = _upload_and_wait(client, chunk_path)
                 raw = _analyze_chunk(client, uploaded_file)
 
+                raw_counts = raw.get("gesture_counts", {})
                 result = {
                     "segment_id": i + 1,
                     "segment_name": "chunk_{}".format(i + 1),
@@ -126,18 +143,7 @@ def run(session_id, chunk_paths, output_dir=None):
                     "eye_contact": raw.get("eye_contact", "분석 불가"),
                     "gesture": raw.get("gesture", "분석 불가"),
                     "notes": raw.get("notes", ""),
-                    "gesture_counts": {
-                        "hand_movement": raw.get("gesture_counts", {}).get("hand_movement", 0),
-                        "touching_face_or_hair": raw.get("gesture_counts", {}).get("touching_face_or_hair", 0),
-                        "pointing": raw.get("gesture_counts", {}).get("pointing", 0),
-                        "emphasizing_hand_movement": raw.get("gesture_counts", {}).get("emphasizing_hand_movement", 0),
-                        "head_nodding": raw.get("gesture_counts", {}).get("head_nodding", 0),
-                        "leaning_forward": raw.get("gesture_counts", {}).get("leaning_forward", 0),
-                        "fidgeting_with_objects": raw.get("gesture_counts", {}).get("fidgeting_with_objects", 0),
-                        "arms_crossed": raw.get("gesture_counts", {}).get("arms_crossed", 0),
-                        "swaying_body": raw.get("gesture_counts", {}).get("swaying_body", 0),
-                        "scratching": raw.get("gesture_counts", {}).get("scratching", 0),
-                    },
+                    "gesture_counts": {k: int(raw_counts.get(k, 0)) for k in _GESTURE_KEYS},
                 }
                 logger.info(
                     "[%d/%d] 완료 → posture=%s  eye=%s  gesture=%s  counts=%s",
@@ -145,11 +151,17 @@ def run(session_id, chunk_paths, output_dir=None):
                     result["posture"], result["eye_contact"], result["gesture"],
                     result["gesture_counts"],
                 )
+                break  # 성공 → 재시도 루프 탈출
 
             except Exception as e:
-                logger.warning("[%d/%d] 시도 %d 실패: %s", i + 1, total, attempt, e)
-                logger.info("[%d/%d] %d초 후 재시도합니다...", i + 1, total, retry_wait)
-                time.sleep(retry_wait)
+                last_error = e
+                logger.warning(
+                    "[%d/%d] 시도 %d/%d 실패: %s",
+                    i + 1, total, attempt, MAX_ATTEMPTS, e,
+                )
+                if attempt < MAX_ATTEMPTS:
+                    logger.info("[%d/%d] %d초 후 재시도...", i + 1, total, RETRY_WAIT_SEC)
+                    time.sleep(RETRY_WAIT_SEC)
 
             finally:
                 # 분석 완료 후 구글 서버에서 즉시 삭제하여 용량 확보
@@ -159,6 +171,22 @@ def run(session_id, chunk_paths, output_dir=None):
                         logger.info("[%d/%d] 구글 서버 임시 파일 삭제 완료", i + 1, total)
                     except Exception as del_err:
                         logger.warning("임시 파일 삭제 실패: %s", del_err)
+
+        if result is None:
+            # MAX_ATTEMPTS 회 모두 실패 — placeholder 로 진행, 키셋은 동일 유지
+            logger.error(
+                "[%d/%d] %d회 모두 실패. placeholder 로 진행. 마지막 오류: %s",
+                i + 1, total, MAX_ATTEMPTS, last_error,
+            )
+            result = {
+                "segment_id": i + 1,
+                "segment_name": "chunk_{}".format(i + 1),
+                "posture": "분석 실패",
+                "eye_contact": "분석 실패",
+                "gesture": "분석 실패",
+                "notes": "VLM 분석 {}회 실패: {}".format(MAX_ATTEMPTS, last_error),
+                "gesture_counts": {k: 0 for k in _GESTURE_KEYS},
+            }
 
         results.append(result)
 
