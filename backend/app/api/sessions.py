@@ -226,6 +226,37 @@ def analyze_motion(session_id: int, db: DbSession = Depends(get_db)):
 
 
 # ---------------------------------------------------------------------------
+# VLM 분석 결과 조회
+# ---------------------------------------------------------------------------
+
+@router.get("/sessions/{session_id}/analysis")
+def get_session_analysis(session_id: int, db: DbSession = Depends(get_db)):
+    """세션의 VLM 분석 결과를 청크별로 반환."""
+    session = _get_owned_session(db, session_id)
+
+    chunks = db.scalars(
+        select(Chunk).where(Chunk.session_id == session_id).order_by(Chunk.chunk_index)
+    ).all()
+
+    analyses = []
+    for chunk in chunks:
+        ca = db.get(ChunkAnalysis, chunk.chunk_id)
+        if ca is not None:
+            analyses.append({
+                "chunk_index": chunk.chunk_index,
+                "t_start": chunk.t_start,
+                "t_end": chunk.t_end,
+                "posture": ca.posture,
+                "eye_contact": ca.eye_contact,
+                "gesture": ca.gesture,
+                "notes": ca.notes,
+                "gesture_counts": ca.gesture_counts,
+            })
+
+    return {"session_id": session_id, "status": session.status, "analyses": analyses}
+
+
+# ---------------------------------------------------------------------------
 # 조회 / 삭제
 # ---------------------------------------------------------------------------
 

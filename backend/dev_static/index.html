@@ -47,12 +47,17 @@
     <button id="start" class="primary">Start recording</button>
     <button id="stop"  class="danger" disabled>Stop & finalize</button>
     <button id="analyze" class="primary" disabled>Analyze motion (VLM)</button>
+    <button id="showResult" class="primary" disabled>분석결과 확인</button>
     <span id="status" class="pill">idle</span>
     <span id="timer"  class="pill">00:00</span>
     <span id="chunkCounter" class="pill">chunks: 0</span>
   </div>
   <div>session: <code id="sessionId">—</code></div>
   <pre id="log"></pre>
+  <div id="resultArea" style="display:none; margin-top:16px;">
+    <h2 style="font-size:16px; margin:0 0 8px;">VLM 분석 결과</h2>
+    <pre id="resultJson" style="background:#f1f1f1; padding:12px; border-radius:8px; font-size:12px; overflow-x:auto; white-space:pre-wrap;"></pre>
+  </div>
 
 <script>
 const API = ""; // same-origin (served by FastAPI). Use "http://localhost:8000" if hosted separately.
@@ -288,6 +293,7 @@ async function analyze() {
     log(`✓ /analyze/motion done in ${elapsed}s. analyzed=${data.analyzed_count}/${data.chunk_count}, status=${data.status}`);
     log(`  json: ${data.json_output_path}`);
     setStatus("analyzed", "done");
+    $("showResult").disabled = false;
   } catch (e) {
     log(`analyze error: ${e}`);
     setStatus("error", "error");
@@ -295,9 +301,23 @@ async function analyze() {
   }
 }
 
+async function showResult() {
+  if (!sessionId) return;
+  try {
+    const res = await fetch(`${API}/sessions/${sessionId}/analysis`);
+    const data = await res.json();
+    $("resultArea").style.display = "block";
+    $("resultJson").textContent = JSON.stringify(data, null, 2);
+    log("분석 결과 불러오기 완료");
+  } catch (e) {
+    log(`결과 불러오기 실패: ${e}`);
+  }
+}
+
 $("start").addEventListener("click", start);
 $("stop").addEventListener("click", stop);
 $("analyze").addEventListener("click", analyze);
+$("showResult").addEventListener("click", showResult);
 </script>
 </body>
 </html>
