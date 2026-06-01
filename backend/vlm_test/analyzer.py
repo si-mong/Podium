@@ -211,5 +211,8 @@ def run_analysis(
         for i in range(total)
     ]
     output = {"VLM_segment_result": ordered}
+    (work_dir / "result.json").write_text(
+        json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     on_event("done", output)
     return output
