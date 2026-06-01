@@ -1,0 +1,106 @@
+"""VLM 정적 테스트 서버 (포트 8001).
+
+영상 파일을 업로드하면 30초 청크로 자르고 Gemini로 분석.
+진행 상황은 SSE로 실시간 푸시.
+
+실행 (cwd = backend/):
+    uvicorn vlm_test.server:app --reload --port 8001
+"""
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import shutil
+import uuid
+from pathlib import Path
+
+from dotenv import load_dotenv
+from fastapi import FastAPI, HTTPException, UploadFile
+from fastapi.responses import FileResponse, StreamingResponse
+
+from . import analyzer
+
+load_dotenv()
+
+BASE_DIR = Path(__file__).parent
+STATIC_DIR = BASE_DIR / "static"
+WORK_DIR = BASE_DIR / "work"
+WORK_DIR.mkdir(exist_ok=True)
+
+app = FastAPI(title="Podium VLM Test")
+
+# job_id -> {"queue": asyncio.Queue, "loop": asyncio.AbstractEventLoop}
+_jobs: dict[str, dict] = {}
+
+
+@app.get("/")
+def index() -> FileResponse:
+    return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.post("/analyze")
+async def analyze(file: UploadFile) -> dict:
+    api_key = os.environ.get("GEMINI_API_KEY", "")
+    if not api_key:
+        raise HTTPException(500, "GEMINI_API_KEY 환경변수가 비어있습니다. backend/.env 에 추가하세요.")
+
+    job_id = uuid.uuid4().hex[:12]
+    job_dir = WORK_DIR / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+
+    # 원본 확장자 보존 (ffmpeg 입력 컨테이너 자동 인식)
+    suffix = Path(file.filename or "video.mp4").suffix or ".mp4"
+    video_path = job_dir / f"input{suffix}"
+    with video_path.open("wb") as f:
+        shutil.copyfileobj(file.file, f)
+
+    queue: asyncio.Queue = asyncio.Queue()
+    loop = asyncio.get_running_loop()
+    _jobs[job_id] = {"queue": queue, "loop": loop}
+
+    def on_event(event_type: str, data: dict) -> None:
+        # 백그라운드 스레드(ThreadPoolExecutor)에서도 호출되므로 thread-safe하게.
+        loop.call_soon_threadsafe(queue.put_nowait, {"type": event_type, "data": data})
+
+    async def runner() -> None:
+        try:
+            await asyncio.to_thread(
+                analyzer.run_analysis, video_path, job_dir, api_key, on_event
+            )
+        except Exception as e:
+            on_event("error", {"message": str(e)})
+
+    asyncio.create_task(runner())
+    return {"job_id": job_id, "size_bytes": video_path.stat().st_size}
+
+
+@app.get("/events/{job_id}")
+async def events(job_id: str) -> StreamingResponse:
+    job = _jobs.get(job_id)
+    if not job:
+        raise HTTPException(404, f"unknown job_id: {job_id}")
+
+    queue: asyncio.Queue = job["queue"]
+
+    async def gen():
+        try:
+            while True:
+                event = await queue.get()
+                payload = json.dumps(event["data"], ensure_ascii=False)
+                yield f"event: {event['type']}\ndata: {payload}\n\n"
+                if event["type"] in ("done", "error"):
+                    break
+        finally:
+            _jobs.pop(job_id, None)
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("vlm_test.server:app", host="127.0.0.1", port=8001, reload=True)

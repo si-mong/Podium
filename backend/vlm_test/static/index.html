@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Podium VLM Test</title>
+<style>
+  :root { color-scheme: light; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    margin: 0; padding: 24px; max-width: 1080px; margin-inline: auto;
+    color: #111;
+  }
+  h1 { margin: 0 0 6px; font-size: 22px; }
+  .subtitle { color: #666; font-size: 13px; margin-bottom: 20px; }
+  .row { display: flex; align-items: center; gap: 10px; margin: 12px 0; flex-wrap: wrap; }
+  input[type=file] { font-size: 14px; }
+  button {
+    padding: 9px 18px; font-size: 15px; border: 0; border-radius: 8px;
+    cursor: pointer; font-weight: 600;
+  }
+  button.primary { background: #111; color: #fff; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .pill {
+    display: inline-block; padding: 4px 10px; border-radius: 999px;
+    background: #eee; font-size: 13px;
+  }
+  .pill.live  { background: #1565c0; color: #fff; }
+  .pill.done  { background: #2e7d32; color: #fff; }
+  .pill.error { background: #b71c1c; color: #fff; }
+  .progress-wrap { background: #eee; border-radius: 6px; overflow: hidden; height: 8px; margin: 6px 0; }
+  .progress-bar { background: #1565c0; height: 100%; width: 0%; transition: width 0.3s; }
+  #log {
+    background: #0f0f0f; color: #d8e3ff; padding: 12px;
+    border-radius: 8px; margin-top: 16px;
+    font-family: ui-monospace, Menlo, Monaco, monospace;
+    font-size: 12.5px; max-height: 240px; overflow-y: auto;
+    white-space: pre-wrap;
+  }
+  table { border-collapse: collapse; margin-top: 16px; width: 100%; font-size: 13px; }
+  th, td { border: 1px solid #ddd; padding: 6px 10px; text-align: left; vertical-align: top; }
+  th { background: #f6f6f6; font-weight: 600; }
+  .notes { font-size: 12px; color: #555; max-width: 260px; }
+  .counts { font-family: ui-monospace, Menlo, Monaco, monospace; font-size: 11.5px; color: #333; }
+  details summary { cursor: pointer; font-weight: 600; margin: 16px 0 8px; }
+  pre.json { background: #f7f7f7; padding: 12px; border-radius: 6px; font-size: 12px; max-height: 400px; overflow: auto; }
+</style>
+</head>
+<body>
+  <h1>Podium VLM Test</h1>
+  <div class="subtitle">정적 영상 → 30s 청크 → Gemini 분석 (포트 8001)</div>
+
+  <div class="row">
+    <input type="file" id="file" accept="video/*" />
+    <button id="run" class="primary">분석 시작</button>
+    <span id="status" class="pill">idle</span>
+    <span id="counter" class="pill">0 / 0</span>
+  </div>
+  <div class="progress-wrap"><div id="progress" class="progress-bar"></div></div>
+
+  <pre id="log"></pre>
+
+  <table id="results">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>posture</th>
+        <th>eye_contact</th>
+        <th>gesture</th>
+        <th>gesture_counts</th>
+        <th>notes</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <details id="final">
+    <summary>최종 JSON</summary>
+    <pre class="json" id="finalJson"></pre>
+  </details>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const log = (msg) => {
+  const t = new Date().toLocaleTimeString();
+  $("log").textContent += `[${t}] ${msg}\n`;
+  $("log").scrollTop = $("log").scrollHeight;
+};
+const setStatus = (text, cls = "") => {
+  const el = $("status");
+  el.className = "pill " + cls;
+  el.textContent = text;
+};
+
+let total = 0;
+let done = 0;
+
+function resetUI() {
+  $("results").querySelector("tbody").innerHTML = "";
+  $("log").textContent = "";
+  $("progress").style.width = "0%";
+  $("counter").textContent = "0 / 0";
+  $("final").open = false;
+  $("finalJson").textContent = "";
+  total = 0;
+  done = 0;
+}
+
+function rowFor(segId) {
+  const tbody = $("results").querySelector("tbody");
+  let tr = tbody.querySelector(`tr[data-id="${segId}"]`);
+  if (!tr) {
+    tr = document.createElement("tr");
+    tr.dataset.id = segId;
+    tr.innerHTML = `
+      <td>${segId}</td>
+      <td colspan="5"><em>분석 중...</em></td>
+    `;
+    // 삽입 위치: segment_id 순서 유지
+    const rows = Array.from(tbody.querySelectorAll("tr"));
+    const insertBefore = rows.find((r) => parseInt(r.dataset.id, 10) > segId);
+    if (insertBefore) tbody.insertBefore(tr, insertBefore);
+    else tbody.appendChild(tr);
+  }
+  return tr;
+}
+
+function fillRow(result) {
+  const tr = rowFor(result.segment_id);
+  const counts = Object.entries(result.gesture_counts)
+    .filter(([, v]) => v > 0)
+    .map(([k, v]) => `${k}: ${v}`)
+    .join("\n") || "(all 0)";
+  tr.innerHTML = `
+    <td>${result.segment_id}</td>
+    <td>${result.posture}</td>
+    <td>${result.eye_contact}</td>
+    <td>${result.gesture}</td>
+    <td class="counts">${counts.replaceAll("\n", "<br>")}</td>
+    <td class="notes">${result.notes || ""}</td>
+  `;
+}
+
+function markFailed(segId, errMsg) {
+  const tr = rowFor(segId);
+  tr.innerHTML = `
+    <td>${segId}</td>
+    <td colspan="5" style="color:#b71c1c">실패: ${errMsg}</td>
+  `;
+}
+
+function updateProgress() {
+  if (total > 0) {
+    const pct = Math.round((done / total) * 100);
+    $("progress").style.width = pct + "%";
+    $("counter").textContent = `${done} / ${total}`;
+  }
+}
+
+async function run() {
+  const file = $("file").files[0];
+  if (!file) { alert("영상 파일을 선택하세요."); return; }
+
+  resetUI();
+  $("run").disabled = true;
+  setStatus("uploading…", "live");
+  log(`업로드 시작: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`);
+
+  let jobId;
+  try {
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch("/analyze", { method: "POST", body: fd });
+    if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+    const data = await res.json();
+    jobId = data.job_id;
+    log(`job_id=${jobId} (서버 저장 ${(data.size_bytes / 1024 / 1024).toFixed(2)} MB)`);
+  } catch (e) {
+    log(`업로드 실패: ${e}`);
+    setStatus("error", "error");
+    $("run").disabled = false;
+    return;
+  }
+
+  setStatus("analyzing…", "live");
+  const es = new EventSource(`/events/${jobId}`);
+
+  es.addEventListener("splitting", (e) => {
+    const d = JSON.parse(e.data);
+    log(`ffmpeg 청킹 중: ${d.video}`);
+  });
+  es.addEventListener("split_done", (e) => {
+    const d = JSON.parse(e.data);
+    total = d.total;
+    log(`청킹 완료: ${total}개`);
+    updateProgress();
+  });
+  es.addEventListener("chunk_start", (e) => {
+    const d = JSON.parse(e.data);
+    rowFor(d.segment_id);
+    log(`#${d.segment_id} 분석 시작 (${d.name})`);
+  });
+  es.addEventListener("chunk_retry", (e) => {
+    const d = JSON.parse(e.data);
+    log(`#${d.segment_id} 시도 ${d.attempt} 실패: ${d.error}`);
+  });
+  es.addEventListener("chunk_done", (e) => {
+    const d = JSON.parse(e.data);
+    fillRow(d.result);
+    done++;
+    updateProgress();
+    log(`#${d.result.segment_id} 완료 (시도 ${d.attempt})`);
+  });
+  es.addEventListener("chunk_failed", (e) => {
+    const d = JSON.parse(e.data);
+    markFailed(d.segment_id, d.error);
+    done++;
+    updateProgress();
+    log(`#${d.segment_id} 최종 실패: ${d.error}`);
+  });
+  es.addEventListener("done", (e) => {
+    const d = JSON.parse(e.data);
+    log("모든 청크 분석 완료");
+    $("finalJson").textContent = JSON.stringify(d, null, 2);
+    $("final").open = true;
+    setStatus("done", "done");
+    $("run").disabled = false;
+    es.close();
+  });
+  es.addEventListener("error", (e) => {
+    if (e.data) {
+      try {
+        const d = JSON.parse(e.data);
+        log(`서버 에러: ${d.message}`);
+      } catch {
+        log(`서버 에러 (raw): ${e.data}`);
+      }
+      setStatus("error", "error");
+      $("run").disabled = false;
+      es.close();
+    } else {
+      log("SSE 연결 끊김 (브라우저가 자동 재연결 시도)");
+    }
+  });
+}
+
+$("run").addEventListener("click", run);
+</script>
+</body>
+</html>

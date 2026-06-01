@@ -2,6 +2,8 @@
 backend/data/
 backend/uploads/*
 !backend/uploads/.gitkeep
+backend/vlm_test/work/*
+!backend/vlm_test/work/.gitkeep
 .venv/
 
 # Local-only references / archived demo

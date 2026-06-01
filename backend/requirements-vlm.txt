@@ -1,0 +1,5 @@
+# VLM 테스트(vlm_test/) 전용. Gemini 호출에 필요한 최소 의존성.
+# STEP 2 본격 작업 시 requirements-pipeline.txt 에 흡수 예정.
+
+google-genai==0.8.0
+python-dotenv==1.0.1
