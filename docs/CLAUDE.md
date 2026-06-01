@@ -17,8 +17,8 @@
 - 인원: 2명
 - 일정: 약 2~3개월
 - 분담:
-  - **사용자(주)**: 파이프라인 + 백엔드 전체
-  - **팀원**: 파이프라인 + 프론트엔드 전체
+    - **사용자(주)**: 파이프라인 + 백엔드 전체
+    - **팀원**: 파이프라인 + 프론트엔드 전체
 
 ### 개발 방식 — 하이브리드
 
@@ -134,10 +134,11 @@ Podium/
 | POST | `/sessions/{session_id}/chunks?chunk_index=N` | 30초 webm 청크 업로드 (multipart) |
 | POST | `/sessions/{session_id}/video` | 전체 연속 webm 업로드 (Stop 시 1회) |
 | POST | `/sessions/{session_id}/end` | ffmpeg 전처리 → `full_audio.wav` 생성, status='preprocessed' |
+| POST | `/sessions/{session_id}/analyze/motion` | STEP 2 VLM (Gemini) 동작 분석 → `chunk_analyses` 행 생성, status='analyzed' |
 | GET | `/sessions/{session_id}` | 세션 + chunks 배열 |
 | DELETE | `/sessions/{session_id}` | DB 행 cascade 삭제 + uploads/ 폴더 삭제 |
 
-DEBUG 모드일 때 `/dev/?project=<id>` mount — `backend/dev_static/index.html` 임시 서빙 (전처리 검증용). 슬라이스 1에서 Next.js 촬영 페이지 만들면 mount + `dev_static/` 디렉터리 제거.
+DEBUG 모드일 때 `/dev/?project=<id>` mount — `backend/dev_static/index.html` 임시 서빙 (촬영 + STEP 1/2 검증용). 슬라이스 1에서 Next.js 촬영 페이지 만들면 mount + `dev_static/` 디렉터리 제거.
 
 ---
 
@@ -210,50 +211,71 @@ alembic current                               # 현재 적용된 버전
 
 **파일 저장 구조**: `uploads/<session_id>/...` 평탄형 (project_id 안 끼움). 이유: session_id가 전역 unique → 경로 도출 O(1). 코드 단순.
 
+### STEP 2 (VLM) 관련 결정 (2026-05-21)
+- **`segment_analyses`** motion 필드 변경: posture/eye_contact/gesture (text) → `*_counts` JSONB 3개. **segment 단위 집계용** (STEP 4 후 채워짐).
+- **`chunk_analyses`** 신규 테이블: 청크 단위 VLM 결과 캐시. chunk_id PK, posture/eye_contact/gesture VARCHAR(32) semi-enum + gesture_counts JSONB + notes Text.
+- **호출 시점**: 옵션 B 채택 — `/sessions/{id}/analyze/motion` **별도 라우터** (`/end`는 전처리만). 이유: VLM이 수십초~분 단위라 `/end`에 묶으면 timeout 위험.
+- **lazy import**: `from app.pipeline import step2_video_analysis`를 라우터 함수 안에서 호출 → google-genai 미설치인 API 서버도 정상 기동.
+- **VLM = Gemini 2.5-flash** (OpenAI GPT-4o 아님). `GEMINI_API_KEY` 필요.
+- **카테고리 enum**: gesture_counts는 정적 10개 (코드 상수 `_GESTURE_KEYS`). posture/eye_contact/gesture는 semi-enum 자유 텍스트 (프롬프트에서 4종/3종/4종 옵션 강제).
+- **재시도**: 청크당 `MAX_ATTEMPTS=3`, 모두 실패하면 placeholder 결과로 진행 (전체 파이프라인 안 멈춤).
+- 자세한 비교/결정 근거 → `_refs/카테고리 enum 저장 방침.md`
+
 ---
 
 ## 진행 상황
 
 ### ✅ 완료
 - 인프라: Backend/Frontend 스캐폴드, Postgres docker, requirements 분리
-- DB: SQLAlchemy 모델 10개 + Alembic 초기 마이그레이션 적용
+- DB: SQLAlchemy 모델 + Alembic 초기 마이그레이션 + 2차 마이그레이션(chunk_analyses 추가) 적용
 - 전처리 (STEP 1):
-  - `pipeline/step1_preprocess.py` — ffmpeg 청크 wav 추출 + concat + ffprobe duration
-  - `services/storage.py` — 파일 경로/IO
-  - `schemas/project.py`, `schemas/session.py`
-  - `api/projects.py`, `api/sessions.py` — 9개 엔드포인트
-  - `api/_dev_auth.py` — 임시 더미 사용자 시드 (lifespan에서 자동 실행)
-  - `backend/dev_static/index.html` — 시스템 촬영 검증용 정적 페이지 (DEBUG일 때 `/dev` mount)
-- **전처리 end-to-end 검증 통과** — 시스템 촬영 → 청크/영상 저장 → DB 행 → ffmpeg 전처리 → full_audio.wav 생성
+    - `pipeline/step1_preprocess.py` — ffmpeg 청크 wav 추출 + concat + ffprobe duration
+    - `services/storage.py` — 파일 경로/IO
+    - `schemas/project.py`, `schemas/session.py`
+    - `api/projects.py`, `api/sessions.py`
+    - `api/_dev_auth.py` — 임시 더미 사용자 시드 (lifespan에서 자동 실행)
+    - `backend/dev_static/index.html` — 시스템 촬영 검증용 정적 페이지
+    - **STEP 1 end-to-end 검증 통과** (촬영 → 청크/영상 저장 → DB → ffmpeg 전처리 → full_audio.wav)
+- **STEP 2 VLM (Gemini 2.5-flash) 통합** (2026-05-21~22):
+    - `pipeline/step2_video_analysis.py` — Gemini File API 업로드 + 분석 + 결과 dict (MAX_ATTEMPTS=3 재시도)
+    - 모델: `segment_analyses` 컬럼 옵션 B로 refactor + `chunk_analyses` 신규 테이블
+    - 라우터: `POST /sessions/{id}/analyze/motion` (lazy import — google-genai 없어도 server 동작)
+    - `/end`는 전처리만 책임지도록 복원 (status=preprocessed)
+    - `dev_static/index.html`에 "Analyze motion (VLM)" 버튼 추가
+    - `test_step2.py` 보안 정리 (API 키 .env 이동, Windows 경로 → STEP2_TEST_VIDEO 환경변수)
+    - **STEP 2 end-to-end 검증 통과** (촬영 → /end → /analyze/motion → chunk_analyses INSERT)
 
 ### 🟡 현재 브랜치
-- `feature/pipeline-step1` (PR 만들 예정 → main 머지)
-- 머지되면 팀원이 main에서 `feature/pipeline-step2-vlm` 분기해서 VLM 작업 시작
+- `feat/pipeline-step2-vlm` — STEP 2 통합 작업. PR 만들 예정 → main 머지
+- 머지되면 STEP 3 (Whisper STT) 또는 슬라이스 1로 진입
 
 ### ⏭️ 다음 작업 후보
 
-**파이프라인 PoC 단계 마무리** (~2주):
-1. **사용자**: STEP 3 (Whisper STT + 음성 수치화 — filler/silence/wpm)
-   - `requirements-pipeline.txt` 설치 필요 → Python 3.13 + whisper 이슈 해결 우선
-   - 함수 단위로 검증 (input: full_audio.wav, output: STT 문장 + voice_raw dict)
-2. **팀원**: STEP 2 (VLM 동작 분석) — `pipeline/step2_motion.py` 파일 추가
-   - 함수 시그니처 합의 예: `analyze_motion(chunk_paths: list[Path]) -> dict`
+**바로 다음 후보** (1~2일):
+- (선택) VLM 결과 캐시: `/analyze/motion` 재호출 시 `vlm_analysis.json`이 있으면 Gemini 다시 안 부르고 그걸 읽어 DB INSERT만. **VLM 호출 비용 절약 + 디버깅 편의**.
+- (선택) chunk_analyses 응답 스키마 보강 (현재 MotionAnalysisResult는 메타만)
+
+**파이프라인 PoC 마무리**:
+- **사용자**: STEP 3 (Whisper STT + 음성 수치화 — filler/silence/wpm)
+    - Python 3.13 + whisper 이슈 해결 우선 (아래 알려진 이슈 참고)
+    - 함수 단위로 검증 (input: full_audio.wav, output: STT 문장 + voice_raw dict)
 
 **수직 슬라이스 단계** (3주~):
 - 슬라이스 1: 영상 업로드 + STT 자막 표시 (사용자 백 / 팀원 프론트)
-- 슬라이스 2: VLM 동작 분석 통합
-- 슬라이스 3: STEP 4 LLM 구간 분리
+- 슬라이스 2: VLM 동작 분석 결과를 프론트에 표시
+- 슬라이스 3: STEP 4 LLM 구간 분리 (segments + chunk_analyses → segment_analyses 집계)
 - 슬라이스 4: STEP 5 LLM 종합 피드백
 - 슬라이스 5: 회차 비교 + 추세
 
 **후반부**:
-- 인증 (`_dev_auth.py` → JWT 교체, `/legacy` mount 제거)
+- 인증 (`_dev_auth.py` → JWT 교체, `/dev` mount 제거)
 - 폴리싱 + 발표 준비
 
 ### ⚠️ 알려진 이슈
 - **Python 3.13 + openai-whisper 빌드 실패** (`ModuleNotFoundError: No module named 'pkg_resources'`).
   해결 후보: ① `pip install setuptools wheel` 먼저 ② Python 3.11 별도 venv ③ `faster-whisper`로 교체.
   STEP 3 작업 시작 시 결정.
+- **VLM 결과 캐시 없음** — `/analyze/motion` 호출 시 항상 Gemini 다시 부름 (vlm_analysis.json 있어도 무시). DB INSERT 실패 시 비싼 재호출 발생. 위 "바로 다음 후보" 참고.
 
 ---
 

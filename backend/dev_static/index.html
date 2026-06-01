@@ -46,12 +46,18 @@
   <div class="row">
     <button id="start" class="primary">Start recording</button>
     <button id="stop"  class="danger" disabled>Stop & finalize</button>
+    <button id="analyze" class="primary" disabled>Analyze motion (VLM)</button>
+    <button id="showResult" class="primary" disabled>분석결과 확인</button>
     <span id="status" class="pill">idle</span>
     <span id="timer"  class="pill">00:00</span>
     <span id="chunkCounter" class="pill">chunks: 0</span>
   </div>
   <div>session: <code id="sessionId">—</code></div>
   <pre id="log"></pre>
+  <div id="resultArea" style="display:none; margin-top:16px;">
+    <h2 style="font-size:16px; margin:0 0 8px;">VLM 분석 결과</h2>
+    <pre id="resultJson" style="background:#f1f1f1; padding:12px; border-radius:8px; font-size:12px; overflow-x:auto; white-space:pre-wrap;"></pre>
+  </div>
 
 <script>
 const API = ""; // same-origin (served by FastAPI). Use "http://localhost:8000" if hosted separately.
@@ -259,9 +265,10 @@ async function stop() {
     const res = await fetch(`${API}/sessions/${sessionId}/end`, { method: "POST" });
     const data = await res.json();
     if (!res.ok) throw new Error(JSON.stringify(data));
-    log(`✓ done. chunks=${data.chunk_count}, total_duration=${data.total_duration_sec}s`);
+    log(`✓ /end done. chunks=${data.chunk_count}, total_duration=${data.total_duration_sec}s, status=${data.status}`);
     log(`  full_audio: ${data.full_audio_path}`);
-    setStatus("done", "done");
+    setStatus("preprocessed", "done");
+    $("analyze").disabled = false;
   } catch (e) {
     log(`finalize error: ${e}`);
     setStatus("error", "error");
@@ -269,8 +276,48 @@ async function stop() {
   $("start").disabled = false;
 }
 
+async function analyze() {
+  if (!sessionId) {
+    alert("session_id가 없습니다. 먼저 촬영을 완료하세요.");
+    return;
+  }
+  $("analyze").disabled = true;
+  setStatus("analyzing motion (VLM)…");
+  log(`calling /sessions/${sessionId}/analyze/motion … (Gemini 호출, 청크당 수십초 소요)`);
+  const t0 = performance.now();
+  try {
+    const res = await fetch(`${API}/sessions/${sessionId}/analyze/motion`, { method: "POST" });
+    const data = await res.json();
+    if (!res.ok) throw new Error(JSON.stringify(data));
+    const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
+    log(`✓ /analyze/motion done in ${elapsed}s. analyzed=${data.analyzed_count}/${data.chunk_count}, status=${data.status}`);
+    log(`  json: ${data.json_output_path}`);
+    setStatus("analyzed", "done");
+    $("showResult").disabled = false;
+  } catch (e) {
+    log(`analyze error: ${e}`);
+    setStatus("error", "error");
+    $("analyze").disabled = false;   // 재시도 가능
+  }
+}
+
+async function showResult() {
+  if (!sessionId) return;
+  try {
+    const res = await fetch(`${API}/sessions/${sessionId}/analysis`);
+    const data = await res.json();
+    $("resultArea").style.display = "block";
+    $("resultJson").textContent = JSON.stringify(data, null, 2);
+    log("분석 결과 불러오기 완료");
+  } catch (e) {
+    log(`결과 불러오기 실패: ${e}`);
+  }
+}
+
 $("start").addEventListener("click", start);
 $("stop").addEventListener("click", stop);
+$("analyze").addEventListener("click", analyze);
+$("showResult").addEventListener("click", showResult);
 </script>
 </body>
 </html>
