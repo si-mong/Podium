@@ -20,38 +20,50 @@ RETRY_WAIT_SEC = 10
 MAX_RETRIES = 3
 
 _GESTURE_KEYS = (
-    "hand_movement",
+    "explanatory_gesture",
+    "distracting_gesture",
     "touching_face_or_hair",
     "pointing",
-    "emphasizing_hand_movement",
-    "head_nodding",
-    "leaning_forward",
     "fidgeting_with_objects",
-    "arms_crossed",
-    "swaying_body",
-    "scratching",
+    "closed_posture",
+    "body_movement",
 )
 
 _PROMPT = """\
-이 영상에서 발표자의 자세와 동작과 시선처리를 분석해주고 각 동작별 횟수를 세줘.
+이 영상에서 발표자의 자세와 동작과 시선처리를 분석해 줘.
+
+[분석 규칙]
+1. 사람마다 고유한 습관이 있으므로, 아래 JSON에 명시된 '유의미한 제스처 항목'에 정확히 부합하는 동작만 엄격하게 분류해.
+2. 각 제스처는 상호 배타적이야. 하나의 동작을 중복 카운트하지 마.
+3. 부정적 습관(얼굴 만지기, 산만한 움직임, 물건 만지기 등)을 최우선으로 탐지하고, 순수한 설명 목적의 제스처와 완벽히 분리해.
+4. 임계값 적용: 무의식적인 0.5초 미만의 찰나의 움직임은 카운트하지 마. 최소 1초 이상 지속되거나 동작의 크기가 뚜렷한 '유의미한 제스처'만 카운트해.
+5. 각 제스처가 발생할 때마다 시작 타임라인("MM:SS")을 배열에 저장해 줘. (발생하지 않으면 빈 배열 [])
 
 아래 JSON 형식으로만 답해줘 (다른 텍스트 없이):
 {
   "posture": "안정적 또는 구부정 또는 과도한 움직임 또는 기댐 중 하나",
-  "eye_contact": "빈번 또는 간헐적 또는 드묾 중 하나",
-  "gesture": "적극적 또는 보통 또는 소극적 또는 반복적 중 하나",
+  "eye_contact": "빈번 또는 보통 또는 드묾 중 하나",
+  "gesture": "적극적 또는 보통 또는 소극적 중 하나",
   "notes": "특이한 동작 습관이나 개선 포인트를 1~2문장으로 서술 (없으면 빈 문자열)",
+
   "gesture_counts": {
-    "hand_movement": 손을 움직인 총 횟수 (정수),
-    "touching_face_or_hair": 얼굴이나 머리카락을 만진 횟수 (정수),
-    "pointing": 손가락으로 무언가를 가리킨 횟수 (정수),
-    "emphasizing_hand_movement": 강조하듯 손을 움직인 횟수 (정수),
-    "head_nodding": 고개를 끄덕인 횟수 (정수),
-    "leaning_forward": 몸을 앞으로 기울인 횟수 (정수),
-    "fidgeting_with_objects": 물건을 만지작거린 횟수 (정수),
-    "arms_crossed": 팔짱을 낀 횟수 (정수),
-    "swaying_body": 몸을 좌우로 흔든 횟수 (정수),
-    "scratching": 긁은 횟수 (정수)
+    "explanatory_gesture": "설명을 돕기 위해 의도적으로 사용한 긍정적 손/몸짓 총 횟수 (주의: 머리/얼굴 만지기, 옷 만지기는 절대 포함 금지) (정수)",
+    "distracting_gesture": "옷깃을 만지거나 의미 없이 허공을 휘젓는 산만한 동작 횟수 (정수)",
+    "touching_face_or_hair": "얼굴이나 머리카락을 만진 횟수 (정수)",
+    "pointing": "손가락으로 무언가를 가리킨 횟수 (정수)",
+    "fidgeting_with_objects": "물건(펜 등)을 만지작거린 횟수 (정수)",
+    "closed_posture": "팔짱을 낀 횟수 (정수)",
+    "body_movement": "발표 중 위치(동선)를 뚜렷하게 이동한 횟수 (정수)"
+  },
+
+  "gesture_timelines": {
+    "explanatory_gesture": ["MM:SS", "MM:SS"],
+    "distracting_gesture": [],
+    "touching_face_or_hair": [],
+    "pointing": [],
+    "fidgeting_with_objects": [],
+    "closed_posture": [],
+    "body_movement": []
   }
 }
 """
@@ -69,6 +81,7 @@ class ChunkResult:
     gesture: str
     notes: str
     gesture_counts: dict[str, int]
+    gesture_timelines: dict[str, list[str]]
 
     def to_dict(self) -> dict:
         return {
@@ -79,6 +92,7 @@ class ChunkResult:
             "gesture": self.gesture,
             "notes": self.notes,
             "gesture_counts": self.gesture_counts,
+            "gesture_timelines": self.gesture_timelines,
         }
 
 
@@ -142,6 +156,7 @@ def _process_one_chunk(
             uploaded = _upload_and_wait(client, chunk_path)
             raw = _analyze_chunk(client, uploaded)
             counts = raw.get("gesture_counts", {})
+            timelines = raw.get("gesture_timelines", {})
             result = ChunkResult(
                 segment_id=idx + 1,
                 segment_name=f"chunk_{idx + 1}",
@@ -150,6 +165,7 @@ def _process_one_chunk(
                 gesture=raw.get("gesture", "분석 불가"),
                 notes=raw.get("notes", ""),
                 gesture_counts={k: int(counts.get(k, 0)) for k in _GESTURE_KEYS},
+                gesture_timelines={k: timelines.get(k, []) for k in _GESTURE_KEYS},
             )
             on_event("chunk_done", {"attempt": attempt, "result": result.to_dict()})
             return idx, result
