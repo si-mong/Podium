@@ -232,3 +232,121 @@ def run_analysis(
     )
     on_event("done", output)
     return output
+
+
+# ---------------------------------------------------------------------------
+# 스마트 청킹 + VLM 호출 통합 흐름 (v2)
+# ---------------------------------------------------------------------------
+#
+# 기존 run_analysis(): split_video() 로 30초 고정 청크 → VLM
+# run_smart_analysis(): scoring.smart_chunk_plan() 로 동적 청크 계획 → ffmpeg 추출 → VLM
+#
+# 두 흐름이 _process_one_chunk() 를 공유하므로 VLM 호출 / 재시도 / 결과 파싱 로직은 동일.
+# 차이는 "청크를 어떻게 잘라내느냐" 뿐.
+
+
+def run_smart_analysis(
+    video_path: Path,
+    work_dir: Path,
+    api_key: str,
+    on_event: EventCallback,
+    motion_thresh: float = 3.5,
+    hysteresis_frames: int = 5,
+    chunk_duration: float = 20.0,
+    max_workers: int | None = None,
+) -> dict:
+    """스마트 청킹 기반 VLM 분석.
+
+    흐름:
+      1. video_motion_timeline 으로 영상 전체 motion 시계열 추출
+      2. smart_chunk_plan 으로 청크 계획 결정 (intro/motion/outro)
+      3. extract_smart_chunks 로 ffmpeg 청크 파일 생성
+      4. 각 청크에 대해 _process_one_chunk 병렬 실행 (기존 VLM 호출 재사용)
+      5. result.json 에 청크 메타(start/end/kind) + VLM 결과 함께 저장
+
+    on_event 이벤트:
+      - "timeline_scanning": 시계열 추출 시작
+      - "timeline_done": 시계열 추출 완료 (total_points)
+      - "plan_done": 청크 계획 완료 (chunks: [{start, end, kind}, ...])
+      - "extract_done": ffmpeg 청크 추출 완료 (total)
+      - "chunk_start" / "chunk_done" / "chunk_retry" / "chunk_failed": 기존과 동일
+      - "done": 최종 결과
+    """
+    # 지연 import: scoring 은 OpenCV 의존성 있어서 분석 모듈에서 직접 import 하면
+    # 다른 모듈 사용 시 불필요한 로딩 발생. 호출 시점에 import.
+    from . import scoring
+
+    client = genai.Client(api_key=api_key)
+
+    # ── 1. 영상 전체 motion 시계열 ────────────────────────────────────────
+    on_event("timeline_scanning", {"video": video_path.name})
+    timeline = scoring.video_motion_timeline(video_path)
+    duration = scoring.chunk_duration(video_path)
+    on_event("timeline_done", {
+        "total_points": len(timeline),
+        "duration": round(duration, 2),
+    })
+
+    # ── 2. 청크 계획 ──────────────────────────────────────────────────────
+    plan = scoring.smart_chunk_plan(
+        timeline=timeline,
+        video_duration=duration,
+        motion_thresh=motion_thresh,
+        hysteresis_frames=hysteresis_frames,
+        chunk_duration=chunk_duration,
+    )
+    on_event("plan_done", {
+        "chunks": [c.to_dict() for c in plan],
+        "total": len(plan),
+    })
+
+    if not plan:
+        result = {"VLM_segment_result": [], "chunk_plan": []}
+        (work_dir / "result.json").write_text(
+            json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        on_event("done", result)
+        return result
+
+    # ── 3. ffmpeg 로 실제 청크 파일 추출 ──────────────────────────────────
+    chunk_paths = scoring.extract_smart_chunks(video_path, plan, work_dir / "chunks")
+    on_event("extract_done", {"total": len(chunk_paths)})
+
+    # ── 4. VLM 병렬 호출 (기존 _process_one_chunk 재사용) ─────────────────
+    results_map: dict[int, ChunkResult | None] = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as exe:
+        futures = {
+            exe.submit(_process_one_chunk, client, i, path, on_event): i
+            for i, path in enumerate(chunk_paths)
+        }
+        for fut in concurrent.futures.as_completed(futures):
+            i, res = fut.result()
+            results_map[i] = res
+
+    # ── 5. 결과 합치기 — VLM 결과에 청크 메타 (start/end/kind) 결합 ───────
+    segments = []
+    for i, chunk in enumerate(plan):
+        vlm = results_map[i].to_dict() if results_map[i] is not None else None
+        segments.append({
+            "segment_id": i + 1,
+            "start_sec": round(chunk.start_sec, 2),
+            "end_sec": round(chunk.end_sec, 2),
+            "duration_sec": round(chunk.end_sec - chunk.start_sec, 2),
+            "kind": chunk.kind,
+            "vlm": vlm,
+        })
+
+    output = {
+        "VLM_segment_result": segments,
+        "chunk_plan": [c.to_dict() for c in plan],
+        "params": {
+            "motion_thresh": motion_thresh,
+            "hysteresis_frames": hysteresis_frames,
+            "chunk_duration": chunk_duration,
+        },
+    }
+    (work_dir / "result.json").write_text(
+        json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    on_event("done", output)
+    return output

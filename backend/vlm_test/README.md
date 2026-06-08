@@ -29,6 +29,12 @@ uvicorn vlm_test.server:app --reload --port 8001
 |---|---|
 | http://localhost:8001 | 영상 선택 → 분석 시작. SSE로 청크별 결과 실시간 표시 |
 | http://localhost:8001/history | 분석 완료된 케이스 목록. 카드 클릭 시 영상 + 결과 표 + 로그 펼침 |
+| http://localhost:8001/preview | **VLM 호출 없이** 청크별 motion/audio 스코어만 계산. 임계값 슬라이더로 절감률 실시간 시뮬레이션 |
+| http://localhost:8001/preview/history | 시뮬레이션 기록 목록. 카드 펼치면 슬라이더로 다시 시뮬 가능 |
+| http://localhost:8001/smart-preview | **v2 스마트 청킹 PoC** — 동작 시작 시점부터 30초 청크. motion 시계열 + 슬라이더 튜닝 |
+| http://localhost:8001/smart-preview/history | 스마트 청킹 기록 목록. 카드 펼치면 영상 + 슬라이더로 청크 계획 재시뮬 |
+| http://localhost:8001/smart-analyze | **★ 스마트 청킹 + VLM 통합** — 동적 청크 → ffmpeg 추출 → Gemini 분석 → SSE 실시간 결과 |
+| http://localhost:8001/smart-analyze/history | 스마트 분석 기록. 카드 펼치면 영상 + 청크 계획 + 결과 + 로그 |
 
 ## 결과 저장
 
@@ -37,10 +43,12 @@ uvicorn vlm_test.server:app --reload --port 8001
 ```
 work/<job_id>/
 ├── input.mp4        업로드 원본
-├── chunks/          30초 청크
-├── meta.json        원본명, 시각, 사이즈
-├── result.json      VLM 분석 결과
-└── log.jsonl        진행 이벤트 로그
+├── chunks/          30초 고정(analyze) 또는 동적 길이(smart-analyze) 청크
+├── meta.json        원본명, 시각, 사이즈, kind ("analyze" | "preview" | "smart-preview" | "smart-analyze")
+├── result.json      VLM 분석 결과 (kind=analyze | smart-analyze, smart-analyze는 청크 메타 포함)
+├── preview.json     청크별 motion/audio 스코어 (kind=preview)
+├── smart.json       영상 전체 motion 시계열 + duration (kind=smart-preview)
+└── log.jsonl        분석 진행 이벤트 로그 (analyze / smart-analyze)
 ```
 
 수동 정리: `rm -rf backend/vlm_test/work/*` 후 `touch backend/vlm_test/work/.gitkeep`

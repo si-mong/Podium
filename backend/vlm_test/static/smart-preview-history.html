@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Podium VLM Test · Smart Chunking History</title>
+<style>
+  :root { color-scheme: light; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    margin: 0; padding: 24px; max-width: 1080px; margin-inline: auto;
+    color: #111;
+  }
+  h1 { margin: 0 0 6px; font-size: 22px; }
+  .subtitle { color: #666; font-size: 13px; margin-bottom: 20px; }
+  a { color: #1565c0; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .top-bar { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 20px; }
+  .nav a { margin-left: 14px; }
+  .empty { color: #888; padding: 40px 0; text-align: center; }
+
+  .card {
+    border: 1px solid #ddd; border-radius: 10px;
+    margin-bottom: 14px; overflow: hidden;
+    background: #fff;
+  }
+  .card-head {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 16px; cursor: pointer;
+    background: #fafafa;
+  }
+  .card-head:hover { background: #f0f4f9; }
+  .card-title { font-weight: 600; font-size: 15px; flex: 1; }
+  .meta { font-size: 12.5px; color: #666; }
+  .pill {
+    display: inline-block; padding: 3px 9px; border-radius: 999px;
+    background: #eee; font-size: 12px;
+  }
+  .card-body { display: none; padding: 16px; border-top: 1px solid #eee; }
+  .card.open .card-body { display: block; }
+  .card-head .chev { transition: transform 0.15s; }
+  .card.open .chev { transform: rotate(90deg); }
+
+  .slider-grid { display: grid; grid-template-columns: 170px 1fr 80px; gap: 10px 14px; align-items: center; }
+  .slider-grid input[type=range] { width: 100%; }
+  .slider-grid .val { font-family: ui-monospace, Menlo, Monaco, monospace; font-size: 13px; text-align: right; }
+
+  .summary { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 14px; }
+  .stat {
+    background: #fff; border: 1px solid #ddd; border-radius: 8px;
+    padding: 8px 14px; min-width: 110px;
+  }
+  .stat .label { font-size: 11.5px; color: #666; }
+  .stat .value { font-size: 18px; font-weight: 700; margin-top: 2px; }
+  .stat.kept .value { color: #2e7d32; }
+  .stat.saved .value { color: #ef6c00; }
+
+  svg.timeline { width: 100%; height: 200px; background: #fff; border: 1px solid #ddd; border-radius: 8px; margin-top: 12px; }
+  .thresh-line { stroke: #b71c1c; stroke-width: 1; stroke-dasharray: 4 4; }
+  .motion-path { fill: none; stroke: #1565c0; stroke-width: 1.2; }
+  .chunk-rect.intro  { fill: rgba(46, 125, 50, 0.20); }
+  .chunk-rect.motion { fill: rgba(21, 101, 192, 0.20); }
+  .chunk-rect.outro  { fill: rgba(239, 108, 0, 0.20); }
+  .chunk-rect { stroke: none; }
+  .chunk-label { font-size: 10px; fill: #333; font-family: ui-monospace, Menlo, Monaco, monospace; }
+  .axis-tick { font-size: 10px; fill: #888; }
+
+  table { border-collapse: collapse; margin-top: 12px; width: 100%; font-size: 12.5px; }
+  th, td { border: 1px solid #ddd; padding: 5px 9px; }
+  th { background: #f6f6f6; font-weight: 600; text-align: left; }
+  td.num { font-family: ui-monospace, Menlo, Monaco, monospace; text-align: right; }
+  tr.intro  td:last-child { color: #2e7d32; font-weight: 600; }
+  tr.motion td:last-child { color: #1565c0; font-weight: 600; }
+  tr.outro  td:last-child { color: #ef6c00; font-weight: 600; }
+  tr { cursor: pointer; }
+
+  video { width: 100%; max-height: 360px; background: #000; border-radius: 8px; margin-top: 12px; }
+</style>
+</head>
+<body>
+  <div id="nav-mount"></div>
+  <script src="/static/nav.js"></script>
+
+  <div style="display:flex; justify-content:space-between; align-items:baseline; gap:16px;">
+    <div>
+      <h1 style="margin:0">스마트 청킹 기록 (v2)</h1>
+      <div class="subtitle">이전에 계산한 motion 시계열로 청크 계획을 다시 시뮬레이션. 카드 클릭 시 슬라이더로 재조정 가능.</div>
+    </div>
+    <a href="/smart-preview" style="background:#111; color:#fff; padding:9px 16px; border-radius:8px; text-decoration:none; font-weight:600; font-size:14px; white-space:nowrap;">
+      + 새 청크 계획
+    </a>
+  </div>
+
+  <div id="list">
+    <div class="empty">불러오는 중...</div>
+  </div>
+
+<script>
+const SAMPLE_FPS = 5;       // scoring.py SAMPLE_FPS 와 동일
+
+const $ = (q) => document.querySelector(q);
+const fmtBytes = (n) => (n / 1024 / 1024).toFixed(2) + " MB";
+
+function escapeHtml(s) {
+  return String(s).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
+}
+
+/**
+ * smart-preview.html 의 smartChunkPlan() 과 동일 로직.
+ * scoring.py 의 smart_chunk_plan() 정책 v2 — 1A intro / 2A 30s / 3A 곧장 / 4B 정적X.
+ */
+function smartChunkPlan(timeline, duration, motionThresh, hysteresisFrames, chunkDuration = 20) {
+  const chunks = [];
+
+  // 1A. intro 강제
+  const introEnd = Math.min(chunkDuration, duration);
+  chunks.push({ start: 0.0, end: introEnd, kind: "intro" });
+
+  if (duration <= chunkDuration) return chunks;
+
+  // 2. intro 이후 motion 시계열 스캔
+  let state = "idle";
+  let chunkStart = null;
+  let streak = 0;
+
+  for (const { t, m } of timeline) {
+    if (t < chunkDuration) continue;
+
+    if (state === "active") {
+      if (t - chunkStart >= chunkDuration) {
+        chunks.push({ start: chunkStart, end: chunkStart + chunkDuration, kind: "motion" });
+        state = "idle";
+        chunkStart = null;
+        streak = 0;
+      }
+      continue;
+    }
+
+    if (m > motionThresh) {
+      streak += 1;
+      if (streak >= hysteresisFrames) {
+        const offset = streak / SAMPLE_FPS;
+        let candidateStart = Math.max(chunkDuration, t - offset);
+        if (chunks.length > 0) {
+          candidateStart = Math.max(candidateStart, chunks[chunks.length - 1].end);
+        }
+        chunkStart = candidateStart;
+        state = "active";
+      }
+    } else {
+      streak = 0;
+    }
+  }
+
+  if (state === "active" && chunkStart !== null) {
+    chunks.push({
+      start: chunkStart,
+      end: Math.min(chunkStart + chunkDuration, duration),
+      kind: "motion",
+    });
+  }
+
+  const outroStart = Math.max(0, duration - chunkDuration);
+  if (chunks[chunks.length - 1].end <= outroStart) {
+    chunks.push({ start: outroStart, end: duration, kind: "outro" });
+  }
+
+  return chunks;
+}
+
+async function load() {
+  const res = await fetch("/api/smart-history");
+  const items = await res.json();
+  const list = $("#list");
+  list.innerHTML = "";
+  if (items.length === 0) {
+    list.innerHTML = '<div class="empty">스마트 청킹 기록이 없습니다. <a href="/smart-preview">새 시뮬 시작</a></div>';
+    return;
+  }
+  for (const item of items) {
+    list.appendChild(renderCard(item));
+  }
+}
+
+function renderCard(item) {
+  const card = document.createElement("div");
+  card.className = "card";
+  card.dataset.jobId = item.job_id;
+
+  card.innerHTML = `
+    <div class="card-head">
+      <span class="chev">▶</span>
+      <div class="card-title">${escapeHtml(item.original_name)}</div>
+      <span class="meta">${fmtBytes(item.size_bytes)} · ${(item.duration || 0).toFixed(0)}s</span>
+    </div>
+    <div class="card-body"></div>
+  `;
+  card.querySelector(".card-head").addEventListener("click", () => toggle(card, item));
+  return card;
+}
+
+async function toggle(card, item) {
+  const body = card.querySelector(".card-body");
+  if (card.classList.contains("open")) {
+    card.classList.remove("open");
+    return;
+  }
+  card.classList.add("open");
+  if (body.dataset.loaded === "1") return;
+
+  body.innerHTML = '<div class="empty">로드 중...</div>';
+  try {
+    const res = await fetch(`/api/smart-history/${item.job_id}`);
+    const data = await res.json();
+    const timeline = data.smart.timeline || [];
+    const duration = data.smart.duration || 0;
+    body.innerHTML = renderDetailShell(item, timeline);
+    bindControls(body, item, timeline, duration);
+    body.dataset.loaded = "1";
+  } catch (e) {
+    body.innerHTML = `<div class="empty">로드 실패: ${e}</div>`;
+  }
+}
+
+function renderDetailShell(meta, timeline) {
+  const motionMax = Math.max(1, ...timeline.map(p => p.m));
+  const sliderMax = (Math.ceil(motionMax) + 1).toString();
+  const videoSrc = `/media/${meta.job_id}/${meta.video_filename}`;
+
+  return `
+    <div class="slider-grid">
+      <label>motion 임계값</label>
+      <input type="range" class="motion-thresh" min="0" max="${sliderMax}" step="0.1" value="3.5" />
+      <span class="val"><span class="motion-val">3.5</span></span>
+
+      <label>hysteresis (샘플)</label>
+      <input type="range" class="hysteresis" min="1" max="20" step="1" value="5" />
+      <span class="val"><span class="hysteresis-val">5</span></span>
+
+      <label>청크 길이 (초)</label>
+      <input type="range" class="chunk-duration" min="10" max="60" step="5" value="20" />
+      <span class="val"><span class="chunk-duration-val">20</span></span>
+
+      <label></label>
+      <div style="font-size:12px; color:#666; grid-column: 2 / 4; line-height:1.6;">
+        motion 임계값 = 프레임 변화량이 이 값을 초과하면 "동작 있음".<br>
+        hysteresis = 연속 N샘플 초과해야 시작 확정 (0.2s/샘플).<br>
+        청크 길이 = intro/motion/outro 각각 이 길이로 자름.
+      </div>
+    </div>
+
+    <div class="summary">
+      <div class="stat kept"><div class="label">생성 청크</div><div class="value chunk-count">0</div></div>
+      <div class="stat saved"><div class="label">절감 시간 (초)</div><div class="value saved-sec">0</div></div>
+      <div class="stat"><div class="label">영상 길이 (초)</div><div class="value duration-sec">0</div></div>
+      <div class="stat"><div class="label">분석 비율</div><div class="value coverage">0%</div></div>
+    </div>
+
+    <svg class="timeline chart" preserveAspectRatio="none"></svg>
+
+    <video controls preload="metadata" class="video-player" src="${videoSrc}"></video>
+
+    <table class="chunk-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>start (s)</th>
+          <th>end (s)</th>
+          <th>길이 (s)</th>
+          <th>종류</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  `;
+}
+
+/**
+ * 카드 한 개의 슬라이더/그래프/표 바인딩. 다른 카드와 격리되도록 body 스코프로.
+ */
+function bindControls(body, meta, timeline, duration) {
+  const motionSlider = body.querySelector(".motion-thresh");
+  const hysteresisSlider = body.querySelector(".hysteresis");
+  const chunkDurationSlider = body.querySelector(".chunk-duration");
+  const motionMax = Math.max(1, ...timeline.map(p => p.m));
+  const videoPlayer = body.querySelector(".video-player");
+  const svg = body.querySelector(".chart");
+
+  function drawChart(chunks, motionThresh) {
+    const W = svg.clientWidth || 1000;
+    const H = svg.clientHeight || 200;
+    const padX = 30, padY = 10;
+    const innerW = W - padX * 2;
+    const innerH = H - padY * 2;
+
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    svg.innerHTML = "";
+
+    if (duration <= 0 || timeline.length === 0) return;
+
+    const xOf = (t) => padX + (t / duration) * innerW;
+    const yOf = (m) => padY + innerH - (m / motionMax) * innerH;
+    const NS = "http://www.w3.org/2000/svg";
+
+    // 청크 배경
+    for (const c of chunks) {
+      const rx = xOf(c.start);
+      const rw = xOf(c.end) - rx;
+      const rect = document.createElementNS(NS, "rect");
+      rect.setAttribute("class", `chunk-rect ${c.kind}`);
+      rect.setAttribute("x", rx); rect.setAttribute("y", padY);
+      rect.setAttribute("width", rw); rect.setAttribute("height", innerH);
+      svg.appendChild(rect);
+
+      if (rw > 30) {
+        const label = document.createElementNS(NS, "text");
+        label.setAttribute("class", "chunk-label");
+        label.setAttribute("x", rx + 4);
+        label.setAttribute("y", padY + 12);
+        label.textContent = c.kind;
+        svg.appendChild(label);
+      }
+    }
+
+    // 임계값 가로선
+    const ty = yOf(motionThresh);
+    const tline = document.createElementNS(NS, "line");
+    tline.setAttribute("class", "thresh-line");
+    tline.setAttribute("x1", padX); tline.setAttribute("x2", W - padX);
+    tline.setAttribute("y1", ty); tline.setAttribute("y2", ty);
+    svg.appendChild(tline);
+
+    // motion 시계열 라인
+    let d = "";
+    for (let i = 0; i < timeline.length; i++) {
+      const { t, m } = timeline[i];
+      const x = xOf(t), y = yOf(m);
+      d += (i === 0 ? `M${x},${y}` : ` L${x},${y}`);
+    }
+    const path = document.createElementNS(NS, "path");
+    path.setAttribute("class", "motion-path");
+    path.setAttribute("d", d);
+    svg.appendChild(path);
+
+    // X축 10s 눈금
+    for (let t = 0; t <= duration; t += 10) {
+      const x = xOf(t);
+      const tick = document.createElementNS(NS, "text");
+      tick.setAttribute("class", "axis-tick");
+      tick.setAttribute("x", x); tick.setAttribute("y", H - 2);
+      tick.setAttribute("text-anchor", "middle");
+      tick.textContent = `${t}s`;
+      svg.appendChild(tick);
+    }
+  }
+
+  function rerender() {
+    const mt = parseFloat(motionSlider.value);
+    const hf = parseInt(hysteresisSlider.value, 10);
+    const cd = parseInt(chunkDurationSlider.value, 10);
+    body.querySelector(".motion-val").textContent = mt.toFixed(1);
+    body.querySelector(".hysteresis-val").textContent = hf;
+    body.querySelector(".chunk-duration-val").textContent = cd;
+
+    const chunks = smartChunkPlan(timeline, duration, mt, hf, cd);
+
+    const totalChunkSec = chunks.reduce((s, c) => s + (c.end - c.start), 0);
+    const savedSec = Math.max(0, duration - totalChunkSec);
+    const coverage = duration > 0 ? Math.round((totalChunkSec / duration) * 100) : 0;
+    body.querySelector(".chunk-count").textContent = chunks.length;
+    body.querySelector(".saved-sec").textContent = savedSec.toFixed(0);
+    body.querySelector(".duration-sec").textContent = duration.toFixed(0);
+    body.querySelector(".coverage").textContent = `${coverage}%`;
+
+    const tbody = body.querySelector(".chunk-table tbody");
+    tbody.innerHTML = "";
+    chunks.forEach((c, i) => {
+      const tr = document.createElement("tr");
+      tr.className = c.kind;
+      tr.innerHTML = `
+        <td>${i + 1}</td>
+        <td class="num">${c.start.toFixed(1)}</td>
+        <td class="num">${c.end.toFixed(1)}</td>
+        <td class="num">${(c.end - c.start).toFixed(1)}</td>
+        <td>${c.kind}</td>
+      `;
+      tr.addEventListener("click", () => {
+        videoPlayer.currentTime = c.start;
+        videoPlayer.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      });
+      tbody.appendChild(tr);
+    });
+
+    drawChart(chunks, mt);
+  }
+
+  motionSlider.addEventListener("input", rerender);
+  hysteresisSlider.addEventListener("input", rerender);
+  chunkDurationSlider.addEventListener("input", rerender);
+  window.addEventListener("resize", rerender);
+  rerender();
+}
+
+load();
+</script>
+</body>
+</html>

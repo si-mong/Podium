@@ -47,13 +47,11 @@
 </style>
 </head>
 <body>
-  <div style="display:flex; justify-content:space-between; align-items:baseline;">
-    <div>
-      <h1>Podium VLM Test</h1>
-      <div class="subtitle">정적 영상 → 30s 청크 → Gemini 분석 (포트 8001)</div>
-    </div>
-    <div><a href="/history" style="color:#1565c0; text-decoration:none;">이전 결과 보기 →</a></div>
-  </div>
+  <div id="nav-mount"></div>
+  <script src="/static/nav.js"></script>
+
+  <h1>Podium VLM Test</h1>
+  <div class="subtitle">정적 영상 → 30s 청크 → Gemini 분석 (포트 8001)</div>
 
   <div class="row">
     <input type="file" id="file" accept="video/*" />

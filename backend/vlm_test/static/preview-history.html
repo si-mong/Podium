@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Podium VLM Test · Preview History</title>
+<style>
+  :root { color-scheme: light; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    margin: 0; padding: 24px; max-width: 1080px; margin-inline: auto;
+    color: #111;
+  }
+  h1 { margin: 0 0 6px; font-size: 22px; }
+  .subtitle { color: #666; font-size: 13px; margin-bottom: 20px; }
+  a { color: #1565c0; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .top-bar { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 20px; }
+  .nav a { margin-left: 14px; }
+  .empty { color: #888; padding: 40px 0; text-align: center; }
+
+  .card {
+    border: 1px solid #ddd; border-radius: 10px;
+    margin-bottom: 14px; overflow: hidden;
+    background: #fff;
+  }
+  .card-head {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 16px; cursor: pointer;
+    background: #fafafa;
+  }
+  .card-head:hover { background: #f0f4f9; }
+  .card-title { font-weight: 600; font-size: 15px; flex: 1; }
+  .meta { font-size: 12.5px; color: #666; }
+  .pill {
+    display: inline-block; padding: 3px 9px; border-radius: 999px;
+    background: #eee; font-size: 12px;
+  }
+  .card-body { display: none; padding: 16px; border-top: 1px solid #eee; }
+  .card.open .card-body { display: block; }
+  .card-head .chev { transition: transform 0.15s; }
+  .card.open .chev { transform: rotate(90deg); }
+
+  .slider-grid { display: grid; grid-template-columns: 130px 1fr 90px; gap: 10px 14px; align-items: center; }
+  .slider-grid input[type=range] { width: 100%; }
+  .slider-grid .val { font-family: ui-monospace, Menlo, Monaco, monospace; font-size: 13px; text-align: right; }
+
+  .summary { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 14px; }
+  .summary .stat {
+    background: #fff; border: 1px solid #ddd; border-radius: 8px;
+    padding: 8px 14px; min-width: 110px;
+  }
+  .summary .stat .label { font-size: 11.5px; color: #666; }
+  .summary .stat .value { font-size: 18px; font-weight: 700; margin-top: 2px; }
+  .summary .stat.ok .value { color: #2e7d32; }
+  .summary .stat.cut .value { color: #ef6c00; }
+
+  table { border-collapse: collapse; margin-top: 12px; width: 100%; font-size: 12.5px; }
+  th, td { border: 1px solid #ddd; padding: 5px 9px; }
+  th { background: #f6f6f6; font-weight: 600; text-align: left; }
+  td.num { font-family: ui-monospace, Menlo, Monaco, monospace; text-align: right; }
+  tr.skip { background: #fff4e5; color: #555; }
+  tr.skip td:last-child { font-weight: 600; color: #b65100; }
+  tr.keep td:last-child { font-weight: 600; color: #2e7d32; }
+  .bar-cell { display: flex; align-items: center; gap: 6px; }
+  .bar-cell .bar { flex: 1; height: 5px; background: #eee; border-radius: 3px; overflow: hidden; }
+  .bar-cell .bar-fill { height: 100%; background: #1565c0; }
+  .bar-cell.audio .bar-fill { background: #6a1b9a; }
+</style>
+</head>
+<body>
+  <div id="nav-mount"></div>
+  <script src="/static/nav.js"></script>
+
+  <div style="display:flex; justify-content:space-between; align-items:baseline; gap:16px;">
+    <div>
+      <h1 style="margin:0">임계값 시뮬레이션 히스토리</h1>
+      <div class="subtitle">이전에 계산한 motion/audio 스코어를 카드별로 다시 시뮬레이션. 카드 클릭 시 슬라이더로 재조정 가능.</div>
+    </div>
+    <a href="/preview" style="background:#111; color:#fff; padding:9px 16px; border-radius:8px; text-decoration:none; font-weight:600; font-size:14px; white-space:nowrap;">
+      + 새 v1 시뮬
+    </a>
+  </div>
+
+  <div id="list">
+    <div class="empty">불러오는 중...</div>
+  </div>
+
+<script>
+const $ = (q) => document.querySelector(q);
+const fmtBytes = (n) => (n / 1024 / 1024).toFixed(2) + " MB";
+const fmtTime = (iso) => iso ? iso.replace("T", " ") : "";
+
+function escapeHtml(s) {
+  return String(s).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
+}
+
+async function load() {
+  const res = await fetch("/api/preview-history");
+  const items = await res.json();
+  const list = $("#list");
+  list.innerHTML = "";
+  if (items.length === 0) {
+    list.innerHTML = '<div class="empty">시뮬레이션 기록이 없습니다. <a href="/preview">새 시뮬 시작</a></div>';
+    return;
+  }
+  for (const item of items) {
+    list.appendChild(renderCard(item));
+  }
+}
+
+function renderCard(item) {
+  const card = document.createElement("div");
+  card.className = "card";
+  card.dataset.jobId = item.job_id;
+  card.innerHTML = `
+    <div class="card-head">
+      <span class="chev">▶</span>
+      <div class="card-title">${escapeHtml(item.original_name)}</div>
+      <!-- 임시로 시간 숨김. 복구: ${"$"}{fmtTime(item.uploaded_at)} · 추가 -->
+      <span class="meta">${fmtBytes(item.size_bytes)}</span>
+      <span class="pill">${item.chunk_count} 청크</span>
+    </div>
+    <div class="card-body"></div>
+  `;
+  card.querySelector(".card-head").addEventListener("click", () => toggle(card, item));
+  return card;
+}
+
+async function toggle(card, item) {
+  const body = card.querySelector(".card-body");
+  if (card.classList.contains("open")) {
+    card.classList.remove("open");
+    return;
+  }
+  card.classList.add("open");
+  if (body.dataset.loaded === "1") return;
+
+  body.innerHTML = '<div class="empty">로드 중...</div>';
+  try {
+    const res = await fetch(`/api/preview-history/${item.job_id}`);
+    const data = await res.json();
+    const chunks = data.preview.chunks || [];
+    body.innerHTML = renderDetailShell(data.meta, chunks);
+    bindControls(body, chunks);
+    body.dataset.loaded = "1";
+  } catch (e) {
+    body.innerHTML = `<div class="empty">로드 실패: ${e}</div>`;
+  }
+}
+
+function renderDetailShell(meta, chunks) {
+  const motionMax = Math.max(1, ...chunks.map(c => c.motion_score));
+  const sliderMax = (Math.ceil(motionMax) + 1).toString();
+  const videoSrc = `/media/${meta.job_id}/${meta.video_filename}`;
+
+  return `
+    <video controls preload="metadata" src="${videoSrc}" style="width:100%; max-height:380px; background:#000; border-radius:8px; margin-bottom:14px;"></video>
+    <div class="slider-grid">
+      <label>motion &lt; (정적)</label>
+      <input type="range" class="motion-thresh" min="0" max="${sliderMax}" step="0.1" value="3" />
+      <span class="val"><span class="motion-val">3.0</span></span>
+
+      <label>audio &lt; (dB, 정적)</label>
+      <input type="range" class="audio-thresh" min="-80" max="0" step="0.5" value="-35" />
+      <span class="val"><span class="audio-val">-35.0</span></span>
+
+      <label></label>
+      <div style="font-size:12px; color:#666; grid-column: 2 / 4; line-height:1.6;">
+        <strong>정적</strong>: motion &lt; T_m <strong>AND</strong> audio &lt; T_a.<br>
+        활발한 청크 = 무조건 KEEP. 정적 청크 = 첫 한 개만 KEEP, 같은 정적이 이어지면 SKIP. 시작/끝/연속 SKIP 한도 초과 시 강제 KEEP.
+      </div>
+    </div>
+
+    <div class="summary">
+      <div class="stat ok"><div class="label">KEEP</div><div class="value keep-count">0</div></div>
+      <div class="stat cut"><div class="label">SKIP</div><div class="value skip-count">0</div></div>
+      <div class="stat"><div class="label">전체</div><div class="value total-count">0</div></div>
+      <div class="stat"><div class="label">절감률</div><div class="value saving-rate">0%</div></div>
+    </div>
+
+    <table class="chunk-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>파일</th>
+          <th>길이(s)</th>
+          <th>motion</th>
+          <th>audio (dB)</th>
+          <th>판정</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  `;
+}
+
+// scoring.py 의 classify_chunks 와 동일 로직.
+// 정적/동적 구분(절대값) + 정적 구간 시계열 압축 + 안전장치(시작/끝/연속 한도).
+function classifyChunks(chunks, mt, at, maxConsecSkip = 4) {
+  const verdicts = [];
+  let lastKeepWasStatic = false;
+  let consecSkip = 0;
+  const lastIdx = chunks.length - 1;
+
+  chunks.forEach((c, i) => {
+    const audio = c.audio_db === null ? -Infinity : c.audio_db;
+    const isStatic = c.motion_score < mt && audio < at;
+
+    if (!isStatic) {
+      verdicts.push({ keep: true, reason: "동적" });
+      lastKeepWasStatic = false;
+      consecSkip = 0;
+    } else if (i === 0) {
+      verdicts.push({ keep: true, reason: "시작 강제" });
+      lastKeepWasStatic = true;
+      consecSkip = 0;
+    } else if (i === lastIdx) {
+      verdicts.push({ keep: true, reason: "끝 강제" });
+      lastKeepWasStatic = true;
+      consecSkip = 0;
+    } else if (lastKeepWasStatic && consecSkip < maxConsecSkip) {
+      verdicts.push({ keep: false, reason: "이전과 동일 (정적)" });
+      consecSkip += 1;
+    } else if (consecSkip >= maxConsecSkip) {
+      verdicts.push({ keep: true, reason: "주기적 강제" });
+      lastKeepWasStatic = true;
+      consecSkip = 0;
+    } else {
+      verdicts.push({ keep: true, reason: "정적 전환" });
+      lastKeepWasStatic = true;
+      consecSkip = 0;
+    }
+  });
+  return verdicts;
+}
+
+function bindControls(body, chunks) {
+  const motionSlider = body.querySelector(".motion-thresh");
+  const audioSlider = body.querySelector(".audio-thresh");
+  const motionMax = Math.max(1, ...chunks.map(c => c.motion_score));
+
+  function rerender() {
+    const mt = parseFloat(motionSlider.value);
+    const at = parseFloat(audioSlider.value);
+    body.querySelector(".motion-val").textContent = mt.toFixed(1);
+    body.querySelector(".audio-val").textContent = at.toFixed(1);
+
+    const verdicts = classifyChunks(chunks, mt, at);
+    const tbody = body.querySelector(".chunk-table tbody");
+    tbody.innerHTML = "";
+    let keep = 0, skip = 0;
+
+    chunks.forEach((c, i) => {
+      const v = verdicts[i];
+      if (v.keep) keep++; else skip++;
+
+      const motionPct = Math.min(100, (c.motion_score / motionMax) * 100);
+      const audioPct = c.audio_db === null ? 0 : Math.max(0, Math.min(100, ((c.audio_db + 80) / 80) * 100));
+      const verdictLabel = v.keep ? `KEEP (${v.reason})` : `SKIP (${v.reason})`;
+
+      const tr = document.createElement("tr");
+      tr.className = v.keep ? "keep" : "skip";
+      tr.innerHTML = `
+        <td>${c.idx}</td>
+        <td>${escapeHtml(c.name)}</td>
+        <td class="num">${c.duration_sec.toFixed(1)}</td>
+        <td><div class="bar-cell"><span class="num" style="min-width:40px">${c.motion_score.toFixed(2)}</span><div class="bar"><div class="bar-fill" style="width:${motionPct}%"></div></div></div></td>
+        <td><div class="bar-cell audio"><span class="num" style="min-width:50px">${c.audio_db === null ? "—" : c.audio_db.toFixed(1)}</span><div class="bar"><div class="bar-fill" style="width:${audioPct}%"></div></div></div></td>
+        <td>${verdictLabel}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+
+    const total = chunks.length;
+    body.querySelector(".keep-count").textContent = keep;
+    body.querySelector(".skip-count").textContent = skip;
+    body.querySelector(".total-count").textContent = total;
+    body.querySelector(".saving-rate").textContent = total === 0 ? "0%" : `${Math.round(skip / total * 100)}%`;
+  }
+
+  motionSlider.addEventListener("input", rerender);
+  audioSlider.addEventListener("input", rerender);
+  rerender();
+}
+
+load();
+</script>
+</body>
+</html>

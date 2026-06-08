@@ -66,12 +66,17 @@
 </style>
 </head>
 <body>
-  <div class="top-bar">
+  <div id="nav-mount"></div>
+  <script src="/static/nav.js"></script>
+
+  <div style="display:flex; justify-content:space-between; align-items:baseline; gap:16px;">
     <div>
-      <h1>VLM 테스트 히스토리</h1>
+      <h1 style="margin:0">VLM 테스트 히스토리</h1>
       <div class="subtitle">분석 완료된 케이스 목록. 카드 클릭하면 영상 + 결과 펼침.</div>
     </div>
-    <div><a href="/">+ 새 분석</a></div>
+    <a href="/" style="background:#111; color:#fff; padding:9px 16px; border-radius:8px; text-decoration:none; font-weight:600; font-size:14px; white-space:nowrap;">
+      + 새 v1 분석
+    </a>
   </div>
 
   <div id="list">
@@ -110,7 +115,8 @@ function renderCard(item) {
     <div class="card-head">
       <span class="chev">▶</span>
       <div class="card-title">${escapeHtml(item.original_name)}</div>
-      <span class="meta">${fmtTime(item.uploaded_at)} · ${fmtBytes(item.size_bytes)}</span>
+      <!-- 임시로 시간 숨김. 복구: ${"$"}{fmtTime(item.uploaded_at)} · 추가 -->
+      <span class="meta">${fmtBytes(item.size_bytes)}</span>
       <span class="pill ${pillClass}">${success} / ${total} 청크</span>
     </div>
     <div class="card-body"></div>
