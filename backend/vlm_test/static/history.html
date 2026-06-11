@@ -52,6 +52,14 @@
 
   details summary { cursor: pointer; font-weight: 600; margin: 14px 0 6px; font-size: 13px; }
   pre.json { background: #f7f7f7; padding: 12px; border-radius: 6px; font-size: 11.5px; max-height: 360px; overflow: auto; }
+  .metrics-section { margin-top: 20px; }
+  .metrics-section h3 { font-size: 14px; font-weight: 700; margin: 0 0 10px; }
+  .metrics-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .metric-card { background: #fafafa; border: 1px solid #e8e8e8; border-radius: 10px; padding: 12px 14px; }
+  .metric-card .card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+  .metric-card .card-title { font-size: 12px; color: #666; }
+  .metric-card .card-icon { font-size: 15px; }
+  .metric-card .card-value { font-size: 22px; font-weight: 700; color: #111; }
 
   .log-box {
     background: #0f0f0f; color: #d8e3ff; padding: 12px; border-radius: 6px;
@@ -146,6 +154,29 @@ async function toggle(card, item) {
   }
 }
 
+function calcMetricsHtml(segments, getGestureCounts) {
+  const positiveKeys = ["explanatory_gesture", "pointing"];
+  const negativeKeys = ["distracting_gesture", "touching_face_or_hair", "fidgeting_with_objects", "closed_posture"];
+  let pos = 0, neg = 0;
+  segments.forEach((s) => {
+    const counts = getGestureCounts(s) || {};
+    positiveKeys.forEach((k) => { pos += counts[k] || 0; });
+    negativeKeys.forEach((k) => { neg += counts[k] || 0; });
+  });
+  return `
+    <div class="metrics-section">
+      <h3>전체 지표 요약</h3>
+      <div class="metrics-grid">
+        <div class="metric-card"><div class="card-top"><span class="card-title">필러 단어 빈도</span><span class="card-icon">💬</span></div><div class="card-value">0회</div></div>
+        <div class="metric-card"><div class="card-top"><span class="card-title">평균 말하기 속도</span><span class="card-icon">📈</span></div><div class="card-value">0 WPM</div></div>
+        <div class="metric-card"><div class="card-top"><span class="card-title">전체 무음 비율</span><span class="card-icon">🎙️</span></div><div class="card-value">0%</div></div>
+        <div class="metric-card"><div class="card-top"><span class="card-title">발견된 발화 습관</span><span class="card-icon">📊</span></div><div class="card-value">0건</div></div>
+        <div class="metric-card"><div class="card-top"><span class="card-title">긍정적 제스처</span><span class="card-icon">👍</span></div><div class="card-value">${pos}회</div></div>
+        <div class="metric-card"><div class="card-top"><span class="card-title">부정적 제스처</span><span class="card-icon">⚠️</span></div><div class="card-value">${neg}회</div></div>
+      </div>
+    </div>`;
+}
+
 function renderDetail(item, data) {
   const segments = data.result.VLM_segment_result || [];
   const videoSrc = `/media/${item.job_id}/${item.video_filename}`;
@@ -190,6 +221,8 @@ function renderDetail(item, data) {
       </thead>
       <tbody>${rows}</tbody>
     </table>
+    ${calcMetricsHtml(segments, (s) => s && s.gesture_counts)}
+
     <details>
       <summary>로그 보기 (${(data.log || []).length} 이벤트)</summary>
       <div class="log-box">${logHtml}</div>

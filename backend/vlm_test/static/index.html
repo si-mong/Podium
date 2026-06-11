@@ -44,6 +44,14 @@
   .counts { font-family: ui-monospace, Menlo, Monaco, monospace; font-size: 11.5px; color: #333; }
   details summary { cursor: pointer; font-weight: 600; margin: 16px 0 8px; }
   pre.json { background: #f7f7f7; padding: 12px; border-radius: 6px; font-size: 12px; max-height: 400px; overflow: auto; }
+  .metrics-section { margin-top: 24px; }
+  .metrics-section h3 { font-size: 15px; font-weight: 700; margin: 0 0 12px; }
+  .metrics-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .metric-card { background: #fff; border: 1px solid #e8e8e8; border-radius: 12px; padding: 14px 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.05); }
+  .metric-card .card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .metric-card .card-title { font-size: 13px; color: #555; }
+  .metric-card .card-icon { font-size: 17px; }
+  .metric-card .card-value { font-size: 24px; font-weight: 700; color: #111; }
 </style>
 </head>
 <body>
@@ -76,6 +84,18 @@
     </thead>
     <tbody></tbody>
   </table>
+
+  <div id="metricsSection" class="metrics-section" style="display:none">
+    <h3>전체 지표 요약</h3>
+    <div class="metrics-grid">
+      <div class="metric-card"><div class="card-top"><span class="card-title">필러 단어 빈도</span><span class="card-icon">💬</span></div><div class="card-value">0회</div></div>
+      <div class="metric-card"><div class="card-top"><span class="card-title">평균 말하기 속도</span><span class="card-icon">📈</span></div><div class="card-value">0 WPM</div></div>
+      <div class="metric-card"><div class="card-top"><span class="card-title">전체 무음 비율</span><span class="card-icon">🎙️</span></div><div class="card-value">0%</div></div>
+      <div class="metric-card"><div class="card-top"><span class="card-title">발견된 발화 습관</span><span class="card-icon">📊</span></div><div class="card-value">0건</div></div>
+      <div class="metric-card"><div class="card-top"><span class="card-title">긍정적 제스처</span><span class="card-icon">👍</span></div><div class="card-value" id="positiveCount">0회</div></div>
+      <div class="metric-card"><div class="card-top"><span class="card-title">부정적 제스처</span><span class="card-icon">⚠️</span></div><div class="card-value" id="negativeCount">0회</div></div>
+    </div>
+  </div>
 
   <details id="final">
     <summary>최종 JSON</summary>
@@ -229,6 +249,18 @@ async function run() {
     setStatus("done", "done");
     $("run").disabled = false;
     es.close();
+
+    const positiveKeys = ["explanatory_gesture", "pointing"];
+    const negativeKeys = ["distracting_gesture", "touching_face_or_hair", "fidgeting_with_objects", "closed_posture"];
+    let pos = 0, neg = 0;
+    (d.VLM_segment_result || []).forEach((s) => {
+      const counts = (s && s.gesture_counts) || {};
+      positiveKeys.forEach((k) => { pos += counts[k] || 0; });
+      negativeKeys.forEach((k) => { neg += counts[k] || 0; });
+    });
+    document.getElementById("positiveCount").textContent = pos + "회";
+    document.getElementById("negativeCount").textContent = neg + "회";
+    document.getElementById("metricsSection").style.display = "block";
   });
   es.addEventListener("error", (e) => {
     if (e.data) {

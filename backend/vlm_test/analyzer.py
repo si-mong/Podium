@@ -17,7 +17,7 @@ from google.genai import types
 
 CHUNK_SEC = 30
 RETRY_WAIT_SEC = 10
-MAX_RETRIES = 3
+MAX_RETRIES = 5
 
 _GESTURE_KEYS = (
     "explanatory_gesture",
