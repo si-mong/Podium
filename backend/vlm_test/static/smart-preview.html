@@ -124,8 +124,10 @@
     </div>
 
     <div class="summary">
-      <div class="stat kept"><div class="label">생성 청크</div><div class="value" id="chunkCount">0</div></div>
-      <div class="stat saved"><div class="label">절감 시간 (초)</div><div class="value" id="savedSec">0</div></div>
+      <div class="stat kept"><div class="label">v2 청크</div><div class="value" id="chunkCount">0</div></div>
+      <div class="stat"><div class="label">v1 청크 (30s 고정)</div><div class="value" id="v1ChunkCount">0</div></div>
+      <div class="stat saved"><div class="label">청크 감소</div><div class="value" id="chunkDelta">0</div></div>
+      <div class="stat saved"><div class="label">절약 시간 (초)</div><div class="value" id="savedSec">0</div></div>
       <div class="stat"><div class="label">영상 길이 (초)</div><div class="value" id="durationSec">0</div></div>
       <div class="stat"><div class="label">분석 비율</div><div class="value" id="coverage">0%</div></div>
     </div>
@@ -366,7 +368,15 @@ function rerender() {
   const totalChunkSec = chunks.reduce((s, c) => s + (c.end - c.start), 0);
   const savedSec = Math.max(0, videoDuration - totalChunkSec);
   const coverage = videoDuration > 0 ? Math.round((totalChunkSec / videoDuration) * 100) : 0;
+
+  // v1 (30s 고정) 기준 청크 수 — Math.ceil 로 마지막 짧은 청크 포함
+  const v1ChunkCount = videoDuration > 0 ? Math.ceil(videoDuration / 30) : 0;
+  const delta = v1ChunkCount - chunks.length;  // 양수 = v2 가 v1 보다 청크 적음 (감소)
+
   $("chunkCount").textContent = chunks.length;
+  $("v1ChunkCount").textContent = v1ChunkCount;
+  $("chunkDelta").textContent = delta > 0 ? `-${delta}` : (delta < 0 ? `+${-delta}` : "0");
+  $("chunkDelta").style.color = delta > 0 ? "#2e7d32" : (delta < 0 ? "#b71c1c" : "#666");
   $("savedSec").textContent = savedSec.toFixed(0);
   $("coverage").textContent = `${coverage}%`;
 

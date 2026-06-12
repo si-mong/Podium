@@ -43,6 +43,31 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 _jobs: dict[str, dict] = {}
 
 
+# ---------------------------------------------------------------------------
+# 공통 헬퍼
+# ---------------------------------------------------------------------------
+
+def _compute_elapsed(log_path: Path) -> float | None:
+    """log.jsonl 의 첫 이벤트 ts ~ 마지막 이벤트 ts 차이(초).
+
+    분석이 끝까지 실행됐다면 첫 splitting/timeline_scanning ~ done 의 차이.
+    파일이 없거나 줄이 1줄 이하면 None.
+    """
+    if not log_path.exists():
+        return None
+    try:
+        lines = [ln for ln in log_path.read_text(encoding="utf-8").splitlines() if ln.strip()]
+        if len(lines) < 2:
+            return None
+        first = json.loads(lines[0])
+        last = json.loads(lines[-1])
+        t0 = datetime.fromisoformat(first["ts"])
+        t1 = datetime.fromisoformat(last["ts"])
+        return (t1 - t0).total_seconds()
+    except (json.JSONDecodeError, KeyError, ValueError, OSError):
+        return None
+
+
 @app.get("/")
 def index() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html")
@@ -156,8 +181,8 @@ async def events(job_id: str) -> StreamingResponse:
 
 @app.get("/api/history")
 def api_history() -> list[dict]:
-    """work/ 디렉터리 스캔. 분석 완료(result.json 있음) 건만 노출.
-    최신 업로드가 위로 오도록 정렬."""
+    """v1 분석 (kind="analyze" 또는 kind 없는 옛 케이스) 만 노출.
+    smart-analyze 는 /smart-analyze/history 에서 별도 표시."""
     items = []
     for job_dir in WORK_DIR.iterdir():
         if not job_dir.is_dir():
@@ -171,11 +196,15 @@ def api_history() -> list[dict]:
             result = json.loads(result_path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             continue
+        # v1 만: kind 없으면 옛 v1 으로 간주. smart-analyze 는 제외.
+        if meta.get("kind") == "smart-analyze":
+            continue
         segments = result.get("VLM_segment_result", [])
         items.append({
             **meta,
             "chunk_count": len(segments),
             "success_count": sum(1 for s in segments if s is not None),
+            "elapsed_sec": _compute_elapsed(job_dir / "log.jsonl"),
         })
     items.sort(key=lambda x: x.get("uploaded_at", ""), reverse=True)
     return items
@@ -261,7 +290,13 @@ def preview_history_page() -> FileResponse:
 
 @app.get("/api/preview-history")
 def api_preview_history() -> list[dict]:
-    """preview.json 있는 job만 노출. 최신 업로드가 위로."""
+    """preview.json 있는 job만 노출. 최신 업로드가 위로.
+
+    saving_pct = 기본 임계값(motion 3.5, audio -35)으로 classify_chunks 했을 때
+    SKIP 비율 (청크 개수 기준).
+    """
+    from .scoring import ChunkScore, classify_chunks  # 지연 import
+
     items = []
     for job_dir in WORK_DIR.iterdir():
         if not job_dir.is_dir():
@@ -275,9 +310,31 @@ def api_preview_history() -> list[dict]:
             preview = json.loads(preview_path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             continue
+        chunks_data = preview.get("chunks", [])
+
+        # 절약도 계산 (기본 임계값으로)
+        saving_pct = None
+        if chunks_data:
+            try:
+                scores = [
+                    ChunkScore(
+                        idx=c["idx"], name=c["name"],
+                        duration_sec=c["duration_sec"],
+                        motion_score=c["motion_score"],
+                        audio_db=c.get("audio_db"),
+                    )
+                    for c in chunks_data
+                ]
+                verdicts = classify_chunks(scores, motion_thresh=3.5, audio_thresh=-35.0)
+                skip_count = sum(1 for v in verdicts if not v.keep)
+                saving_pct = round(skip_count / len(verdicts) * 100, 1)
+            except (KeyError, TypeError):
+                pass
+
         items.append({
             **meta,
-            "chunk_count": len(preview.get("chunks", [])),
+            "chunk_count": len(chunks_data),
+            "saving_pct": saving_pct,
         })
     items.sort(key=lambda x: x.get("uploaded_at", ""), reverse=True)
     return items
@@ -441,7 +498,13 @@ def smart_preview_history_page() -> FileResponse:
 
 @app.get("/api/smart-history")
 def api_smart_history() -> list[dict]:
-    """smart.json 있는 job만 노출. 최신 업로드가 위로."""
+    """smart.json 있는 job만 노출. 최신 업로드가 위로.
+
+    saving_pct = 기본 임계값(motion 3.5, hys 5, chunk 20s)으로 smart_chunk_plan 한 결과의
+    영상 시간 대비 청크 시간 절감 비율.
+    """
+    from .scoring import smart_chunk_plan  # 지연 import
+
     items = []
     for job_dir in WORK_DIR.iterdir():
         if not job_dir.is_dir():
@@ -452,9 +515,24 @@ def api_smart_history() -> list[dict]:
             continue
         try:
             meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            smart_data = json.loads(smart_path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             continue
-        items.append(meta)
+
+        # 절약도 계산 (기본 임계값으로)
+        saving_pct = None
+        try:
+            timeline_pts = smart_data.get("timeline", [])
+            duration = smart_data.get("duration", 0)
+            if timeline_pts and duration > 0:
+                timeline_tuples = [(p["t"], p["m"]) for p in timeline_pts]
+                plan = smart_chunk_plan(timeline_tuples, duration)
+                covered = sum(c.end_sec - c.start_sec for c in plan)
+                saving_pct = round((1 - covered / duration) * 100, 1)
+        except (KeyError, TypeError):
+            pass
+
+        items.append({**meta, "saving_pct": saving_pct})
     items.sort(key=lambda x: x.get("uploaded_at", ""), reverse=True)
     return items
 
@@ -499,10 +577,22 @@ def api_smart_analyze_history() -> list[dict]:
         except (json.JSONDecodeError, OSError):
             continue
         segments = result.get("VLM_segment_result", [])
+
+        # 절약도 계산 (실제 사용된 청크 plan 기준 — 임계값 파라미터 그대로 반영)
+        saving_pct = None
+        chunk_plan = result.get("chunk_plan", [])
+        if chunk_plan:
+            covered = sum(c.get("duration_sec", 0) for c in chunk_plan)
+            video_end = max((c.get("end_sec", 0) for c in chunk_plan), default=0)
+            if video_end > 0:
+                saving_pct = round((1 - covered / video_end) * 100, 1)
+
         items.append({
             **meta,
             "chunk_count": len(segments),
             "success_count": sum(1 for s in segments if s and s.get("vlm")),
+            "elapsed_sec": _compute_elapsed(job_dir / "log.jsonl"),
+            "saving_pct": saving_pct,
         })
     items.sort(key=lambda x: x.get("uploaded_at", ""), reverse=True)
     return items

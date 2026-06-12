@@ -118,6 +118,9 @@ function renderCard(item) {
   const success = item.success_count;
   const total = item.chunk_count;
   const pillClass = success === total ? "ok" : "partial";
+  const elapsedHtml = item.elapsed_sec != null
+    ? `<span class="pill" style="background:#e1f5fe; color:#0277bd;">처리 ${item.elapsed_sec.toFixed(1)}s</span>`
+    : "";
 
   card.innerHTML = `
     <div class="card-head">
@@ -125,6 +128,7 @@ function renderCard(item) {
       <div class="card-title">${escapeHtml(item.original_name)}</div>
       <!-- 임시로 시간 숨김. 복구: ${"$"}{fmtTime(item.uploaded_at)} · 추가 -->
       <span class="meta">${fmtBytes(item.size_bytes)}</span>
+      ${elapsedHtml}
       <span class="pill ${pillClass}">${success} / ${total} 청크</span>
     </div>
     <div class="card-body"></div>

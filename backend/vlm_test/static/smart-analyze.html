@@ -259,7 +259,7 @@ function renderPlan(chunks, videoDuration) {
 
   const saving = videoDuration > 0 ? Math.round((1 - coveredSec / videoDuration) * 100) : 0;
   $("planMeta").textContent =
-    `영상 ${videoDuration.toFixed(0)}s 중 분석 ${coveredSec.toFixed(0)}s · 정적 절감 ${saving}%`;
+    `영상 ${videoDuration.toFixed(0)}s 중 분석 ${coveredSec.toFixed(0)}s · 절약 ${saving}%`;
 
   // 빈 행 미리 생성 (segment_id 순서 유지)
   const tbody = $("results").querySelector("tbody");

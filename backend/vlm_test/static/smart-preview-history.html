@@ -91,6 +91,8 @@
     </a>
   </div>
 
+  <div id="summary" style="margin: 20px 0 24px; display: none; padding: 14px 18px; background: #f0f7ff; border-left: 4px solid #1565c0; border-radius: 6px; font-size: 14px;"></div>
+
   <div id="list">
     <div class="empty">불러오는 중...</div>
   </div>
@@ -177,6 +179,21 @@ async function load() {
     list.innerHTML = '<div class="empty">스마트 청킹 기록이 없습니다. <a href="/smart-preview">새 시뮬 시작</a></div>';
     return;
   }
+
+  // 전체 평균 절약도 (기본값 motion 3.5 / hys 5 / chunk 20s 기준)
+  const valid = items.filter(it => typeof it.saving_pct === "number");
+  if (valid.length > 0) {
+    const avg = valid.reduce((s, it) => s + it.saving_pct, 0) / valid.length;
+    const min = Math.min(...valid.map(it => it.saving_pct));
+    const max = Math.max(...valid.map(it => it.saving_pct));
+    const summary = $("#summary");
+    summary.style.display = "block";
+    summary.innerHTML = `
+      <strong>전체 ${items.length}개 케이스 · 평균 절약 ${avg.toFixed(1)}%</strong>
+      <span style="color:#666; margin-left:8px;">(최소 ${min.toFixed(1)}% / 최대 ${max.toFixed(1)}% · 기본 임계값 기준)</span>
+    `;
+  }
+
   for (const item of items) {
     list.appendChild(renderCard(item));
   }
@@ -250,8 +267,10 @@ function renderDetailShell(meta, timeline) {
     </div>
 
     <div class="summary">
-      <div class="stat kept"><div class="label">생성 청크</div><div class="value chunk-count">0</div></div>
-      <div class="stat saved"><div class="label">절감 시간 (초)</div><div class="value saved-sec">0</div></div>
+      <div class="stat kept"><div class="label">v2 청크</div><div class="value chunk-count">0</div></div>
+      <div class="stat"><div class="label">v1 청크 (30s 고정)</div><div class="value v1-chunk-count">0</div></div>
+      <div class="stat saved"><div class="label">청크 감소</div><div class="value chunk-delta">0</div></div>
+      <div class="stat saved"><div class="label">절약 시간 (초)</div><div class="value saved-sec">0</div></div>
       <div class="stat"><div class="label">영상 길이 (초)</div><div class="value duration-sec">0</div></div>
       <div class="stat"><div class="label">분석 비율</div><div class="value coverage">0%</div></div>
     </div>
@@ -367,7 +386,16 @@ function bindControls(body, meta, timeline, duration) {
     const totalChunkSec = chunks.reduce((s, c) => s + (c.end - c.start), 0);
     const savedSec = Math.max(0, duration - totalChunkSec);
     const coverage = duration > 0 ? Math.round((totalChunkSec / duration) * 100) : 0;
+
+    // v1 (30s 고정) 청크 수와 비교
+    const v1ChunkCount = duration > 0 ? Math.ceil(duration / 30) : 0;
+    const delta = v1ChunkCount - chunks.length;
+
     body.querySelector(".chunk-count").textContent = chunks.length;
+    body.querySelector(".v1-chunk-count").textContent = v1ChunkCount;
+    const deltaEl = body.querySelector(".chunk-delta");
+    deltaEl.textContent = delta > 0 ? `-${delta}` : (delta < 0 ? `+${-delta}` : "0");
+    deltaEl.style.color = delta > 0 ? "#2e7d32" : (delta < 0 ? "#b71c1c" : "#666");
     body.querySelector(".saved-sec").textContent = savedSec.toFixed(0);
     body.querySelector(".duration-sec").textContent = duration.toFixed(0);
     body.querySelector(".coverage").textContent = `${coverage}%`;

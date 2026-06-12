@@ -82,6 +82,8 @@
     </a>
   </div>
 
+  <div id="summary" style="margin: 20px 0 24px; display: none; padding: 14px 18px; background: #f0f7ff; border-left: 4px solid #1565c0; border-radius: 6px; font-size: 14px;"></div>
+
   <div id="list">
     <div class="empty">불러오는 중...</div>
   </div>
@@ -104,6 +106,21 @@ async function load() {
     list.innerHTML = '<div class="empty">시뮬레이션 기록이 없습니다. <a href="/preview">새 시뮬 시작</a></div>';
     return;
   }
+
+  // 전체 평균 절약도 (기본값 motion 3.5 / audio -35 기준, 청크 개수 기준 SKIP 비율)
+  const valid = items.filter(it => typeof it.saving_pct === "number");
+  if (valid.length > 0) {
+    const avg = valid.reduce((s, it) => s + it.saving_pct, 0) / valid.length;
+    const min = Math.min(...valid.map(it => it.saving_pct));
+    const max = Math.max(...valid.map(it => it.saving_pct));
+    const summary = $("#summary");
+    summary.style.display = "block";
+    summary.innerHTML = `
+      <strong>전체 ${items.length}개 케이스 · 평균 SKIP 비율 ${avg.toFixed(1)}%</strong>
+      <span style="color:#666; margin-left:8px;">(최소 ${min.toFixed(1)}% / 최대 ${max.toFixed(1)}% · 기본 임계값, 청크 개수 기준)</span>
+    `;
+  }
+
   for (const item of items) {
     list.appendChild(renderCard(item));
   }
