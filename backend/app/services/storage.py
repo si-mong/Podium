@@ -1,10 +1,15 @@
 """세션별 파일 저장 경로/IO 헬퍼.
 
 uploads/<session_id>/
-  ├── chunks/chunk_NNN.webm
-  ├── audio/chunk_NNN.wav
-  ├── full_video.webm
-  └── full_audio.wav
+  ├── chunks/chunk_NNN.webm       업로드 청크 (30초 고정, 전송 단위)
+  ├── audio/chunk_NNN.wav         청크별 오디오 (STEP 1)
+  ├── vlm_chunks/chunk_NNN.mp4    스마트 청킹 산출물 (STEP 2, 재분석 시 덮어씀)
+  ├── full_video.webm             연속 녹화본 — 스마트 청킹의 입력
+  ├── full_audio.wav              concat 결과 (STEP 1)
+  └── vlm_analysis.json           VLM 원본 응답
+
+주의: `chunks/`(전송 단위)와 `vlm_chunks/`(영상분석 단위)는 서로 다른 개념이다.
+자세한 층 분리는 docs/CLAUDE.md "청크의 세 가지 의미" 참고.
 """
 from __future__ import annotations
 

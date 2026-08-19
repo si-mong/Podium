@@ -45,6 +45,7 @@ class PreprocessResult(BaseModel):
 class MotionAnalysisResult(BaseModel):
     session_id: int
     status: str
-    chunk_count: int
+    chunk_count: int      # 스마트 청킹이 만든 청크 수 (업로드 청크 수와 무관)
     analyzed_count: int
+    covered_sec: float    # VLM 이 실제로 본 총 길이 — 절감률 확인용
     json_output_path: str

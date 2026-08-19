@@ -12,7 +12,7 @@ faster-whisper==1.2.1
 # librosa 는 STEP 3 에서 안 씀 (numba 의존 → Python 3.13 + numpy 2.x 호환 이슈).
 # 음향 특징은 stt_test/audio.py 에서 순수 numpy 로 구현.
 librosa==0.10.2.post1
-opencv-python==4.10.0.84
+opencv-python-headless>=4.10   # 서버는 GUI 불필요 → headless. STEP 2 스마트 청킹(motion 시계열)에 사용
 pdfplumber==0.11.4
 
 # STEP 2 VLM (Gemini)
