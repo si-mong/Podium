@@ -29,6 +29,11 @@ class Session(Base):
         cascade="all, delete-orphan",
         order_by="Chunk.chunk_index",
     )
+    video_analyses: Mapped[list["VideoAnalysis"]] = relationship(  # noqa: F821
+        back_populates="session",
+        cascade="all, delete-orphan",
+        order_by="VideoAnalysis.t_start",
+    )
     stt_sentences: Mapped[list["SttSentence"]] = relationship(  # noqa: F821
         back_populates="session",
         cascade="all, delete-orphan",
@@ -66,8 +71,3 @@ class Chunk(Base):
     t_end: Mapped[float] = mapped_column(Float, nullable=False)
 
     session: Mapped["Session"] = relationship(back_populates="chunks")
-    analysis: Mapped["ChunkAnalysis | None"] = relationship(  # noqa: F821
-        back_populates="chunk",
-        cascade="all, delete-orphan",
-        uselist=False,
-    )

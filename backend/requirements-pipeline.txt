@@ -4,7 +4,7 @@
 
 openai-whisper==20240930
 librosa==0.10.2.post1
-opencv-python==4.10.0.84
+opencv-python-headless>=4.10   # 서버는 GUI 불필요 → headless. STEP 2 스마트 청킹(motion 시계열)에 사용
 pdfplumber==0.11.4
 
 # STEP 2 VLM (Gemini)
