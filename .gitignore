@@ -239,3 +239,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# STEP 3 PoC — 생성물 (out/ 은 위에서 이미 무시됨)
+backend/stt_test/fixtures/*.wav
