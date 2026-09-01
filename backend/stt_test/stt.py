@@ -10,6 +10,7 @@ STT 결과 자체는 "필러가 걸러진 깨끗한 전사" 여도 괜찮음.
 """
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -61,6 +62,10 @@ class SttResult:
     words: list[Word] = field(default_factory=list)
     language: str = "ko"
     model_size: str = ""
+    # 모델 비교 시 속도를 공정하게 재려면 둘을 반드시 분리해야 함:
+    # load_sec 은 **처음 쓰는 모델이면 다운로드 시간까지 포함**하므로 속도 지표가 못 됨.
+    load_sec: float = 0.0
+    decode_sec: float = 0.0
 
     @property
     def full_text(self) -> str:
@@ -92,7 +97,11 @@ def transcribe(
     """
     from faster_whisper import WhisperModel  # 무거우므로 lazy import
 
+    t0 = time.perf_counter()
+    # 캐시에 없으면 여기서 모델을 내려받음 → 이 구간이 load_sec
     model = WhisperModel(model_size, device="cpu", compute_type=compute_type)
+    t_load = time.perf_counter()
+
     segments, _info = model.transcribe(
         str(wav_path),
         language=language,
@@ -104,7 +113,8 @@ def transcribe(
         initial_prompt=VERBATIM_PROMPT if verbatim_prompt else None,
     )
 
-    result = SttResult(language=language, model_size=model_size)
+    result = SttResult(language=language, model_size=model_size,
+                       load_sec=round(t_load - t0, 2))
     for seg in segments:  # generator — 여기서 실제 디코딩이 진행됨
         result.sentences.append(
             Sentence(seg.text.strip(), seg.start, seg.end, seg.no_speech_prob)
@@ -113,4 +123,5 @@ def transcribe(
             result.words.append(
                 Word(w.word.strip(), w.start, w.end, getattr(w, "probability", 1.0))
             )
+    result.decode_sec = round(time.perf_counter() - t_load, 2)
     return result

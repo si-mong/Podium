@@ -21,23 +21,30 @@ from stt_test.audio import load_wav, slice_samples, write_wav
 CLIP_CONTEXT_SEC = 0.8
 
 
-def build_report(result: dict, wav_path: Path, out_dir: Path) -> Path:
-    out_dir.mkdir(parents=True, exist_ok=True)
+def write_clips(result: dict, wav_path: Path, out_dir: Path, prefix: str = "cand") -> None:
+    """후보 구간을 앞뒤 문맥 포함해 wav 로 잘라내고, 각 후보에 `clip`/`index` 를 채움.
+
+    서버 UI 와 정적 report.html 이 공유하는 단계.
+    """
     clips_dir = out_dir / "clips"
-    clips_dir.mkdir(exist_ok=True)
-
+    clips_dir.mkdir(parents=True, exist_ok=True)
     samples, sr = load_wav(wav_path)
-    candidates = result["diagnostics"]["candidates"]
 
-    for i, c in enumerate(candidates):
+    for i, c in enumerate(result["diagnostics"]["candidates"]):
         seg = slice_samples(
             samples, sr,
             c["t_start"] - CLIP_CONTEXT_SEC,
             c["t_end"] + CLIP_CONTEXT_SEC,
         )
-        write_wav(clips_dir / f"cand_{i:04d}.wav", seg, sr)
-        c["clip"] = f"clips/cand_{i:04d}.wav"
+        name = f"{prefix}_{i:04d}.wav"
+        write_wav(clips_dir / name, seg, sr)
+        c["clip"] = f"clips/{name}"
         c["index"] = i
+
+
+def build_report(result: dict, wav_path: Path, out_dir: Path) -> Path:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    write_clips(result, wav_path, out_dir)
 
     (out_dir / "result.json").write_text(
         json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8"

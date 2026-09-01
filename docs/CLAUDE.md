@@ -262,6 +262,51 @@ alembic current                               # 현재 적용된 버전
 - ffmpeg 는 `-c copy` 가 아니라 **재인코딩**(libx264 ultrafast). MediaRecorder webm 은
   키프레임이 희소해 copy 로 자르면 청크 앞부분이 깨진다.
 - 튜닝값: `motion_thresh=3.5`, `hysteresis_frames=5`, `chunk_duration=20`, `sample_fps=5`.
+  → **임계값은 재검토 중**. 아래 참고.
+
+### ⚠️ webm 의 CAP_PROP_FPS 함정 (2026-08-19 수정)
+
+**MediaRecorder 가 만든 webm 은 OpenCV 에 `CAP_PROP_FPS = 1000` 을 돌려준다.**
+프레임레이트가 아니라 Matroska 타임베이스(1ms)다. `CAP_PROP_FRAME_COUNT` 도
+프레임 수가 아니라 밀리초를 돌려준다 (102초 영상 → 102546, 실제 프레임은 3078).
+
+원래 코드는 `step = src_fps // sample_fps` 로 프레임을 건너뛰었는데, 이러면
+`step = 200` 이 되어 **6.7초 간격**으로 비교하게 된다. 0.2초 간격을 가정한
+`motion_thresh` 가 완전히 무의미해진다 (motion 평균이 임계값의 7배로 나옴).
+
+**수정**: `video_motion_timeline()` 이 프레임 인덱스가 아니라 **타임스탬프
+(`CAP_PROP_POS_MSEC`)** 로 샘플링한다. 컨테이너 메타데이터가 틀려도 실제 0.2초
+간격이 보장된다. `_sane_fps()` 는 1~120 범위 밖의 FPS 를 거부하고 30 으로 폴백
+(타임스탬프가 아예 없는 컨테이너용). 건너뛸 프레임은 `grab()` 으로 색변환을 생략한다.
+
+**`vlm_test/scoring.py` 에도 같은 버그가 남아 있다** (`motion_score()` 77~88행,
+`video_motion_timeline()` 206~216행). mp4 를 올릴 땐 안 터지지만 `/smart-preview`
+에 webm 을 넣으면 똑같이 망가진 시계열이 나온다. 임계값 튜닝 시 주의.
+
+> STEP 3 도 같은 webm 을 다룬다. 오디오 경로는 ffmpeg 을 쓰므로 무관하지만,
+> OpenCV 로 webm 을 여는 코드를 새로 짤 때는 이 함정을 먼저 떠올릴 것.
+
+### 임계값 실측 — 3.5 는 시스템 촬영본에 안 맞음 (2026-08-19)
+
+`motion_thresh=3.5` 는 vlm_test 에서 **업로드한 mp4** 로 튜닝한 값이다. 5월 시스템
+촬영본(1280x720 webcam webm) 3개로 재측정하니 motion **중앙값이 3~4** 였다.
+즉 3.5 가 중앙값 한복판이라 샘플의 절반이 "동작 중"으로 잡힌다.
+노이즈 바닥(p10)은 약 1.5 로 vlm_test 와 비슷하다.
+
+| thresh | s1 | s3 | s4 |
+|---|---|---|---|
+| **3.5** (현재) | 22.9% | 16.2% | 15.5% |
+| 7.0 | 30.7% | 39.4% | 41.5% |
+| **8.0** | 41.2% | 39.4% | 41.5% |
+| 12.0 | 24.6% | 62.1% | 41.5% |
+
+8.0 에서 세 영상 모두 ~40% 로 안정적. 12 이상은 청크 시작점이 크게 밀리면서
+배치가 뒤바뀌어 들쭉날쭉해진다(s1 이 24.6%→62.3%).
+
+**아직 3.5 그대로 두었다.** 표본이 3개뿐이고, 임계값을 올리면 진짜 동작을 놓칠
+위험도 같이 오르므로 실제 영상 확인 후 결정하기로 함. 값은
+`step2_chunking.py:29 MOTION_THRESH` 한 곳만 고치면 전체 반영된다
+(`/analyze/motion` 은 이 인자를 넘기지 않는다). vlm_test 에는 별도 사본이 있다.
 
 ---
 
@@ -345,8 +390,11 @@ uvicorn vlm_test.server:app --reload --port 8001
       `/analyze/motion` 이 full_video 기반 동적 청킹으로 전환, gesture 7종 확정.
     - **`chunk_analyses` → `video_analyses` 스키마 교체** (리비전 `c1a7d3e9f204`).
       위 "청크의 세 가지 의미" 섹션이 근거.
-    - ⚠️ **DB 마이그레이션 미적용 / end-to-end 미검증** — Docker 미기동 상태에서 코드만 작성됨.
-      `alembic upgrade head` 후 실제 촬영으로 검증 필요.
+    - ✅ 마이그레이션 적용 완료 (`alembic upgrade head`, downgrade 왕복도 확인).
+    - ✅ 5월 녹화본 3개로 청킹 실측: 타임스탬프 샘플링(473점 @0.217초), ffmpeg 추출
+      5개 청크 계획 대비 오차 20ms 이내, 재인코딩 mp4 정상.
+    - ⚠️ **Gemini 까지 태우는 end-to-end 미검증** (과금 발생분이라 사용자가 직접 진행 예정).
+    - ⚠️ `MOTION_THRESH` 는 3.5 그대로 — 위 "임계값 실측" 참고, 결정 대기.
     - `docs/_CD.md` 신규 추가됨.
 - (이전) `feat/pipeline-step2-vlm` — STEP 2 본 파이프라인 통합 → main 머지 완료
 
