@@ -24,6 +24,8 @@ from stt_test import stt as stt_mod
 from stt_test import vad as vad_mod
 from stt_test.audio import load_wav
 from stt_test.filler import detect_fillers, merge_accepted, strip_filler_words
+from stt_test import filler as filler_mod
+from stt_test.stutter import detect_repetitions
 
 
 @dataclass
@@ -38,6 +40,7 @@ class Context:
     silence: list = field(default_factory=list)
     stt: stt_mod.SttResult = field(default_factory=stt_mod.SttResult)
     verbatim_prompt: bool = False
+    keywords: str = ""
     elapsed: dict = field(default_factory=dict)
 
     @property
@@ -78,6 +81,7 @@ def run_stt(
     model_size: str = "large-v3",
     language: str = "ko",
     verbatim_prompt: bool = False,
+    keywords: str | None = None,
     on_progress=None,
 ) -> Context:
     """3-2 실행. ctx 를 건드리지 않고 STT 가 채워진 사본을 반환."""
@@ -87,7 +91,7 @@ def run_stt(
     t0 = time.perf_counter()
     result = stt_mod.transcribe(
         ctx.wav_path, model_size=model_size, language=language,
-        verbatim_prompt=verbatim_prompt,
+        verbatim_prompt=verbatim_prompt, keywords=keywords,
     )
     elapsed = round(time.perf_counter() - t0, 2)
 
@@ -99,6 +103,7 @@ def run_stt(
                     f"(모델 로딩 {result.load_sec}초{extra})")
 
     return replace(ctx, stt=result, verbatim_prompt=verbatim_prompt,
+                   keywords=keywords or "",
                    elapsed={**ctx.elapsed, "stt_sec": elapsed,
                             "stt_load_sec": result.load_sec,
                             "stt_decode_sec": result.decode_sec})
@@ -110,13 +115,14 @@ def prepare(
     language: str = "ko",
     verbatim_prompt: bool = False,
     skip_stt: bool = False,
+    keywords: str | None = None,
     on_progress=None,
 ) -> Context:
     """3-1 + 3-2 실행. on_progress(stage, message) 로 진행 상황 통지."""
     ctx = prepare_audio(wav_path, on_progress)
     if skip_stt:
         return ctx
-    return run_stt(ctx, model_size, language, verbatim_prompt, on_progress)
+    return run_stt(ctx, model_size, language, verbatim_prompt, keywords, on_progress)
 
 
 def build_result(ctx: Context, ablate_lexical: bool = False) -> dict:
@@ -130,6 +136,9 @@ def build_result(ctx: Context, ablate_lexical: bool = False) -> dict:
         ctx.samples, ctx.sr, ctx.speech, words, use_lexical=not ablate_lexical
     )
     fillers = merge_accepted(filler_result)
+
+    # 3-5 반복(말더듬) — STT 단어 목록만 사용, 추가 비용 없음
+    reps = detect_repetitions(ctx.stt.words)
 
     syllables = stt_mod.count_syllables(ctx.stt.full_text)
     total, speech_dur = ctx.total_duration, ctx.speech_duration
@@ -145,6 +154,9 @@ def build_result(ctx: Context, ablate_lexical: bool = False) -> dict:
         },
         # ---- DB 저장 대상 (stt_sentences) ----
         "stt_sentences": [s.to_dict() for s in ctx.stt.sentences],
+        # ---- 3-5 반복(말더듬). voice_raws 에 컬럼이 없어 별도 키로 둠 —
+        #      파이프라인 통합 시 JSONB 컬럼 추가 필요 ----
+        "repetitions": [r.to_dict() for r in reps],
         # ---- 집계 지표 (segment_analyses / session_summaries 용) ----
         "metrics": {
             "total_duration": round(total, 2),
@@ -155,6 +167,10 @@ def build_result(ctx: Context, ablate_lexical: bool = False) -> dict:
             "longest_silence": round(max((r.duration for r in ctx.silence), default=0.0), 2),
             "filler_count": len(fillers),
             "filler_per_min": round(len(fillers) / (total / 60.0), 2) if total else 0.0,
+            "repetition_count": len(reps),
+            "repetition_exact": sum(1 for r in reps if r.kind == "exact"),
+            "repetition_stem": sum(1 for r in reps if r.kind == "stem"),
+            "repetition_per_min": round(len(reps) / (total / 60.0), 2) if total else 0.0,
             "syllable_count": syllables,
             # 한국어는 WPM(어절/분) 대신 SPM(음절/분). 일반 발표 대략 300~400.
             "speaking_rate_spm": round(speaking_rate, 1),          # 무음 포함 — 전체 템포
@@ -165,10 +181,19 @@ def build_result(ctx: Context, ablate_lexical: bool = False) -> dict:
             "source": str(ctx.wav_path),
             "model_size": ctx.stt.model_size,
             "verbatim_prompt": ctx.verbatim_prompt,
+            "keywords": ctx.keywords,
             "ablate_lexical": ablate_lexical,
             "speech_regions": [r.to_dict() for r in ctx.speech],
             # UI 슬라이더가 무음을 재계산할 때 쓰는 기준값 (vad.MIN_SILENCE_SEC)
             "min_silence_sec": vad_mod.MIN_SILENCE_SEC,
+            # UI 슬라이더가 음향 후보 판정을 재계산할 때 쓰는 기준값
+            "filler_thresholds": {
+                "min_duration": filler_mod.MIN_CANDIDATE_SEC,
+                "max_duration": filler_mod.MAX_CANDIDATE_SEC,
+                "min_relative_db": filler_mod.MIN_RELATIVE_DB,
+                "min_voiced_ratio": filler_mod.MIN_VOICED_RATIO,
+                "max_f0_std_semitone": filler_mod.MAX_F0_STD_SEMITONE,
+            },
             "speech_reference_db": round(filler_result.speech_reference_db, 1),
             "candidates": [c.to_dict() for c in filler_result.candidates],
             "words": [w.to_dict() for w in ctx.stt.words],
@@ -185,10 +210,12 @@ def analyze(
     verbatim_prompt: bool = False,
     skip_stt: bool = False,
     ablate_lexical: bool = False,
+    keywords: str | None = None,
     on_progress=None,
 ) -> dict:
     """전체 STEP 3 실행 (prepare + build_result)."""
-    ctx = prepare(wav_path, model_size, language, verbatim_prompt, skip_stt, on_progress)
+    ctx = prepare(wav_path, model_size, language, verbatim_prompt, skip_stt,
+                  keywords, on_progress)
     return build_result(ctx, ablate_lexical)
 
 
@@ -197,13 +224,15 @@ def analyze_compare(
     model_size: str = "large-v3",
     language: str = "ko",
     verbatim_prompt: bool = False,
+    keywords: str | None = None,
     on_progress=None,
 ) -> dict:
     """어휘 경로 포함 vs 음향 경로만 — STT 를 한 번만 돌려서 둘 다 산출.
 
     두 결과의 filler_count 차이가 곧 3-3(음향 경로)의 존재 가치.
     """
-    ctx = prepare(wav_path, model_size, language, verbatim_prompt, False, on_progress)
+    ctx = prepare(wav_path, model_size, language, verbatim_prompt, False,
+                  keywords, on_progress)
     if on_progress:
         on_progress("filler", "3-3 필러 검출 — 두 경로 비교")
     return {
@@ -217,6 +246,7 @@ def analyze_models(
     models: list[str],
     language: str = "ko",
     verbatim_prompt: bool = False,
+    keywords: str | None = None,
     on_progress=None,
 ) -> dict[str, dict]:
     """같은 오디오를 여러 STT 모델로 돌려 비교.
@@ -230,6 +260,32 @@ def analyze_models(
     for i, model in enumerate(models, 1):
         if on_progress:
             on_progress("model", f"[{i}/{len(models)}] {model} 시작")
-        ctx = run_stt(base, model, language, verbatim_prompt, on_progress)
+        ctx = run_stt(base, model, language, verbatim_prompt, keywords, on_progress)
         out[model] = build_result(ctx, ablate_lexical=False)
+    return out
+
+
+def analyze_keywords(
+    wav_path: Path,
+    model_size: str = "large-v3",
+    keywords: str = "",
+    language: str = "ko",
+    verbatim_prompt: bool = False,
+    on_progress=None,
+) -> dict[str, dict]:
+    """같은 오디오·같은 모델을 키워드(hotwords) 유무로만 나눠 비교.
+
+    로딩·VAD 는 한 번만 하고 STT 를 두 번 돌림. 반환 형식은 analyze_models 와
+    동일해서 UI 의 모델 비교 렌더링을 그대로 재사용한다.
+
+    ⚠️ 내용과 무관한 키워드는 도움이 안 될 뿐 아니라 디코딩을 흔들어 결과를
+       바꾼다. 실제 발표에 나오는 고유명사만 넣어야 함.
+    """
+    base = prepare_audio(wav_path, on_progress)
+    out: dict[str, dict] = {}
+    for label, kw in (("키워드 없음", None), ("키워드 적용", keywords)):
+        if on_progress:
+            on_progress("model", f"{label} STT 시작")
+        ctx = run_stt(base, model_size, language, verbatim_prompt, kw, on_progress)
+        out[label] = build_result(ctx, ablate_lexical=False)
     return out

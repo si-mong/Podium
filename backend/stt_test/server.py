@@ -81,9 +81,12 @@ def _emit(job_id: str, event: dict) -> None:
 
 
 def _run_job(job_id: str, job_dir: Path, wav: Path, mode: str,
-             model: str, verbatim: bool, models: list[str] | None = None) -> None:
+             model: str, verbatim: bool, models: list[str] | None = None,
+             keywords: str = "") -> None:
     """실제 분석 (별도 스레드에서 실행 — STT 가 블로킹이라)."""
-    from stt_test.analyze import analyze, analyze_compare, analyze_models  # 무거우므로 lazy
+    from stt_test.analyze import (  # 무거우므로 lazy
+        analyze, analyze_compare, analyze_keywords, analyze_models,
+    )
 
     def progress(stage: str, message: str) -> None:
         _emit(job_id, {"type": "progress", "stage": stage, "message": message})
@@ -91,7 +94,7 @@ def _run_job(job_id: str, job_dir: Path, wav: Path, mode: str,
     try:
         if mode == "compare":
             both = analyze_compare(wav, model_size=model, verbatim_prompt=verbatim,
-                                   on_progress=progress)
+                                   keywords=keywords, on_progress=progress)
             progress("clips", "후보 클립 추출 중")
             write_clips(both["lexical"], wav, job_dir, prefix="lex")
             write_clips(both["acoustic"], wav, job_dir, prefix="aco")
@@ -99,7 +102,7 @@ def _run_job(job_id: str, job_dir: Path, wav: Path, mode: str,
         elif mode == "models":
             picked = models or ["small", "large-v3"]
             results = analyze_models(wav, picked, verbatim_prompt=verbatim,
-                                     on_progress=progress)
+                                     keywords=keywords, on_progress=progress)
             progress("clips", "후보 클립 추출 중")
             for i, name in enumerate(picked):
                 write_clips(results[name], wav, job_dir, prefix=f"m{i}")
@@ -112,9 +115,23 @@ def _run_job(job_id: str, job_dir: Path, wav: Path, mode: str,
             }
             payload = {"mode": "models", "models": picked,
                        "results": results, "diffs": diffs}
+        elif mode == "kwcompare":
+            labels = ["키워드 없음", "키워드 적용"]
+            results = analyze_keywords(wav, model_size=model, keywords=keywords,
+                                       verbatim_prompt=verbatim, on_progress=progress)
+            progress("clips", "후보 클립 추출 중")
+            for i, name in enumerate(labels):
+                write_clips(results[name], wav, job_dir, prefix=f"m{i}")
+            diffs = {labels[1]: _transcript_diff(
+                results[labels[0]]["diagnostics"]["full_text"],
+                results[labels[1]]["diagnostics"]["full_text"])}
+            payload = {"mode": "models", "models": labels, "results": results,
+                       "diffs": diffs,
+                       "title": f"키워드 비교 — hotwords «{keywords}»"}
         else:
             result = analyze(wav, model_size=model, verbatim_prompt=verbatim,
-                             skip_stt=(mode == "silence"), on_progress=progress)
+                             skip_stt=(mode == "silence"), keywords=keywords,
+                             on_progress=progress)
             if mode != "silence":
                 progress("clips", "후보 클립 추출 중")
                 write_clips(result, wav, job_dir)
@@ -172,10 +189,11 @@ def api_sources() -> list[dict]:
 async def start_analyze(
     file: UploadFile | None = None,
     source_path: str = Form(""),
-    mode: str = Form("full"),          # full | silence | compare | models
+    mode: str = Form("full"),          # full | silence | compare | models | kwcompare
     model: str = Form("small"),
     models: str = Form("small,large-v3"),   # mode=models 일 때 비교할 모델들
     verbatim: str = Form("false"),
+    keywords: str = Form(""),               # 발표 주제·고유명사 → hotwords
 ) -> dict:
     if not file and not source_path:
         raise HTTPException(400, "파일을 업로드하거나 기존 녹음을 선택하세요.")
@@ -204,14 +222,15 @@ async def start_analyze(
     (job_dir / "meta.json").write_text(json.dumps({
         "job_id": job_id, "source": display, "mode": mode,
         "model": models if mode == "models" else model,
-        "verbatim": verbatim == "true", "status": "running",
+        "verbatim": verbatim == "true", "keywords": keywords, "status": "running",
         "started_at": datetime.now().isoformat(timespec="seconds"),
     }, ensure_ascii=False, indent=2), encoding="utf-8")
 
     _jobs[job_id] = {"queue": asyncio.Queue(), "loop": asyncio.get_running_loop()}
     picked = [m.strip() for m in models.split(",") if m.strip()]
     asyncio.get_running_loop().run_in_executor(
-        None, _run_job, job_id, job_dir, wav, mode, model, verbatim == "true", picked)
+        None, _run_job, job_id, job_dir, wav, mode, model, verbatim == "true",
+        picked, keywords)
 
     return {"job_id": job_id}
 

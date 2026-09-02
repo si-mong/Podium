@@ -123,9 +123,16 @@
       <label><input type="checkbox" class="mm" value="large-v3" checked> large-v3</label>
     </span>
     <label><input type="checkbox" id="verbatim"> 필러 유도 프롬프트</label>
+    <label id="kwcmpwrap"><input type="checkbox" id="kwcompare"> 키워드 유무 비교</label>
 
     <span style="margin-left:auto"></span>
     <button class="primary" id="run">분석 실행</button>
+  </div>
+  <div class="row" style="margin-top:10px">
+    <label>발표 주제 · 키워드</label>
+    <input type="text" id="keywords" style="flex:1;min-width:340px;font:inherit;padding:5px 9px;
+           border-radius:7px;border:1px solid var(--line);background:transparent"
+           placeholder="고유명사·전문용어를 쉼표로 (예: Podium, 캡스톤디자인, 멀티모달, VLM, 청킹)">
   </div>
   <div class="row" id="customrow" style="margin-top:10px;display:none">
     <label>사용자 지정 모델</label>
@@ -146,6 +153,7 @@
 let mode = "full", jobId = null, data = null, labels = {}, filter = "all", pane = null;
 let silSort = "time";   // time | dur — 무음 표 정렬
 let silMin  = null;     // 무음 최소 길이(초). null 이면 서버 기본값 사용
+let fth     = null;     // 음향 후보 판정 임계값. null 이면 서버 기본값 사용
 
 const $ = s => document.querySelector(s);
 const logEl = $("#log");
@@ -175,6 +183,7 @@ document.querySelectorAll("[data-mode]").forEach(b => b.onclick = () => {
   $("#single").style.display = mode === "models" ? "none" : "";
   $("#models").style.display = mode === "models" ? "" : "none";
   $("#customrow").style.display = mode === "models" ? "flex" : "none";
+  $("#kwcmpwrap").style.display = mode === "full" ? "" : "none";
 });
 
 // --- 드래그앤드롭 ---
@@ -200,10 +209,14 @@ $("#run").onclick = async () => {
     .concat($("#custom").value.split(",").map(x => x.trim()).filter(Boolean));
   if (mode === "models" && picked.length < 2) return alert("비교할 모델을 2개 이상 선택하세요.");
 
-  fd.append("mode", mode);
+  const kwOn = mode === "full" && $("#kwcompare").checked;
+  if (kwOn && !$("#keywords").value.trim())
+    return alert("키워드 유무를 비교하려면 «발표 주제 · 키워드» 를 입력하세요.");
+  fd.append("mode", kwOn ? "kwcompare" : mode);
   fd.append("model", $("#model").value);
   fd.append("models", picked.join(","));
   fd.append("verbatim", $("#verbatim").checked);
+  fd.append("keywords", $("#keywords").value);
 
   $("#run").disabled = true;
   logEl.style.display = "block"; logEl.innerHTML = "";
@@ -243,6 +256,8 @@ const KO = {
   total_duration:"전체(초)", speech_duration:"발화(초)", silence_duration:"무음(초)",
   silence_ratio:"무음비율", silence_count:"무음 구간", longest_silence:"최장 무음(초)",
   filler_count:"필러", filler_per_min:"필러/분", syllable_count:"음절",
+  repetition_count:"반복", repetition_exact:"반복(exact)", repetition_stem:"반복(stem)",
+  repetition_per_min:"반복/분",
   speaking_rate_spm:"전체 템포(음절/분)", articulation_rate_spm:"조음 속도(음절/분)",
 };
 // STT 와 무관하게 VAD 만으로 정해지는 지표 — 모델을 바꿔도 값이 같은 게 정상
@@ -462,7 +477,7 @@ function renderModels(out) {
   }).join("");
 
   out.innerHTML = `
-    <h2>모델 비교 — STT 디코딩 속도</h2>
+    <h2>${esc(data.title) || "모델 비교 — STT 디코딩 속도"}</h2>
     <div class="cmp" style="grid-template-columns:repeat(${models.length},1fr)">${cards}</div>
     <div class="verdict">속도는 <b>디코딩 시간</b> 기준입니다 — 모델 로딩(캐시에 없으면 다운로드)은
       따로 표시했습니다. 처음 쓰는 모델은 로딩에 수 분이 걸릴 수 있지만 두 번째 실행부터는 사라지므로
@@ -479,6 +494,8 @@ function renderModels(out) {
     <h2>무음 구간</h2>${timelineHtml(R[models[0]])}${silenceTableHtml(R[models[0]])}
 
     ${diffHtml}
+
+    <h2>반복 (말더듬) — ${esc(pane)}</h2>${repetitionHtml(R[pane])}
 
     <h2>필러 후보</h2>
     <div class="row" style="margin-bottom:10px">
@@ -511,6 +528,7 @@ function renderCompare(out) {
     <h2>지표</h2>${metricsHtml(L.metrics)}
     <h2>무음 구간</h2>${timelineHtml(L)}${silenceTableHtml(L)}
     <h2>전사문</h2><div class="panel" style="font-size:13px">${esc(L.diagnostics.full_text)||"(없음)"}</div>
+    <h2>반복 (말더듬)</h2>${repetitionHtml(L)}
     <h2>필러 후보</h2>
     <div class="row" style="margin-bottom:10px">
       <button data-pane="lexical" class="${pane==='lexical'?'on':''}">어휘 경로 결과</button>
@@ -529,14 +547,118 @@ function renderSingle(out) {
     ${data.mode === "silence" ? "" : `
       <h2>전사문</h2>
       <div class="panel" style="font-size:13px">${esc(R.diagnostics.full_text)||"(없음)"}</div>
+      <h2>반복 (말더듬)</h2>${repetitionHtml(R)}
       <h2>필러 후보</h2><div id="tablewrap"></div>`}`;
   if (data.mode !== "silence") renderTable(R, "lex");
+}
+
+// ---------- 반복(말더듬) ----------
+function repetitionHtml(R) {
+  const reps = R.repetitions || [];
+  const m = R.metrics;
+  if (!reps.length) return `<div class="panel" style="opacity:.6">반복 검출 없음</div>`;
+  return `
+    <div class="legend">
+      <span class="tag ok">exact</span> 같은 말을 그대로 반복 ·
+      <span class="tag" style="background:#ca8a0422;border-color:#ca8a04">stem</span>
+      앞부분만 반복 (정상 관형사+명사가 섞일 수 있어 신뢰도 낮음)
+      <span style="margin-left:12px">exact ${m.repetition_exact} · stem ${m.repetition_stem}
+        · 분당 ${m.repetition_per_min}회</span>
+    </div>
+    <div style="max-height:320px;overflow:auto">
+    <table><thead><tr><th>시각</th><th class="num">횟수</th><th>유형</th>
+      <th>내용</th><th>듣기</th></tr></thead><tbody>
+    ${reps.map(r => `<tr>
+      <td class="num">${fmt(r.t_start)}</td>
+      <td class="num"><b>${r.count}</b></td>
+      <td><span class="tag ${r.kind === "exact" ? "ok" : ""}"
+          ${r.kind === "stem" ? 'style="background:#ca8a0422;border-color:#ca8a04"' : ""}
+          >${r.kind}</span></td>
+      <td>${esc(r.text)}</td>
+      <td><button class="seek" data-t="${Math.max(0, r.t_start - 1.0)}">1초 전부터</button></td>
+    </tr>`).join("")}
+    </tbody></table></div>`;
+}
+
+/** `filler.py:_classify_acoustic` 과 같은 순서로 음향 후보를 다시 판정.
+ *  후보의 측정값(길이·상대dB·유성비·F0편차)이 이미 응답에 들어있어
+ *  STT 재실행 없이 브라우저에서 즉시 재계산된다. 어휘 후보는 대상 아님. */
+function reclassify(c, t) {
+  if (c.source !== "acoustic") return null;          // 어휘 후보는 항상 채택
+  if (c.duration < t.min_duration) return "too_short";
+  if (c.duration > t.max_duration) return "too_long";
+  if (c.relative_db < t.min_relative_db) return "too_quiet";
+  if ((c.voiced_ratio ?? 0) < t.min_voiced_ratio) return "unvoiced";
+  if ((c.f0_std_semitone ?? 99) > t.max_f0_std_semitone) return "pitch_moves";
+  return null;                                       // 채택
+}
+
+function applyThresholds(R) {
+  if (!fth) fth = {...(R.diagnostics.filler_thresholds || {})};
+  for (const c of R.diagnostics.candidates) {
+    const reason = reclassify(c, fth);
+    if (c.source === "acoustic") { c.is_filler = reason === null; c.reject_reason = reason; }
+  }
+  return R.diagnostics.candidates.filter(c => c.is_filler).length;
+}
+
+const FTH_UI = [
+  ["min_duration",        "최소 길이",   0.02, 1.0,  0.01, "초"],
+  ["max_duration",        "최대 길이",   0.5,  6.0,  0.1,  "초"],
+  ["min_relative_db",     "최소 상대dB", -40,  0,    1,    "dB"],
+  ["min_voiced_ratio",    "최소 유성비", 0,    1,    0.05, ""],
+  ["max_f0_std_semitone", "최대 F0편차", 0.3,  6.0,  0.1,  "반음"],
+];
+
+function thresholdHtml(R) {
+  const n = applyThresholds(R);
+  const pad = 0.12;  // filler.WORD_PAD_SEC — 실제 길이 환산 안내용
+  return `
+    <div class="panel" style="padding:12px">
+      <div class="row" style="margin-bottom:8px">
+        <b style="font-size:13px">음향 후보 판정 임계값</b>
+        <span style="font-size:12px;opacity:.6">슬라이더를 움직이면 즉시 재판정됩니다
+          (STT 재실행 없음). 어휘 후보는 영향받지 않습니다.</span>
+        <span style="margin-left:auto;font-size:12px;opacity:.85" id="fthstat">채택 ${n}건</span>
+      </div>
+      ${FTH_UI.map(([k, label, min, max, step, unit]) => `
+        <div class="row" style="gap:8px;margin-bottom:2px">
+          <label style="width:88px">${label}</label>
+          <input type="range" class="fth" data-k="${k}" min="${min}" max="${max}"
+                 step="${step}" value="${fth[k]}" style="width:210px">
+          <b style="width:64px;font-variant-numeric:tabular-nums"
+             id="v_${k}">${fth[k]}${unit}</b>
+          ${k === "min_duration" ? `<span style="font-size:12px;opacity:.55"
+            id="realdur">단어 패딩 ${pad}초 x2 를 더하면 실제 필러 길이 약
+            ${(fth[k] + 2*pad).toFixed(2)}초 이상에 해당</span>` : ""}
+        </div>`).join("")}
+    </div>`;
+}
+
+function wireThresholds(root, R) {
+  root.querySelectorAll(".fth").forEach(sl => {
+    sl.oninput = () => {
+      const k = sl.dataset.k;
+      fth[k] = parseFloat(sl.value);
+      const unit = (FTH_UI.find(x => x[0] === k) || [])[5] ?? "";
+      root.querySelector("#v_" + k).textContent = fth[k] + unit;
+      if (k === "min_duration") {
+        const el = root.querySelector("#realdur");
+        if (el) el.textContent =
+          `단어 패딩 0.12초 x2 를 더하면 실제 필러 길이 약 ${(fth[k]+0.24).toFixed(2)}초 이상에 해당`;
+      }
+      const n = applyThresholds(R);
+      root.querySelector("#fthstat").textContent = `채택 ${n}건`;
+    };
+    sl.onchange = () => render();
+  });
 }
 
 // ---------- 후보 표 ----------
 function renderTable(R, keyPrefix) {
   const wrap = $("#tablewrap");
   if (!wrap) return;
+  applyThresholds(R);
   const cands = R.diagnostics.candidates;
   if (!cands.length) { wrap.innerHTML = `<div class="panel" style="opacity:.6">후보 없음</div>`; return; }
 
@@ -550,7 +672,7 @@ function renderTable(R, keyPrefix) {
     if (c.is_filler && l==="y") tp++; if (c.is_filler && l==="n") fp++; });
   const prec = (tp+fp) ? (tp/(tp+fp)*100).toFixed(0)+"%" : "–";
 
-  wrap.innerHTML = `
+  wrap.innerHTML = thresholdHtml(R) + `
     <div class="row" style="margin-bottom:10px">
       <span style="opacity:.6">보기</span>
       ${["all:전체","yes:채택","no:기각","lexical:어휘"].map(o=>{const [k,t]=o.split(":");
@@ -580,6 +702,7 @@ function renderTable(R, keyPrefix) {
       <td class="ctx">${esc(c.context_text)}</td></tr>`}).join("")}
     </tbody></table></div>`;
 
+  wireThresholds(wrap, R);
   wrap.querySelectorAll("[data-f]").forEach(b => b.onclick = () => { filter=b.dataset.f; render(); });
   wrap.querySelectorAll(".lb button").forEach(b => b.onclick = async () => {
     const k = b.dataset.k, v = b.dataset.v;
@@ -594,7 +717,7 @@ function renderTable(R, keyPrefix) {
 async function loadJobs() {
   const list = await (await fetch("/api/jobs")).json();
   $("#jobs").innerHTML = list.map(j => `<div data-id="${j.job_id}">
-    <b>${j.mode}</b> · ${esc(j.model)} · ${esc(j.source)}
+    <b>${j.mode}</b> · ${esc(j.model)} · ${esc(j.source)}${j.keywords?` · kw«${esc(j.keywords)}»`:""}
     <span style="opacity:.5"> — ${j.started_at} ${j.status==="done"?"":"(실행중)"}${j.has_labels?" · 라벨있음":""}</span>
     </div>`).join("") || `<div style="opacity:.5">아직 없음</div>`;
   $("#jobs").querySelectorAll("[data-id]").forEach(d => d.onclick = () => loadJob(d.dataset.id));
