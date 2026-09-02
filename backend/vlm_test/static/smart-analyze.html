@@ -77,6 +77,7 @@
 
   details summary { cursor: pointer; font-weight: 600; margin: 16px 0 8px; }
   pre.json { background: #f7f7f7; padding: 12px; border-radius: 6px; font-size: 12px; max-height: 400px; overflow: auto; }
+  video { width: 100%; max-height: 380px; background: #000; border-radius: 8px; margin: 12px 0; }
 
   .metrics-section { margin-top: 28px; }
   .metrics-section h3 { font-size: 15px; font-weight: 700; margin: 0 0 14px; }
@@ -129,6 +130,11 @@
   <div class="progress-wrap"><div id="progress" class="progress-bar"></div></div>
 
   <pre id="log"></pre>
+
+  <!-- 영상 플레이어 -->
+  <div id="videoSection" style="display:none">
+    <video id="videoPlayer" controls preload="metadata"></video>
+  </div>
 
   <!-- 청크 계획 (분석 시작 직후 표시) -->
   <div id="planSection" style="display:none">
@@ -206,6 +212,7 @@ const setStatus = (text, cls = "") => {
 let plan = [];       // 청크 계획 (서버 plan_done 이벤트에서 받음)
 let total = 0;
 let done = 0;
+let videoObjectUrl = null;
 
 // 슬라이더 값 표시 동기화
 ["motionThresh", "hysteresis", "chunkDuration"].forEach(id => {
@@ -224,6 +231,9 @@ function resetUI() {
   $("planSection").style.display = "none";
   $("planBar").innerHTML = "";
   $("planMeta").textContent = "";
+  $("videoSection").style.display = "none";
+  $("videoPlayer").src = "";
+  if (videoObjectUrl) { URL.revokeObjectURL(videoObjectUrl); videoObjectUrl = null; }
   plan = [];
   total = 0;
   done = 0;
@@ -352,6 +362,9 @@ async function run() {
     jobId = data.job_id;
     log(`job_id=${jobId} (서버 저장 ${(data.size_bytes / 1024 / 1024).toFixed(2)} MB)`);
     log(`옵션: motion≥${data.params.motion_thresh}, hysteresis=${data.params.hysteresis_frames}, chunk=${data.params.chunk_duration}s`);
+    videoObjectUrl = URL.createObjectURL(file);
+    $("videoPlayer").src = videoObjectUrl;
+    $("videoSection").style.display = "block";
   } catch (e) {
     log(`업로드 실패: ${e}`);
     setStatus("error", "error");

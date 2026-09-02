@@ -4,12 +4,18 @@ backend/uploads/*
 !backend/uploads/.gitkeep
 backend/vlm_test/work/*
 !backend/vlm_test/work/.gitkeep
+backend/vlm_test/voice_uploads/
 .venv/
 
 # Local-only references / archived demo
 _refs/
 _legacy/
 .claude/
+
+# 로컬 개발 노트 / 학습용 파일 (GitHub에 올리지 않음)
+DEV_NOTES.md
+**/DEV_NOTES.md
+**/*_설명.py
 
 # Frontend (Next.js manages its own .gitignore inside frontend/, but cover the basics here too)
 node_modules/

@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Podium · 음성 분석</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 24px;
+      color: #111;
+    }
+
+    h1 { margin: 0 0 6px; font-size: 22px; }
+    .subtitle { color: #666; font-size: 13px; margin-bottom: 24px; }
+    h2 { font-size: 18px; margin: 40px 0 14px; border-bottom: 2px solid #eee; padding-bottom: 8px; }
+
+    /* 업로드 영역 */
+    .upload-area {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+
+    button {
+      padding: 10px 20px;
+      font-size: 15px;
+      font-weight: 600;
+      background: #111;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    /* 상태 뱃지 */
+    .status {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 999px;
+      font-size: 13px;
+      background: #eee;
+    }
+    .status.running { background: #1565c0; color: #fff; }
+    .status.done    { background: #2e7d32; color: #fff; }
+    .status.error   { background: #b71c1c; color: #fff; }
+
+    /* 진행 로그 */
+    #log {
+      background: #111;
+      color: #d8e3ff;
+      padding: 12px;
+      border-radius: 8px;
+      font-family: monospace;
+      font-size: 13px;
+      max-height: 180px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      margin-bottom: 20px;
+    }
+
+    /* 분석 결과 영역 */
+    .result-section { display: none; }
+
+    /* 요약 카드 */
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .summary-card {
+      background: #fff;
+      border: 1px solid #e0e0e0;
+      border-radius: 12px;
+      padding: 16px;
+      text-align: center;
+    }
+    .summary-card .label { font-size: 12px; color: #888; margin-bottom: 6px; }
+    .summary-card .value { font-size: 28px; font-weight: 700; }
+
+    /* 스크립트 박스 */
+    .text-box {
+      background: #f9f9f9;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 14px;
+      font-size: 14px;
+      line-height: 1.7;
+      white-space: pre-wrap;
+      margin-bottom: 16px;
+    }
+
+    /* 섹션 소제목 */
+    h3 { font-size: 15px; margin: 20px 0 8px; }
+
+    /* 테이블 */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+      margin-bottom: 16px;
+    }
+    th, td { border: 1px solid #ddd; padding: 8px 12px; text-align: left; }
+    th { background: #f5f5f5; font-weight: 600; }
+
+    /* 무음 구간 */
+    .silence-list { list-style: none; padding: 0; margin: 0 0 16px; }
+    .silence-list li {
+      background: #f5f5f5;
+      border-radius: 6px;
+      padding: 8px 12px;
+      margin-bottom: 6px;
+      font-size: 14px;
+    }
+
+    /* 개선 포인트 */
+    .notes-box {
+      background: #fff8e1;
+      border-left: 4px solid #f9a825;
+      padding: 12px 16px;
+      border-radius: 0 8px 8px 0;
+      font-size: 14px;
+      line-height: 1.6;
+      margin-bottom: 16px;
+    }
+
+    /* 인터랙티브 전사문 */
+    .transcript-box {
+      background: #f9f9f9;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 14px;
+      font-size: 14px;
+      line-height: 2.0;
+      margin-bottom: 16px;
+    }
+    .sentence {
+      display: inline;
+      border-radius: 4px;
+      padding: 2px 0;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .sentence:hover { background: #e3f2fd; }
+    .sentence.active { background: #fff3cd; }
+    .sentence-gap { display: inline; }
+
+    /* 타임스탬프 버튼 (필러단어 테이블) */
+    .ts-btn {
+      display: inline-block;
+      padding: 1px 7px;
+      margin: 1px 2px;
+      border: 1px solid #bbb;
+      border-radius: 4px;
+      font-size: 12px;
+      background: #fff;
+      cursor: pointer;
+      color: #1565c0;
+      transition: background 0.12s;
+    }
+    .ts-btn:hover { background: #e3f2fd; border-color: #1565c0; }
+
+    /* 오디오 플레이어 */
+    .audio-section {
+      margin-bottom: 20px;
+      padding: 12px 14px;
+      background: #f5f5f5;
+      border-radius: 8px;
+    }
+    .audio-section audio { width: 100%; margin-top: 6px; }
+
+    /* JSON 토글 */
+    details summary { cursor: pointer; font-weight: 600; margin: 10px 0 6px; font-size: 13px; }
+    pre.json {
+      background: #f5f5f5;
+      padding: 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      max-height: 300px;
+      overflow: auto;
+      white-space: pre;
+    }
+
+    /* 구분선 */
+    .divider { border: none; border-top: 2px solid #eee; margin: 40px 0; }
+
+    /* 기록 목록 */
+    .empty { text-align: center; color: #888; padding: 30px 0; }
+
+    .card {
+      border: 1px solid #ddd;
+      border-radius: 10px;
+      margin-bottom: 12px;
+      background: #fff;
+      overflow: hidden;
+    }
+    .card-head {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 16px;
+      cursor: pointer;
+      background: #fafafa;
+      flex-wrap: wrap;
+    }
+    .card-head:hover { background: #f0f4f9; }
+
+    .card-title { font-weight: 600; font-size: 14px; flex: 1; min-width: 100px; }
+    .card-meta { font-size: 12px; color: #666; }
+
+    .chev { font-size: 11px; transition: transform 0.15s; }
+    .card.open .chev { transform: rotate(90deg); }
+
+    .pill {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      background: #eee;
+    }
+    .pill.blue  { background: #e3f2fd; color: #1565c0; }
+    .pill.green { background: #e8f5e9; color: #2e7d32; }
+
+    .card-body { display: none; padding: 16px; border-top: 1px solid #eee; }
+    .card.open .card-body { display: block; }
+
+    /* 기록 카드 내부 요약 */
+    .mini-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+    .mini-card {
+      background: #f9f9f9;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      padding: 10px;
+      text-align: center;
+    }
+    .mini-card .label { font-size: 11px; color: #888; }
+    .mini-card .value { font-size: 20px; font-weight: 700; }
+  </style>
+</head>
+<body>
+
+  <h1>음성 분석</h1>
+  <div class="subtitle">동영상을 업로드하면 오디오를 추출하고 Gemini AI로 음성을 분석합니다.</div>
+
+  <!-- 업로드 + 버튼 -->
+  <div class="upload-area">
+    <input type="file" id="file-input" accept="video/*" />
+    <button id="start-btn" onclick="startAnalysis()">분석 시작</button>
+    <span id="status" class="status">대기 중</span>
+  </div>
+
+  <!-- 진행 로그 -->
+  <div id="log"></div>
+
+  <!-- 분석 결과 (완료 후 표시) -->
+  <div class="result-section" id="result-section">
+    <h3>분석 요약</h3>
+    <div class="summary-grid">
+      <div class="summary-card">
+        <div class="label">말 속도</div>
+        <div class="value" id="speech-rate">-</div>
+        <div class="label">단어/분</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">총 무음 시간</div>
+        <div class="value" id="total-silence">-</div>
+        <div class="label">초</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">필러단어 횟수</div>
+        <div class="value" id="filler-total">-</div>
+        <div class="label">번</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">말 더듬 횟수</div>
+        <div class="value" id="stutter-total">-</div>
+        <div class="label">번</div>
+      </div>
+    </div>
+
+    <!-- 오디오 플레이어 -->
+    <div class="audio-section" id="audio-section" style="display:none;">
+      <strong>녹음 재생</strong> <span style="font-size:12px;color:#888">필러단어 시각 클릭 시 해당 구간으로 이동</span>
+      <audio id="audio-player" controls preload="metadata"></audio>
+    </div>
+
+    <h3>발화 스크립트 <span style="font-size:12px;color:#888;font-weight:400">(재생 중 해당 문장 강조)</span></h3>
+    <div class="transcript-box" id="transcript-box"></div>
+
+    <h3>필러단어</h3>
+    <table>
+      <thead><tr><th>단어</th><th>횟수</th><th>등장 시각 (클릭하면 이동)</th></tr></thead>
+      <tbody id="filler-body"></tbody>
+    </table>
+
+    <h3>말 더듬 <span style="font-size:12px;color:#888;font-weight:400">(같은 단어 연속 반복)</span></h3>
+    <table>
+      <thead><tr><th>단어</th><th>횟수</th><th>등장 시각 (클릭하면 이동)</th></tr></thead>
+      <tbody id="stutter-body"></tbody>
+    </table>
+
+    <h3>무음 구간</h3>
+    <ul class="silence-list" id="silence-list"></ul>
+
+    <h3>개선 포인트</h3>
+    <div class="notes-box" id="notes-box"></div>
+
+    <details>
+      <summary>원본 JSON 보기</summary>
+      <pre class="json" id="raw-json"></pre>
+    </details>
+  </div>
+
+  <!-- 구분선 -->
+  <hr class="divider" />
+
+  <!-- 기록 목록 -->
+  <h2>이전 분석 기록</h2>
+  <div id="history-list">
+    <div class="empty">불러오는 중...</div>
+  </div>
+
+<script>
+  // ──────────────────────────────────────────
+  // 공통 유틸 함수
+  // ──────────────────────────────────────────
+
+  function escapeHtml(str) {
+    return String(str || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  }
+
+  // 초(seconds)를 "MM분 SS.s초" 형식으로 변환
+  function formatDuration(sec) {
+    const m = Math.floor(sec / 60);
+    const s = (sec % 60).toFixed(1);
+    return m > 0 ? `${m}분 ${s}초` : `${s}초`;
+  }
+
+  function formatSize(bytes) {
+    return (bytes / 1024 / 1024).toFixed(1) + " MB";
+  }
+
+  function formatTime(iso) {
+    return iso ? iso.replace("T", " ") : "-";
+  }
+
+  // "MM:SS" → 초(number)
+  function tsToSec(ts) {
+    if (!ts) return 0;
+    const parts = ts.split(":");
+    return parseInt(parts[0] || 0) * 60 + parseInt(parts[1] || 0);
+  }
+
+  // 현재 분석 job id (오디오 재생에 사용)
+  let currentJobId = null;
+
+  // ──────────────────────────────────────────
+  // 분석 실행
+  // ──────────────────────────────────────────
+
+  function log(msg) {
+    const time = new Date().toLocaleTimeString();
+    document.getElementById("log").textContent += `[${time}] ${msg}\n`;
+    document.getElementById("log").scrollTop = 9999;
+  }
+
+  function setStatus(text, cls) {
+    const el = document.getElementById("status");
+    el.className = "status " + (cls || "");
+    el.textContent = text;
+  }
+
+  // ──────────────────────────────────────────
+  // 인터랙티브 전사문 렌더링
+  // ──────────────────────────────────────────
+
+  // 문장별 span을 렌더링하고 오디오 timeupdate로 하이라이트
+  function renderTranscript(sentences, audioEl) {
+    const box = document.getElementById("transcript-box");
+    if (!sentences || sentences.length === 0) {
+      box.textContent = "(내용 없음)";
+      return;
+    }
+    renderTranscriptInto(box, sentences, audioEl);
+  }
+
+  // 오디오를 특정 시각(초)으로 이동 후 재생
+  function seekAndPlay(audioEl, sec) {
+    function go() {
+      audioEl.currentTime = sec;
+      setTimeout(function() {
+        audioEl.play().catch(function(){});
+      }, 300);
+    }
+
+    if (audioEl.readyState >= 1) {
+      go();
+    } else {
+      audioEl.addEventListener("loadedmetadata", go, { once: true });
+    }
+  }
+
+  function seekAudio(sec) {
+    const audio = document.getElementById("audio-player");
+    if (!audio || !audio.getAttribute("src")) return;
+    seekAndPlay(audio, sec);
+    // 해당 문장 스크롤
+    const box = document.getElementById("transcript-box");
+    if (!box) return;
+    for (const sp of box.querySelectorAll(".sentence")) {
+      if (parseFloat(sp.dataset.start) <= sec && sec < parseFloat(sp.dataset.end)) {
+        sp.scrollIntoView({ behavior: "smooth", block: "center" });
+        break;
+      }
+    }
+  }
+
+  // ──────────────────────────────────────────
+  // 결과 표시
+  // ──────────────────────────────────────────
+
+  function showResult(data) {
+    document.getElementById("speech-rate").textContent = data.speech_rate_wpm ?? "-";
+    document.getElementById("total-silence").textContent = data.total_silence_sec?.toFixed(1) ?? "-";
+    document.getElementById("filler-total").textContent = data.filler_total ?? "-";
+    document.getElementById("stutter-total").textContent = data.stutter_total ?? "-";
+    document.getElementById("notes-box").textContent = data.notes || "특이사항 없음";
+    document.getElementById("raw-json").textContent = JSON.stringify(data, null, 2);
+
+    // 오디오 플레이어 설정
+    const audioEl = document.getElementById("audio-player");
+    if (currentJobId) {
+      audioEl.src = `/voice-audio/${currentJobId}`;
+      document.getElementById("audio-section").style.display = "block";
+    }
+
+    // 인터랙티브 전사문 렌더링
+    const sentences = data.transcript_sentences;
+    if (sentences && sentences.length > 0) {
+      renderTranscript(sentences, audioEl);
+    } else {
+      // 문장 타임스탬프 없으면 텍스트로 표시
+      const box = document.getElementById("transcript-box");
+      box.textContent = data.transcript || "(내용 없음)";
+    }
+
+    // 필러단어 테이블 (타임스탬프 클릭 가능)
+    const tbody = document.getElementById("filler-body");
+    tbody.innerHTML = "";
+    const fillers = data.filler_words || [];
+    if (fillers.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="3">필러단어 없음</td></tr>';
+    } else {
+      fillers.forEach(function(f) {
+        const tr = document.createElement("tr");
+        const timestamps = f.timestamps || [];
+        const tsBtns = timestamps.map(function(ts) {
+          return `<button type="button" class="ts-btn" onclick="seekAudio(${tsToSec(ts)})">${escapeHtml(ts)}</button>`;
+        }).join("");
+        tr.innerHTML = `<td><strong>${escapeHtml(f.word)}</strong></td><td>${f.count}번</td><td>${tsBtns || "-"}</td>`;
+        tbody.appendChild(tr);
+      });
+    }
+
+    // 말 더듬
+    const stutterBody = document.getElementById("stutter-body");
+    stutterBody.innerHTML = "";
+    const stutters = data.stutter_words || [];
+    if (stutters.length === 0) {
+      stutterBody.innerHTML = '<tr><td colspan="3">말 더듬 없음</td></tr>';
+    } else {
+      stutters.forEach(function(s) {
+        const tr = document.createElement("tr");
+        const tsBtns = (s.timestamps || []).map(function(ts) {
+          return `<button type="button" class="ts-btn" onclick="seekAudio(${tsToSec(ts)})">${escapeHtml(ts)}</button>`;
+        }).join("");
+        tr.innerHTML = `<td><strong>${escapeHtml(s.word)}</strong></td><td>${s.count}번</td><td>${tsBtns || "-"}</td>`;
+        stutterBody.appendChild(tr);
+      });
+    }
+
+    // 무음 구간
+    const silenceList = document.getElementById("silence-list");
+    silenceList.innerHTML = "";
+    const intervals = data.silence_intervals || [];
+    if (intervals.length === 0) {
+      silenceList.innerHTML = "<li>무음 구간 없음</li>";
+    } else {
+      intervals.forEach(function(s, i) {
+        const li = document.createElement("li");
+        li.textContent = `구간 ${i + 1}: ${formatDuration(s.start_sec)} ~ ${formatDuration(s.end_sec)} (${s.duration_sec?.toFixed(1)}초간)`;
+        silenceList.appendChild(li);
+      });
+    }
+
+    document.getElementById("result-section").style.display = "block";
+    document.getElementById("result-section").scrollIntoView({ behavior: "smooth" });
+  }
+
+  async function startAnalysis() {
+    const fileInput = document.getElementById("file-input");
+    const file = fileInput.files[0];
+    if (!file) { alert("동영상 파일을 선택하세요."); return; }
+
+    // 초기화
+    document.getElementById("log").textContent = "";
+    document.getElementById("result-section").style.display = "none";
+    document.getElementById("start-btn").disabled = true;
+    setStatus("업로드 중...", "running");
+    log(`파일: ${file.name} (${formatSize(file.size)})`);
+
+    const endpoint = "/voice-analyze";
+    log("분석 방식: Gemini");
+
+    // 서버에 업로드
+    let jobId;
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch(endpoint, { method: "POST", body: formData });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      jobId = data.job_id;
+      currentJobId = jobId;
+      log(`업로드 완료. 분석 시작...`);
+    } catch (e) {
+      log(`업로드 실패: ${e.message}`);
+      setStatus("오류", "error");
+      document.getElementById("start-btn").disabled = false;
+      return;
+    }
+
+    // SSE로 진행 상황 수신
+    setStatus("분석 중...", "running");
+    const es = new EventSource(`/events/${jobId}`);
+
+    es.addEventListener("voice_extracting",        () => log("오디오 추출 중..."));
+    es.addEventListener("voice_extracted",         () => log("오디오 추출 완료"));
+    es.addEventListener("voice_concat_done",       () => log("전체 오디오 파일 생성 완료"));
+    es.addEventListener("voice_transcribing",      () => log("GPT-4o 전사 중..."));
+    es.addEventListener("voice_transcribed",       () => log("전사 완료"));
+    es.addEventListener("voice_silence_detecting", () => log("무음 구간 탐지 중..."));
+    es.addEventListener("voice_silence_detected",  () => log("무음 구간 탐지 완료"));
+    es.addEventListener("voice_analyzing",         () => log("Gemini AI 분석 중... (시간이 걸릴 수 있습니다)"));
+    es.addEventListener("voice_retry", function(e) {
+      const d = JSON.parse(e.data);
+      log(`재시도 중... (${d.attempt}번째)`);
+    });
+    es.addEventListener("done", function(e) {
+      const result = JSON.parse(e.data);
+      log("분석 완료!");
+      setStatus("완료", "done");
+      document.getElementById("start-btn").disabled = false;
+      showResult(result);
+      es.close();
+      loadHistory(); // 기록 목록 새로고침
+    });
+    es.addEventListener("error", function(e) {
+      if (e.data) {
+        log(`오류: ${JSON.parse(e.data).message}`);
+      } else {
+        log("연결 끊김");
+      }
+      setStatus("오류", "error");
+      document.getElementById("start-btn").disabled = false;
+      es.close();
+    });
+  }
+
+  // ──────────────────────────────────────────
+  // 기록 목록
+  // ──────────────────────────────────────────
+
+  async function loadHistory() {
+    const listEl = document.getElementById("history-list");
+    try {
+      const res = await fetch("/api/voice-history");
+      const items = await res.json();
+
+      listEl.innerHTML = "";
+      if (items.length === 0) {
+        listEl.innerHTML = '<div class="empty">아직 분석 기록이 없습니다.</div>';
+        return;
+      }
+      items.forEach(function(item) {
+        listEl.appendChild(makeHistoryCard(item));
+      });
+    } catch (e) {
+      listEl.innerHTML = '<div class="empty">기록을 불러오지 못했습니다.</div>';
+    }
+  }
+
+  function makeHistoryCard(item) {
+    const card = document.createElement("div");
+    card.className = "card";
+    card.innerHTML = `
+      <div class="card-head">
+        <span class="chev">▶</span>
+        <div class="card-title">${escapeHtml(item.original_name)}</div>
+        <span class="card-meta">${formatTime(item.uploaded_at)}</span>
+        <span class="pill">${formatSize(item.size_bytes)}</span>
+        <span class="pill blue">${item.speech_rate_wpm ?? "-"} 단어/분</span>
+        <span class="pill green">필러 ${item.filler_total ?? "-"}번</span>
+      </div>
+      <div class="card-body"></div>
+    `;
+    card.querySelector(".card-head").addEventListener("click", function() {
+      toggleHistoryCard(card, item.job_id);
+    });
+    return card;
+  }
+
+  async function toggleHistoryCard(card, jobId) {
+    const body = card.querySelector(".card-body");
+
+    if (card.classList.contains("open")) {
+      card.classList.remove("open");
+      return;
+    }
+    card.classList.add("open");
+
+    if (body.dataset.loaded === "1") return;
+
+    body.innerHTML = '<div class="empty">로드 중...</div>';
+    try {
+      const res = await fetch(`/api/voice-history/${jobId}`);
+      const data = await res.json();
+      body.innerHTML = makeHistoryDetail(data.result, jobId);
+      body.dataset.loaded = "1";
+    } catch (e) {
+      body.innerHTML = `<div class="empty">로드 실패: ${e.message}</div>`;
+    }
+  }
+
+  function makeHistoryDetail(result, jobId) {
+    // 요약
+    const summary = `
+      <div class="mini-grid">
+        <div class="mini-card"><div class="label">말 속도</div><div class="value">${result.speech_rate_wpm ?? "-"}</div><div class="label">단어/분</div></div>
+        <div class="mini-card"><div class="label">무음 시간</div><div class="value">${result.total_silence_sec?.toFixed(1) ?? "-"}</div><div class="label">초</div></div>
+        <div class="mini-card"><div class="label">필러단어</div><div class="value">${result.filler_total ?? "-"}</div><div class="label">번</div></div>
+        <div class="mini-card"><div class="label">말 더듬</div><div class="value">${result.stutter_total ?? "-"}</div><div class="label">번</div></div>
+      </div>
+    `;
+
+    // 고유 ID (같은 페이지에 여러 카드가 있을 수 있으므로)
+    const uid = jobId || Math.random().toString(36).slice(2);
+
+    // 오디오 플레이어
+    const audioSection = `
+      <div class="audio-section">
+        <strong>녹음 재생</strong>
+        <audio id="audio-${uid}" controls preload="metadata" src="/voice-audio/${uid}"></audio>
+      </div>
+    `;
+
+    // 인터랙티브 전사문 (script는 나중에 별도 실행)
+    const transcriptSection = `
+      <h3>발화 스크립트 <span style="font-size:12px;color:#888;font-weight:400">(재생 중 해당 문장 강조)</span></h3>
+      <div class="transcript-box" id="tb-${uid}"></div>
+    `;
+
+    // 필러단어 (타임스탬프 클릭 → 해당 오디오 ID로 seek)
+    const fillers = result.filler_words || [];
+    let fillerRows = fillers.length === 0
+      ? '<tr><td colspan="3">없음</td></tr>'
+      : fillers.map(f => {
+          const tsBtns = (f.timestamps || []).map(ts =>
+            `<button type="button" class="ts-btn" onclick="seekHistoryAudio('${uid}',${tsToSec(ts)})">${escapeHtml(ts)}</button>`
+          ).join("");
+          return `<tr><td><strong>${escapeHtml(f.word)}</strong></td><td>${f.count}번</td><td>${tsBtns || "-"}</td></tr>`;
+        }).join("");
+    const fillerTable = `<h3>필러단어</h3><table><thead><tr><th>단어</th><th>횟수</th><th>등장 시각 (클릭하면 이동)</th></tr></thead><tbody>${fillerRows}</tbody></table>`;
+
+    // 말 더듬
+    const stutters = result.stutter_words || [];
+    let stutterRows = stutters.length === 0
+      ? '<tr><td colspan="3">없음</td></tr>'
+      : stutters.map(s => {
+          const tsBtns = (s.timestamps || []).map(ts =>
+            `<button type="button" class="ts-btn" onclick="seekHistoryAudio('${uid}',${tsToSec(ts)})">${escapeHtml(ts)}</button>`
+          ).join("");
+          return `<tr><td><strong>${escapeHtml(s.word)}</strong></td><td>${s.count}번</td><td>${tsBtns || "-"}</td></tr>`;
+        }).join("");
+    const stutterTable = `<h3>말 더듬 <span style="font-size:12px;color:#888;font-weight:400">(같은 단어 연속 반복)</span></h3><table><thead><tr><th>단어</th><th>횟수</th><th>등장 시각 (클릭하면 이동)</th></tr></thead><tbody>${stutterRows}</tbody></table>`;
+
+    // 무음 구간
+    const intervals = result.silence_intervals || [];
+    let silenceItems = intervals.length === 0
+      ? "<li>없음</li>"
+      : intervals.map((s, i) => `<li>구간 ${i + 1}: ${formatDuration(s.start_sec)} ~ ${formatDuration(s.end_sec)} (${s.duration_sec?.toFixed(1)}초간)</li>`).join("");
+    const silenceSection = `<h3>무음 구간</h3><ul class="silence-list">${silenceItems}</ul>`;
+
+    const notes = `<h3>개선 포인트</h3><div class="notes-box">${escapeHtml(result.notes || "특이사항 없음")}</div>`;
+    const jsonSection = `<details><summary>원본 JSON 보기</summary><pre class="json">${escapeHtml(JSON.stringify(result, null, 2))}</pre></details>`;
+
+    // 렌더링 후 전사문 + timeupdate 연결 (setTimeout으로 DOM 삽입 후 실행)
+    setTimeout(function() {
+      const audioEl = document.getElementById(`audio-${uid}`);
+      const sentences = result.transcript_sentences;
+      const tbEl = document.getElementById(`tb-${uid}`);
+      if (!tbEl) return;
+      if (sentences && sentences.length > 0) {
+        renderTranscriptInto(tbEl, sentences, audioEl);
+      } else {
+        tbEl.textContent = result.transcript || "(없음)";
+      }
+    }, 0);
+
+    return summary + audioSection + transcriptSection + fillerTable + stutterTable + silenceSection + notes + jsonSection;
+  }
+
+  // 히스토리 카드에서 오디오 seek
+  function seekHistoryAudio(uid, sec) {
+    const audio = document.getElementById(`audio-${uid}`);
+    if (!audio) return;
+    seekAndPlay(audio, sec);
+    const tb = document.getElementById(`tb-${uid}`);
+    if (!tb) return;
+    for (const sp of tb.querySelectorAll(".sentence")) {
+      if (parseFloat(sp.dataset.start) <= sec && sec < parseFloat(sp.dataset.end)) {
+        sp.scrollIntoView({ behavior: "smooth", block: "center" });
+        break;
+      }
+    }
+  }
+
+  // 특정 DOM 요소에 전사문 렌더링 (히스토리 카드용 범용 버전)
+  function renderTranscriptInto(box, sentences, audioEl) {
+    box.innerHTML = "";
+    sentences.forEach(function(s, idx) {
+      const span = document.createElement("span");
+      span.className = "sentence";
+      span.textContent = s.text;
+      span.dataset.start = tsToSec(s.start);
+      span.dataset.end = tsToSec(s.end);
+      span.addEventListener("click", function(e) {
+        e.preventDefault();
+        if (audioEl) seekAndPlay(audioEl, parseFloat(span.dataset.start));
+      });
+      box.appendChild(span);
+      if (idx < sentences.length - 1) box.appendChild(document.createTextNode(" "));
+    });
+    if (audioEl) {
+      audioEl.addEventListener("timeupdate", function() {
+        const cur = audioEl.currentTime;
+        box.querySelectorAll(".sentence").forEach(function(sp) {
+          sp.classList.toggle("active", cur >= parseFloat(sp.dataset.start) && cur < parseFloat(sp.dataset.end));
+        });
+      });
+    }
+  }
+
+  // 페이지 로드 시 기록 불러오기
+  loadHistory();
+</script>
+
+</body>
+</html>

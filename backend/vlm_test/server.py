@@ -17,11 +17,11 @@ from datetime import datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, UploadFile
+from fastapi import FastAPI, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import analyzer, scoring
+from . import analyzer, scoring, voice_analyzer
 from .analyzer import split_video
 
 load_dotenv()
@@ -30,6 +30,10 @@ BASE_DIR = Path(__file__).parent
 STATIC_DIR = BASE_DIR / "static"
 WORK_DIR = BASE_DIR / "work"
 WORK_DIR.mkdir(exist_ok=True)
+
+# 음성 분석 결과 저장 폴더 (VLM과 분리해서 관리)
+VOICE_DIR = BASE_DIR / "voice_uploads"
+VOICE_DIR.mkdir(exist_ok=True)
 
 app = FastAPI(title="Podium VLM Test")
 
@@ -622,6 +626,211 @@ def api_smart_analyze_detail(job_id: str) -> dict:
         "meta": json.loads(meta_path.read_text(encoding="utf-8")),
         "result": json.loads(result_path.read_text(encoding="utf-8")),
         "log": log_events,
+    }
+
+
+# ---------------------------------------------------------------------------
+# 음성 분석 엔드포인트
+# ---------------------------------------------------------------------------
+
+@app.get("/voice-analyze")
+def voice_analyze_page() -> FileResponse:
+    """음성 분석 페이지"""
+    return FileResponse(STATIC_DIR / "voice-analyze.html")
+
+
+@app.post("/voice-analyze")
+async def voice_analyze(file: UploadFile) -> dict:
+    """동영상 업로드 → 오디오 추출 → Gemini 음성 분석 (SSE로 진행상황 전달)"""
+
+    # API 키 확인
+    api_key = os.environ.get("GEMINI_API_KEY", "")
+    if not api_key:
+        raise HTTPException(500, "GEMINI_API_KEY가 없습니다. backend/.env 파일에 추가하세요.")
+
+    # voice_uploads 폴더 안에 job 폴더 생성
+    # 예: backend/vlm_test/voice_uploads/voice_abc123/
+    job_id = "voice_" + uuid.uuid4().hex[:10]
+    job_dir = VOICE_DIR / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+
+    # 업로드된 영상 저장
+    suffix = Path(file.filename or "video.mp4").suffix or ".mp4"
+    video_path = job_dir / f"input{suffix}"
+    with video_path.open("wb") as f:
+        shutil.copyfileobj(file.file, f)
+
+    # 메타 정보 저장 (나중에 기록 조회할 때 사용)
+    meta = {
+        "job_id": job_id,
+        "original_name": file.filename or "unknown",
+        "uploaded_at": datetime.now().isoformat(timespec="seconds"),
+        "size_bytes": video_path.stat().st_size,
+        "kind": "voice-analyze",
+    }
+    (job_dir / "meta.json").write_text(
+        json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+    # SSE 이벤트 큐 설정
+    queue = asyncio.Queue()
+    loop = asyncio.get_running_loop()
+    _jobs[job_id] = {"queue": queue, "loop": loop}
+    log_path = job_dir / "log.jsonl"
+
+    def on_event(event_type, data):
+        """분석 진행 상황을 로그에 저장하고 SSE로 전달하는 함수"""
+        record = {
+            "ts": datetime.now().isoformat(timespec="milliseconds"),
+            "type": event_type,
+            "data": data,
+        }
+        try:
+            with log_path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        except OSError:
+            pass
+        loop.call_soon_threadsafe(queue.put_nowait, {"type": event_type, "data": data})
+
+    async def runner():
+        """백그라운드에서 음성 분석 실행"""
+        try:
+            result = await asyncio.to_thread(
+                voice_analyzer.run_voice_analysis,
+                video_path, job_dir, api_key, on_event,
+            )
+            if result:
+                # 전체 결과 JSON 저장
+                (job_dir / "voice_result.json").write_text(
+                    json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8"
+                )
+                # 스크립트만 별도 txt 파일로도 저장
+                transcript = result.get("transcript", "")
+                if transcript:
+                    (job_dir / "transcript.txt").write_text(transcript, encoding="utf-8")
+        except Exception as e:
+            on_event("error", {"message": str(e)})
+
+    asyncio.create_task(runner())
+    return {"job_id": job_id}
+
+
+# ---------------------------------------------------------------------------
+# 음성 분석 히스토리 엔드포인트
+# ---------------------------------------------------------------------------
+
+@app.get("/voice-history")
+def voice_history_page() -> FileResponse:
+    """음성 분석 기록 페이지"""
+    return FileResponse(STATIC_DIR / "voice-analyze-history.html")
+
+
+@app.get("/api/voice-history")
+def api_voice_history() -> list[dict]:
+    """voice_uploads 폴더에서 완료된 분석 목록을 최신순으로 반환"""
+    items = []
+
+    for job_dir in VOICE_DIR.iterdir():
+        if not job_dir.is_dir():
+            continue
+
+        meta_path = job_dir / "meta.json"
+        result_path = job_dir / "voice_result.json"
+
+        # 둘 다 있어야 완료된 분석으로 간주
+        if not meta_path.exists() or not result_path.exists():
+            continue
+
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            result = json.loads(result_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+
+        items.append({
+            **meta,
+            "speech_rate_wpm": result.get("speech_rate_wpm"),
+            "filler_total": result.get("filler_total"),
+            "total_silence_sec": result.get("total_silence_sec"),
+        })
+
+    # 최신 업로드 순으로 정렬
+    items.sort(key=lambda x: x.get("uploaded_at", ""), reverse=True)
+    return items
+
+
+@app.get("/voice-audio/{job_id}")
+async def voice_audio(job_id: str, request: Request):
+    """오디오 파일 서빙 - Range 요청 직접 처리 (브라우저 seek 지원)"""
+    audio_path = VOICE_DIR / job_id / "full_audio.wav"
+    if not audio_path.exists():
+        raise HTTPException(404, f"오디오 파일 없음: {job_id}")
+
+    file_size = audio_path.stat().st_size
+    range_header = request.headers.get("range", "")
+
+    # Range 요청 처리 (브라우저가 seek 할 때 이 헤더를 보냄)
+    if range_header.startswith("bytes="):
+        parts = range_header[6:].split("-")
+        start = int(parts[0]) if parts[0] else 0
+        end = int(parts[1]) if len(parts) > 1 and parts[1] else file_size - 1
+        end = min(end, file_size - 1)
+        content_length = end - start + 1
+
+        async def read_range():
+            with open(audio_path, "rb") as f:
+                f.seek(start)
+                remaining = content_length
+                while remaining > 0:
+                    chunk = f.read(min(65536, remaining))
+                    if not chunk:
+                        break
+                    yield chunk
+                    remaining -= len(chunk)
+
+        return StreamingResponse(
+            read_range(),
+            status_code=206,
+            media_type="audio/wav",
+            headers={
+                "Content-Range": f"bytes {start}-{end}/{file_size}",
+                "Content-Length": str(content_length),
+                "Accept-Ranges": "bytes",
+            },
+        )
+
+    # 일반 요청 (Range 없음) - 파일 전체 스트리밍
+    async def read_full():
+        with open(audio_path, "rb") as f:
+            while True:
+                chunk = f.read(65536)
+                if not chunk:
+                    break
+                yield chunk
+
+    return StreamingResponse(
+        read_full(),
+        media_type="audio/wav",
+        headers={
+            "Content-Length": str(file_size),
+            "Accept-Ranges": "bytes",
+        },
+    )
+
+
+@app.get("/api/voice-history/{job_id}")
+def api_voice_history_detail(job_id: str) -> dict:
+    """특정 job의 상세 결과 반환"""
+    job_dir = VOICE_DIR / job_id
+    meta_path = job_dir / "meta.json"
+    result_path = job_dir / "voice_result.json"
+
+    if not meta_path.exists() or not result_path.exists():
+        raise HTTPException(404, f"해당 분석 결과 없음: {job_id}")
+
+    return {
+        "meta": json.loads(meta_path.read_text(encoding="utf-8")),
+        "result": json.loads(result_path.read_text(encoding="utf-8")),
     }
 
 
