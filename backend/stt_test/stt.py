@@ -112,6 +112,13 @@ def transcribe(
       - condition_on_previous_text=False : 긴 무음이 많은 발표 영상에서
         Whisper 가 직전 문장을 반복 생성하는 환각을 줄임.
     """
+    # `hf:` 접두사면 transformers 런타임으로 위임.
+    # 비유창성 토큰을 추가한 파인튜닝 모델은 CTranslate2 에서 토큰이 소실되고
+    # 세그먼트가 깨지기 때문 — 자세한 이유는 stt_hf.py 상단 참고.
+    if model_size.startswith("hf:"):
+        from stt_test.stt_hf import transcribe_hf
+        return transcribe_hf(wav_path, model_size[3:], language=language)
+
     from faster_whisper import WhisperModel  # 무거우므로 lazy import
 
     t0 = time.perf_counter()

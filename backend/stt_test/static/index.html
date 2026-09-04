@@ -77,6 +77,9 @@
   .swatch { display: inline-block; width: 11px; height: 11px; border-radius: 3px;
             vertical-align: -1px; margin-right: 3px; border: 1px solid var(--line); }
   .seek { padding: 2px 9px; font-size: 12px; }
+  .preset { padding: 2px 10px; font-size: 12px; margin-left: 4px; }
+  .tagmark { background: #a855f733; border: 1px solid #a855f7; border-radius: 4px;
+             padding: 0 3px; font-size: 12px; }
   audio.full { width: 100%; height: 34px; margin-top: 6px; }
 </style>
 
@@ -102,25 +105,11 @@
     <span style="width:14px"></span>
     <span id="single">
       <label>모델</label>
-      <select id="model">
-        <option value="small">small — 빠름 (~500MB)</option>
-        <option value="large-v3-turbo">large-v3-turbo — 절충 (~1.6GB)</option>
-        <option value="large-v3">large-v3 — 정확 (~3GB)</option>
-        <option value="medium">medium</option>
-        <option value="large-v2">large-v2</option>
-        <option value="base">base</option>
-        <option value="tiny">tiny</option>
-      </select>
+      <select id="model" style="max-width:340px"></select>
     </span>
-    <span id="models">
+    <span id="models" style="display:none">
       <label>비교할 모델</label>
-      <label><input type="checkbox" class="mm" value="tiny"> tiny</label>
-      <label><input type="checkbox" class="mm" value="base"> base</label>
-      <label><input type="checkbox" class="mm" value="small" checked> small</label>
-      <label><input type="checkbox" class="mm" value="medium"> medium</label>
-      <label><input type="checkbox" class="mm" value="large-v2"> large-v2</label>
-      <label><input type="checkbox" class="mm" value="large-v3-turbo" checked> large-v3-turbo</label>
-      <label><input type="checkbox" class="mm" value="large-v3" checked> large-v3</label>
+      <span id="mmlist" style="display:inline-flex;gap:10px;flex-wrap:wrap"></span>
     </span>
     <label><input type="checkbox" id="verbatim"> 필러 유도 프롬프트</label>
     <label id="kwcmpwrap"><input type="checkbox" id="kwcompare"> 키워드 유무 비교</label>
@@ -154,6 +143,7 @@ let mode = "full", jobId = null, data = null, labels = {}, filter = "all", pane 
 let silSort = "time";   // time | dur — 무음 표 정렬
 let silMin  = null;     // 무음 최소 길이(초). null 이면 서버 기본값 사용
 let fth     = null;     // 음향 후보 판정 임계값. null 이면 서버 기본값 사용
+let txtPane = null;     // 전사문 토글에서 보고 있는 모델 (필러 탭과 독립)
 
 const $ = s => document.querySelector(s);
 const logEl = $("#log");
@@ -165,7 +155,20 @@ function fmt(t){ const m=Math.floor(t/60), s=(t%60).toFixed(1).padStart(4,"0"); 
 const HINTS = {
   full: "전체 분석: 무음 + STT + 필러 + 발화속도.",
   compare: "경로 비교: STT 를 한 번만 돌려 «어휘 경로» 와 «음향 경로만» 을 나란히 비교합니다.",
-  models: "모델 비교: 같은 오디오를 여러 STT 모델로 돌려 전사문·지표·소요시간을 비교합니다. 모델 수만큼 STT 가 반복돼 오래 걸립니다. CTranslate2 형식이면 임의의 HuggingFace 모델 ID 도 넣을 수 있습니다.",
+  models: `같은 오디오를 여러 모델로 돌려 전사문·지표·속도를 나란히 비교합니다.
+    <b>모델 수만큼 STT 가 반복</b>되므로 긴 녹음은 오래 걸립니다.
+    <div style="margin-top:6px;line-height:1.9">
+      <b>추천 조합</b>
+      <button class="preset" data-preset="small,large-v3-turbo,large-v3">속도·품질 절충</button>
+      <button class="preset" data-preset="small,LOCAL_CRISPER,hf:rearleg/SeloWhisper-ko-disfluency">필러·반복 정확도</button>
+      <br>
+      <span style="opacity:.85">
+      · <b>small</b> 가장 빠름(실시간 9배). 비교 기준선<br>
+      · <b>large-v3-turbo</b> large-v3 의 절반 시간, 품질은 근접<br>
+      · <b>crisper-ko</b> verbatim — 필러·반복을 안 지우고 전사. <span style="color:#ca8a04">비상업/연구 한정</span><br>
+      · <b>SeloWhisper</b> 필러를 &lt;um&gt;/&lt;uh&gt; 로 직접 태깅. MIT. transformers 라 느림
+      </span>
+    </div>`,
   silence: "무음만: STT 를 생략해 즉시 끝납니다. 3-1 검증용.",
 };
 
@@ -175,16 +178,57 @@ fetch("/api/sources").then(r=>r.json()).then(list => {
   list.forEach(s => sel.add(new Option(`${s.session} (${s.size_mb}MB)`, s.path)));
 });
 
+// --- 모델 목록 (내장 프리셋 + stt_test/models/ 로컬 변환 모델) ---
+const DEFAULT_CHECKED = new Set(["small"]);   // 로컬 모델은 아래에서 자동 체크
+fetch("/api/models").then(r => r.json()).then(list => {
+  const sel = $("#model"), box = $("#mmlist");
+  const note = m => m.kind === "local" ? ` · 로컬 ${m.size_mb}MB`
+                  : m.kind === "hf" ? " · transformers" : "";
+  for (const m of list) {
+    sel.add(new Option(
+      m.label + (m.kind === "local" ? " (로컬 변환)" : "") + (m.warn ? " ⚠" : ""), m.id));
+    void 0;
+    // 경고가 붙은 모델은 기본 선택에서 제외 — 결과가 깨진 채 비교되는 걸 막음
+    const on = DEFAULT_CHECKED.has(m.id)
+      || ((m.kind === "local" || m.kind === "hf") && !m.warn);
+    box.insertAdjacentHTML("beforeend",
+      `<label title="${esc(m.note || m.id)}"><input type="checkbox" class="mm"
+        value="${esc(m.id)}" ${on ? "checked" : ""}> ${esc(m.label)}${
+        m.warn ? '<span style="color:#dc2626"> ⚠</span>'
+               : m.status === "ok" ? '<span style="color:#16a34a"> ✓</span>' : ""}<span
+        style="opacity:.5">${note(m)}${m.license ? " · " + esc(m.license) : ""}</span></label>`);
+  }
+  sel.value = "small";
+  const warned = list.filter(m => m.warn);
+  if (warned.length) {
+    box.insertAdjacentHTML("afterend",
+      `<div style="flex-basis:100%;font-size:12px;color:#dc2626;margin-top:4px">⚠ ${
+        warned.map(m => esc(m.label)).join(", ")}: ${esc(warned[0].warn)}</div>`);
+  }
+});
+
 // --- 모드 토글 ---
 document.querySelectorAll("[data-mode]").forEach(b => b.onclick = () => {
   document.querySelectorAll("[data-mode]").forEach(x => x.classList.remove("on"));
   b.classList.add("on"); mode = b.dataset.mode;
-  $("#hint").textContent = HINTS[mode];
+  $("#hint").innerHTML = HINTS[mode];
+  wirePresets();
   $("#single").style.display = mode === "models" ? "none" : "";
   $("#models").style.display = mode === "models" ? "" : "none";
   $("#customrow").style.display = mode === "models" ? "flex" : "none";
   $("#kwcmpwrap").style.display = mode === "full" ? "" : "none";
 });
+
+/** 추천 조합 버튼 — 해당 모델들만 체크한다. */
+function wirePresets() {
+  document.querySelectorAll(".preset").forEach(b => b.onclick = () => {
+    const local = [...document.querySelectorAll(".mm")]
+      .map(c => c.value).find(v => v.includes("crisper")) || "";
+    const want = new Set(b.dataset.preset.split(",")
+      .map(x => x === "LOCAL_CRISPER" ? local : x).filter(Boolean));
+    document.querySelectorAll(".mm").forEach(c => { c.checked = want.has(c.value); });
+  });
+}
 
 // --- 드래그앤드롭 ---
 const drop = $("#drop");
@@ -339,7 +383,7 @@ function timelineHtml(R) {
     </div>
     <div class="tl" id="tl">${blocks}${marks}<div class="head" id="head" style="left:0"></div></div>
     <div class="axis">${ticks}</div>
-    <audio class="full" id="fullaudio" controls preload="metadata" src="/media/${jobId}/audio.wav"></audio>`;
+    <audio class="full" id="fullaudio" controls preload="metadata" src="/audio/${jobId}"></audio>`;
 }
 
 function silenceTableHtml(R) {
@@ -381,6 +425,14 @@ function firstResult() {
   return data.result;
 }
 
+/** 오디오 탐색. 메타데이터가 아직 없으면(readyState 0) 로드를 기다렸다가 이동한다.
+ *  이걸 안 하면 재생 직전에 클릭했을 때 currentTime 설정이 무시되고 0초부터 재생된다. */
+function seekTo(au, t) {
+  const go = () => { au.currentTime = t; au.play().catch(() => {}); };
+  if (au.readyState >= 1) go();                                   // HAVE_METADATA 이상
+  else au.addEventListener("loadedmetadata", go, { once: true });
+}
+
 function wireTimeline(root) {
   const tl = root.querySelector("#tl"), au = root.querySelector("#fullaudio");
   if (!tl || !au) return;
@@ -388,8 +440,7 @@ function wireTimeline(root) {
 
   tl.onclick = e => {
     const r = tl.getBoundingClientRect();
-    au.currentTime = Math.max(0, Math.min(dur, (e.clientX - r.left) / r.width * dur));
-    au.play();
+    seekTo(au, Math.max(0, Math.min(dur, (e.clientX - r.left) / r.width * dur)));
   };
   au.ontimeupdate = () => {
     const h = root.querySelector("#head");
@@ -416,7 +467,7 @@ function wireTimeline(root) {
   }
   root.querySelectorAll("[data-sort]").forEach(b => b.onclick = () => { silSort = b.dataset.sort; render(); });
   root.querySelectorAll(".seek").forEach(b => b.onclick = () => {
-    au.currentTime = parseFloat(b.dataset.t); au.play();
+    seekTo(au, parseFloat(b.dataset.t));
     au.scrollIntoView({block:"nearest", behavior:"smooth"});
   });
 }
@@ -430,6 +481,28 @@ function render() {
   wireTimeline(out);
 }
 
+/** 전사문 안의 비유창성 태그(`<um>` 등)를 눈에 띄게 표시. */
+function markTags(t) {
+  return esc(t || "").replace(/&lt;([a-z]+)&gt;/g,
+    '<span class="tagmark">&lt;$1&gt;</span>');
+}
+
+/** 모델별 전사문 토글. 한 번에 한 모델의 전문을 보여준다. */
+function transcriptToggleHtml(models, results) {
+  if (txtPane === null || !models.includes(txtPane)) txtPane = models[0];
+  const t = results[txtPane].diagnostics.full_text;
+  const syl = results[txtPane].metrics.syllable_count;
+  return `
+    <div class="row" style="margin-bottom:8px">
+      ${models.map(m => `<button data-txt="${esc(m)}" class="${txtPane===m?'on':''}"
+        >${esc(shortModel(m))}</button>`).join("")}
+      <span style="margin-left:auto;font-size:12px;opacity:.7">음절 ${syl} · ${
+        (t||"").length}자</span>
+    </div>
+    <div class="panel" style="font-size:13px;max-height:340px;overflow:auto">${
+      markTags(t) || "(없음)"}</div>`;
+}
+
 // ---------- 모델 비교 ----------
 function renderModels(out) {
   const models = data.models, R = data.results;
@@ -441,7 +514,7 @@ function renderModels(out) {
     const load = d.elapsed.stt_load_sec ?? 0;
     const rt = (mt.total_duration / (d.elapsed.stt_decode_sec || 1)).toFixed(1);
     return `<div class="box">
-      <div style="opacity:.6;font-size:12px">${m}</div>
+      <div style="opacity:.6;font-size:12px" title="${esc(m)}">${esc(shortModel(m))}</div>
       <div class="big">${d.elapsed.stt_decode_sec}<span style="font-size:13px;opacity:.6">초</span></div>
       <div style="font-size:12px;opacity:.7">디코딩 · 실시간 대비 ${rt}배</div>
       <div style="font-size:12px;opacity:.5;margin-top:4px">
@@ -469,10 +542,10 @@ function renderModels(out) {
       if (o.tag === "insert") return `<span class="ins">${esc(o.b)}</span>`;
       return `<span class="del">${esc(o.a)}</span> <span class="ins">${esc(o.b)}</span>`;
     }).join(" ");
-    return `<h2>전사문 차이 — ${base} → ${m} <span style="opacity:.5;font-weight:400;font-size:13px">
+    return `<h2>전사문 차이 — ${esc(shortModel(base))} → ${esc(shortModel(m))} <span style="opacity:.5;font-weight:400;font-size:13px">
       (${changed}곳)</span></h2>
-      <div class="legend"><span class="del">${base} 에만</span> ·
-        <span class="ins">${m} 에만</span> · 나머지는 동일</div>
+      <div class="legend"><span class="del">${esc(shortModel(base))} 에만</span> ·
+        <span class="ins">${esc(shortModel(m))} 에만</span> · 나머지는 동일</div>
       <div class="panel" style="font-size:13px">${body || "(차이 없음)"}</div>`;
   }).join("");
 
@@ -488,21 +561,28 @@ function renderModels(out) {
 
     <h2>지표 비교 <span style="opacity:.5;font-weight:400;font-size:13px">(다른 값은 강조)</span></h2>
     <table><thead><tr><th>지표</th>
-      ${models.map(m=>`<th class="num">${m}</th>`).join("")}</tr></thead>
+      ${models.map(m=>`<th class="num" title="${esc(m)}">${esc(shortModel(m))}</th>`).join("")}</tr></thead>
       <tbody>${rows}</tbody></table>
+
+    <h2>전사문 <span style="opacity:.5;font-weight:400;font-size:13px">
+      (모델별 전문 — 버튼으로 전환)</span></h2>
+    ${transcriptToggleHtml(models, R)}
 
     <h2>무음 구간</h2>${timelineHtml(R[models[0]])}${silenceTableHtml(R[models[0]])}
 
     ${diffHtml}
 
-    <h2>반복 (말더듬) — ${esc(pane)}</h2>${repetitionHtml(R[pane])}
+    <h2>반복 (말더듬) — ${esc(shortModel(pane))}</h2>${repetitionHtml(R[pane])}
 
     <h2>필러 후보</h2>
     <div class="row" style="margin-bottom:10px">
-      ${models.map(m=>`<button data-pane="${m}" class="${pane===m?'on':''}">${m}</button>`).join("")}
+      ${models.map(m=>`<button data-pane="${esc(m)}" class="${pane===m?'on':''}">${esc(shortModel(m))}</button>`).join("")}
     </div>
     <div id="tablewrap"></div>`;
 
+  out.querySelectorAll("[data-txt]").forEach(b => b.onclick = () => {
+    txtPane = b.dataset.txt; render();
+  });
   out.querySelectorAll("[data-pane]").forEach(b => b.onclick = () => { pane=b.dataset.pane; render(); });
   renderTable(R[pane], `m${models.indexOf(pane)}`);
 }
@@ -527,7 +607,7 @@ function renderCompare(out) {
          허위 검출이 대부분이면 폐기, 어휘 경로가 놓친 걸 잡아주면 유지.`}</div>
     <h2>지표</h2>${metricsHtml(L.metrics)}
     <h2>무음 구간</h2>${timelineHtml(L)}${silenceTableHtml(L)}
-    <h2>전사문</h2><div class="panel" style="font-size:13px">${esc(L.diagnostics.full_text)||"(없음)"}</div>
+    <h2>전사문</h2><div class="panel" style="font-size:13px">${markTags(L.diagnostics.full_text)||"(없음)"}</div>
     <h2>반복 (말더듬)</h2>${repetitionHtml(L)}
     <h2>필러 후보</h2>
     <div class="row" style="margin-bottom:10px">
@@ -546,7 +626,7 @@ function renderSingle(out) {
     <h2>무음 구간</h2>${timelineHtml(R)}${silenceTableHtml(R)}
     ${data.mode === "silence" ? "" : `
       <h2>전사문</h2>
-      <div class="panel" style="font-size:13px">${esc(R.diagnostics.full_text)||"(없음)"}</div>
+      <div class="panel" style="font-size:13px">${markTags(R.diagnostics.full_text)||"(없음)"}</div>
       <h2>반복 (말더듬)</h2>${repetitionHtml(R)}
       <h2>필러 후보</h2><div id="tablewrap"></div>`}`;
   if (data.mode !== "silence") renderTable(R, "lex");
@@ -713,11 +793,16 @@ function renderTable(R, keyPrefix) {
   });
 }
 
+/** 로컬 모델은 절대경로라 목록에서 마지막 경로 조각만 보여준다. */
+function shortModel(m) {
+  return String(m || "").split(",").map(x => x.trim().split("/").pop()).join(", ");
+}
+
 // --- 실행 기록 ---
 async function loadJobs() {
   const list = await (await fetch("/api/jobs")).json();
   $("#jobs").innerHTML = list.map(j => `<div data-id="${j.job_id}">
-    <b>${j.mode}</b> · ${esc(j.model)} · ${esc(j.source)}${j.keywords?` · kw«${esc(j.keywords)}»`:""}
+    <b>${j.mode}</b> · ${esc(shortModel(j.model))} · ${esc(j.source)}${j.keywords?` · kw«${esc(j.keywords)}»`:""}
     <span style="opacity:.5"> — ${j.started_at} ${j.status==="done"?"":"(실행중)"}${j.has_labels?" · 라벨있음":""}</span>
     </div>`).join("") || `<div style="opacity:.5">아직 없음</div>`;
   $("#jobs").querySelectorAll("[data-id]").forEach(d => d.onclick = () => loadJob(d.dataset.id));

@@ -91,6 +91,11 @@ WEAK_MIN_DURATION_SEC = 0.35
 
 _STRIP = " \t\n.,!?…·\"'​"
 
+# 모델이 직접 찍어주는 비유창성 태그(SeloWhisper 등). 사전 매칭이 아니라
+# 모델의 문맥 판단 결과이므로 길이 조건 없이 필러로 인정한다.
+# `<repeat>`/`<laugh>`/`<other>` 는 필러가 아니라서 제외 — stt_hf.DISFLUENCY_TAGS 참고.
+MODEL_FILLER_TAGS = {"<ah>", "<uh>", "<um>", "<gue>", "<jeo>", "<mwo>", "<mak>"}
+
 
 @dataclass
 class FillerCandidate:
@@ -228,8 +233,10 @@ def is_filler_token(token: str, duration: float) -> bool:
 
     FILLER_WEAK 는 실제 단어로도 쓰이므로 늘어졌을 때만 인정.
     """
-    return token in FILLER_STRONG or (
-        token in FILLER_WEAK and duration >= WEAK_MIN_DURATION_SEC
+    return (
+        token in MODEL_FILLER_TAGS      # 모델이 문맥으로 판단한 태그 — 무조건 인정
+        or token in FILLER_STRONG
+        or (token in FILLER_WEAK and duration >= WEAK_MIN_DURATION_SEC)
     )
 
 
@@ -259,7 +266,9 @@ def detect_fillers(
     result = FillerResult(speech_reference_db=reference_db)
 
     # --- 1) 음향 후보: 발화 구간에서 단어 구간을 파낸 나머지 -----------------
-    holes = [(w.t_start - WORD_PAD_SEC, w.t_end + WORD_PAD_SEC) for w in words]
+    # 태그는 길이 0 인 마커라 패딩만 남아 음향 후보 계산을 왜곡한다 → 제외
+    holes = [(w.t_start - WORD_PAD_SEC, w.t_end + WORD_PAD_SEC)
+             for w in words if w.text.strip(_STRIP) not in MODEL_FILLER_TAGS]
     for gap in subtract_intervals(speech, holes):
         seg = slice_samples(samples, sr, gap.t_start, gap.t_end)
         level = rms_db(seg)

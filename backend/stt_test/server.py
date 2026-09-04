@@ -22,8 +22,8 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import FastAPI, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi import FastAPI, Form, Header, HTTPException, UploadFile
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from stt_test.audio import TARGET_SR
@@ -36,6 +36,22 @@ WORK_DIR.mkdir(exist_ok=True)
 
 # 서버가 목록에 띄워줄 기존 녹음 위치 (backend/uploads/<session>/full_audio.wav)
 UPLOADS_DIR = BASE_DIR.parent / "uploads"
+
+# 로컬로 변환해 둔 CTranslate2 모델 위치 (convert_model.py 산출물)
+MODELS_DIR = BASE_DIR / "models"
+
+# faster-whisper 가 이름만으로 내려받는 내장 모델
+BUILTIN_MODELS = ["tiny", "base", "small", "medium",
+                  "large-v2", "large-v3-turbo", "large-v3"]
+
+# transformers 런타임으로 돌려야 하는 모델 (`hf:` 접두사).
+# 비유창성 토큰을 추가한 파인튜닝은 CTranslate2 에서 깨진다 — stt_hf.py 참고.
+HF_MODELS = [
+    {"id": "hf:rearleg/SeloWhisper-ko-disfluency",
+     "label": "SeloWhisper (비유창성 태그)",
+     "note": "transformers 런타임. 필러를 <um>/<uh>/<gue> 등으로 직접 태깅.",
+     "license": "MIT"},
+]
 
 app = FastAPI(title="Podium STEP 3 Test")
 
@@ -159,6 +175,55 @@ def index() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html")
 
 
+@app.api_route("/audio/{job_id}", methods=["GET", "HEAD"])
+def audio(job_id: str, range: str | None = Header(default=None)) -> Response:
+    """원본 오디오를 **Range 요청 지원**으로 서빙 (타임라인 seek 용).
+
+    `/media` 마운트(StaticFiles)는 Range 를 지원하지 않아 항상 200 + 전체 파일을
+    돌려준다. 그러면 브라우저가 탐색을 못 해 `currentTime` 을 설정해도 무시하고
+    0초부터 재생한다. 필러 클립은 구간별 개별 파일이라 seek 이 필요 없어 증상이
+    안 보였고, 전체 오디오 타임라인에서만 드러났다.
+    """
+    path = WORK_DIR / job_id / "audio.wav"
+    if not path.exists():
+        raise HTTPException(404, "오디오 없음")
+
+    size = path.stat().st_size
+    headers = {"Accept-Ranges": "bytes", "Cache-Control": "no-cache"}
+
+    if not range or not range.startswith("bytes="):
+        return FileResponse(path, media_type="audio/wav", headers=headers)
+
+    spec = range.removeprefix("bytes=").split(",")[0].strip()
+    start_s, _, end_s = spec.partition("-")
+    try:
+        if start_s:
+            start = int(start_s)
+            end = int(end_s) if end_s else size - 1
+        else:  # "bytes=-N" — 마지막 N 바이트
+            start, end = max(0, size - int(end_s)), size - 1
+    except ValueError:
+        raise HTTPException(416, "잘못된 Range") from None
+
+    end = min(end, size - 1)
+    if start > end or start >= size:
+        return Response(status_code=416,
+                        headers={**headers, "Content-Range": f"bytes */{size}"})
+
+    with path.open("rb") as f:
+        f.seek(start)
+        chunk = f.read(end - start + 1)
+
+    return Response(
+        chunk,
+        status_code=206,
+        media_type="audio/wav",
+        headers={**headers,
+                 "Content-Range": f"bytes {start}-{end}/{size}",
+                 "Content-Length": str(len(chunk))},
+    )
+
+
 # ---------------------------------------------------------------------------
 # API
 # ---------------------------------------------------------------------------
@@ -182,6 +247,78 @@ def api_sources() -> list[dict]:
             if f.suffix.lower() in {".wav", ".webm", ".mp4", ".m4a", ".mp3", ".flac", ".ogg"}:
                 out.append({"session": f"fixture:{f.name}", "path": str(f),
                             "size_mb": round(f.stat().st_size / 1e6, 1)})
+    return out
+
+
+# Whisper 기본 vocab 상한. 이보다 큰 토큰 id 는 faster-whisper 가
+# 특수/타임스탬프 토큰으로 해석한다 (timestamp 영역이 50365~51865).
+_WHISPER_VOCAB_MAX = 51866
+
+
+def _vocab_warning(model_dir: Path) -> str | None:
+    """확장 vocab 모델을 감지해 경고 문구를 돌려준다.
+
+    파인튜닝으로 특수 토큰을 추가한 모델(예: 비유창성 태그)은 토큰 id 가
+    Whisper 기본 vocab 위에 얹힌다. 그 영역은 faster-whisper 가 타임스탬프로
+    해석하므로 **토큰이 사라질 뿐 아니라 세그먼트 경계가 깨져 전사가 잘린다.**
+    조용히 잘못된 결과를 내는 것보다 UI 에서 미리 알리는 편이 안전하다.
+    → 이런 모델은 transformers 런타임이 필요하다.
+    """
+    vocab_path = model_dir / "vocabulary.json"
+    if not vocab_path.exists():
+        return None
+    try:
+        n = len(json.loads(vocab_path.read_text(encoding="utf-8")))
+    except (json.JSONDecodeError, OSError):
+        return None
+    if n <= _WHISPER_VOCAB_MAX:
+        return None
+    extra = n - _WHISPER_VOCAB_MAX
+    # 정적 추정일 뿐이다 — 추가 토큰이 있어도 모델이 실제로 그 토큰을 생성하지
+    # 않으면 문제가 없다(crisper-ko 가 그런 경우). 실측 결과가 `_note.json` 에
+    # 있으면 그쪽이 우선한다.
+    return (f"추가 토큰 {extra}개가 타임스탬프 영역과 겹칩니다. 모델이 이 토큰을 "
+            f"실제로 생성하면 토큰 소실·전사 잘림이 발생할 수 있습니다. "
+            f"(실측 전 · 결과를 확인하세요)")
+
+
+@app.get("/api/models")
+def api_models() -> list[dict]:
+    """UI 모델 목록 — 내장 프리셋 + `stt_test/models/` 의 로컬 변환 모델.
+
+    로컬 모델은 디렉터리를 스캔해서 자동으로 뜬다. 새 모델을 변환하면
+    (`python -m stt_test.convert_model <HF_ID>`) 코드 수정 없이 목록에 나타남.
+    """
+    out = [{"id": m, "label": m, "kind": "builtin"} for m in BUILTIN_MODELS]
+    out += [{**m, "kind": "hf", "status": "ok"} for m in HF_MODELS]
+    if MODELS_DIR.exists():
+        for d in sorted(MODELS_DIR.iterdir()):
+            if not (d / "model.bin").exists():
+                continue  # 변환 중이거나 실패한 디렉터리는 제외
+            size = sum(f.stat().st_size for f in d.iterdir() if f.is_file())
+            row = {"id": str(d), "label": d.name, "kind": "local",
+                   "size_mb": round(size / 1e6)}
+            note_path = d / "_note.json"
+            if note_path.exists() and json.loads(
+                    note_path.read_text(encoding="utf-8")).get("hidden"):
+                continue   # 사용 불가로 판명된 변환본은 목록에서 숨김
+            if note_path.exists():
+                # 실측으로 확인된 내용 — 정적 추정보다 우선
+                try:
+                    note = json.loads(note_path.read_text(encoding="utf-8"))
+                except (json.JSONDecodeError, OSError):
+                    note = {}
+                row["label"] = note.get("label", d.name)
+                row["status"] = note.get("status")
+                row["note"] = note.get("note")
+                row["license"] = note.get("license")
+                if note.get("status") == "broken":
+                    row["warn"] = note.get("note")
+            else:
+                warn = _vocab_warning(d)
+                if warn:
+                    row["warn"] = warn
+            out.append(row)
     return out
 
 

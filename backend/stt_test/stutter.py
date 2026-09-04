@@ -20,6 +20,7 @@
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 from stt_test.filler import FILLER_STRONG, _STRIP
@@ -71,8 +72,21 @@ class Repetition:
         }
 
 
+_TAG_RE = re.compile(r"<[a-z]+>")
+
+
 def _norm(w: Word) -> str:
     return w.text.strip(_STRIP)
+
+
+def _drop_tags(words: list[Word]) -> list[Word]:
+    """모델 비유창성 태그(`<um>`, `<repeat>` …)를 제거.
+
+    태그가 단어 사이에 끼면 인접 비교가 끊긴다. 예를 들어 SeloWhisper 는
+    "제<repeat> 제<repeat> 제가" 처럼 출력하는데, 태그를 그대로 두면
+    "제"와 "제"가 인접하지 않아 반복을 놓친다.
+    """
+    return [w for w in words if not _TAG_RE.fullmatch(_norm(w))]
 
 
 def _is_filler(token: str) -> bool:
@@ -92,6 +106,7 @@ def detect_repetitions(words: list[Word]) -> list[Repetition]:
       exact  같은 토큰이 연달아 나옴          "그래서 그래서 그래서"
       stem   짧은 토큰이 다음 토큰의 앞부분    "제 제가" / "그 그러니까"
     """
+    words = _drop_tags(words)
     out: list[Repetition] = []
     n = len(words)
     i = 1
