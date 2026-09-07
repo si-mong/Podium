@@ -48,8 +48,9 @@ BUILTIN_MODELS = ["tiny", "base", "small", "medium",
 # 비유창성 토큰을 추가한 파인튜닝은 CTranslate2 에서 깨진다 — stt_hf.py 참고.
 HF_MODELS = [
     {"id": "hf:rearleg/SeloWhisper-ko-disfluency",
-     "label": "SeloWhisper (비유창성 태그)",
-     "note": "transformers 런타임. 필러를 <um>/<uh>/<gue> 등으로 직접 태깅.",
+     "label": "SeloWhisper · transformers (태그 있음)",
+     "note": ("필러를 <um>/<uh>/<gue> 로, 반복을 <repeat> 로 직접 태깅. "
+              "torch 필요, fp32 라 메모리 약 3.2GB → 배포 시 확인 필요."),
      "license": "MIT"},
 ]
 

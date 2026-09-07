@@ -10,6 +10,7 @@ STT 결과 자체는 "필러가 걸러진 깨끗한 전사" 여도 괜찮음.
 """
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -29,6 +30,26 @@ from pathlib import Path
 #   둘은 같은 <|startofprev|> 블록에 hotwords → previous_tokens 순으로 이어 붙으므로
 #   동시에 써도 충돌하지 않음 (각각 max_length//2 토큰으로 잘림).
 VERBATIM_PROMPT = "음... 어... 그... 저기, 뭐랄까... 어, 그러니까 이제, 음..."
+
+# Whisper 기본 vocab 상한. 파인튜닝으로 추가된 토큰은 이 위에 얹히는데,
+# 그 영역은 faster-whisper 가 타임스탬프로 해석한다(timestamp 범위 50365~51865).
+# 모델이 추가 토큰을 생성하면 타임스탬프로 오해돼 **세그먼트가 조기 종료되고 전사가 잘린다.**
+# → 생성 자체를 억제하면 CT2 경로에서도 정상 동작한다. 태그 정보는 잃지만
+#   파인튜닝된 한국어 인식 품질과 verbatim 전사(필러가 평문으로 남음)는 그대로 유지된다.
+_WHISPER_VOCAB_MAX = 51866
+
+
+def _extra_token_ids(model_size: str) -> list[int]:
+    """로컬 CT2 모델의 확장 vocab 토큰 id 목록 (억제 대상)."""
+    vocab = Path(model_size) / "vocabulary.json"
+    if not vocab.exists():
+        return []
+    try:
+        n = len(json.loads(vocab.read_text(encoding="utf-8")))
+    except (json.JSONDecodeError, OSError):
+        return []
+    return list(range(_WHISPER_VOCAB_MAX, n)) if n > _WHISPER_VOCAB_MAX else []
+
 
 # 한글 음절 블록 (가 ~ 힣). 한국어 발화 속도는 어절(WPM)이 아니라 음절 기준이
 # 안정적임 — 띄어쓰기 정책에 따라 어절 수가 크게 흔들리기 때문.
@@ -126,6 +147,9 @@ def transcribe(
     model = WhisperModel(model_size, device="cpu", compute_type=compute_type)
     t_load = time.perf_counter()
 
+    # 확장 vocab 모델이면 추가 토큰 생성을 억제 (위 _extra_token_ids 주석 참고)
+    suppress = [-1] + _extra_token_ids(model_size)
+
     segments, _info = model.transcribe(
         str(wav_path),
         language=language,
@@ -133,9 +157,16 @@ def transcribe(
         vad_filter=False,
         condition_on_previous_text=False,
         beam_size=5,
-        temperature=0.0,
+        # ⚠️ temperature 를 단일값으로 고정하면 Whisper 의 **반복 루프 방어 기제가 꺼진다.**
+        #    라이브러리 기본 사다리를 쓰면 compression_ratio_threshold(2.4)가 반복 출력을
+        #    감지해 더 높은 온도로 재시도한다. 다만 실측 결과 **사다리만으로는 부족**했고
+        #    ("네. 네. 네…" 25회 연속 유지), 아래 두 옵션을 함께 켜야 사라졌다(3회로 감소).
+        temperature=[0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
+        repetition_penalty=1.1,     # 같은 토큰 재생성에 페널티
+        no_repeat_ngram_size=4,     # 4-gram 반복 금지
         initial_prompt=VERBATIM_PROMPT if verbatim_prompt else None,
         hotwords=keywords.strip() if keywords and keywords.strip() else None,
+        suppress_tokens=suppress,
     )
 
     result = SttResult(language=language, model_size=model_size,

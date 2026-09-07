@@ -161,12 +161,15 @@ const HINTS = {
       <b>추천 조합</b>
       <button class="preset" data-preset="small,large-v3-turbo,large-v3">속도·품질 절충</button>
       <button class="preset" data-preset="small,LOCAL_CRISPER,hf:rearleg/SeloWhisper-ko-disfluency">필러·반복 정확도</button>
+      <button class="preset" data-preset="LOCAL_SELO,hf:rearleg/SeloWhisper-ko-disfluency">SeloWhisper 두 방식</button>
+      <span id="presetstat" style="margin-left:8px;opacity:.7"></span>
       <br>
       <span style="opacity:.85">
       · <b>small</b> 가장 빠름(실시간 9배). 비교 기준선<br>
       · <b>large-v3-turbo</b> large-v3 의 절반 시간, 품질은 근접<br>
       · <b>crisper-ko</b> verbatim — 필러·반복을 안 지우고 전사. <span style="color:#ca8a04">비상업/연구 한정</span><br>
-      · <b>SeloWhisper</b> 필러를 &lt;um&gt;/&lt;uh&gt; 로 직접 태깅. MIT. transformers 라 느림
+      · <b>SeloWhisper · CT2</b> 태그 없음(평문). 가볍고 배포 가능<br>
+      · <b>SeloWhisper · transformers</b> 태그 있음. torch 필요, 메모리 3.2GB
       </span>
     </div>`,
   silence: "무음만: STT 를 생략해 즉시 끝납니다. 3-1 검증용.",
@@ -212,23 +215,38 @@ document.querySelectorAll("[data-mode]").forEach(b => b.onclick = () => {
   document.querySelectorAll("[data-mode]").forEach(x => x.classList.remove("on"));
   b.classList.add("on"); mode = b.dataset.mode;
   $("#hint").innerHTML = HINTS[mode];
-  wirePresets();
   $("#single").style.display = mode === "models" ? "none" : "";
   $("#models").style.display = mode === "models" ? "" : "none";
   $("#customrow").style.display = mode === "models" ? "flex" : "none";
   $("#kwcmpwrap").style.display = mode === "full" ? "" : "none";
 });
 
-/** 추천 조합 버튼 — 해당 모델들만 체크한다. */
-function wirePresets() {
-  document.querySelectorAll(".preset").forEach(b => b.onclick = () => {
-    const local = [...document.querySelectorAll(".mm")]
-      .map(c => c.value).find(v => v.includes("crisper")) || "";
-    const want = new Set(b.dataset.preset.split(",")
-      .map(x => x === "LOCAL_CRISPER" ? local : x).filter(Boolean));
-    document.querySelectorAll(".mm").forEach(c => { c.checked = want.has(c.value); });
+/** 추천 조합 버튼 — 해당 모델들만 체크한다.
+ *
+ *  버튼은 모드 전환 시 innerHTML 로 새로 만들어지므로 개별 onclick 을 붙이면
+ *  재생성 타이밍에 끌려간다. 부모(#hint)에 **한 번만** 위임해서 붙인다.
+ */
+document.addEventListener("click", e => {
+  const b = e.target.closest(".preset");
+  if (!b) return;
+  // 로컬 모델은 절대경로라 하드코딩 불가 → 체크박스 목록에서 찾아 치환
+  const vals = [...document.querySelectorAll(".mm")].map(c => c.value);
+  const find = kw => vals.find(v => !v.startsWith("hf:") && v.includes(kw)) || "";
+  const sub = {LOCAL_CRISPER: find("crisper"), LOCAL_SELO: find("Selo")};
+  const want = new Set(b.dataset.preset.split(",")
+    .map(x => sub[x] !== undefined ? sub[x] : x).filter(Boolean));
+
+  let n = 0;
+  document.querySelectorAll(".mm").forEach(c => {
+    c.checked = want.has(c.value);
+    if (c.checked) n++;
   });
-}
+  // 눌린 게 반영됐는지 바로 보이도록 표시
+  document.querySelectorAll(".preset").forEach(x => x.classList.remove("on"));
+  b.classList.add("on");
+  const st = document.getElementById("presetstat");
+  if (st) st.textContent = `${n}개 선택됨`;
+});
 
 // --- 드래그앤드롭 ---
 const drop = $("#drop");
