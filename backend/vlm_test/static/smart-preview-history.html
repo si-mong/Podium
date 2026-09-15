@@ -1,6 +1,9 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
+<script>window.APP_BASE="/vlm";</script>
+<script src="/shared/base.js"></script>
+
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Podium VLM Test · Smart Chunking History</title>
@@ -8,7 +11,7 @@
   :root { color-scheme: light; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    margin: 0; padding: 24px; max-width: 1080px; margin-inline: auto;
+    margin: 0; padding: 24px; max-width: 1400px; margin-inline: auto;
     color: #111;
   }
   h1 { margin: 0 0 6px; font-size: 22px; }
@@ -43,6 +46,15 @@
 
   .slider-grid { display: grid; grid-template-columns: 170px 1fr 80px; gap: 10px 14px; align-items: center; }
   .slider-grid input[type=range] { width: 100%; }
+  .cfgbar { display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+            font-size:12px; padding:6px 0 2px; }
+  .cfgnow { opacity:.75; }
+  .cfgnow b { font-variant-numeric: tabular-nums; }
+  .cfgbar button { font:inherit; padding:3px 10px; border-radius:6px;
+                   border:1px solid #8886; background:transparent; cursor:pointer; }
+  .cfgbar button:hover { border-color:#4a7dff; }
+  .cfgbar button.cfgsave { background:#4a7dff; color:#fff; border-color:#4a7dff; }
+  .cfgmsg { color:#16a34a; }
   .slider-grid .val { font-family: ui-monospace, Menlo, Monaco, monospace; font-size: 13px; text-align: right; }
 
   .summary { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 14px; }
@@ -79,7 +91,7 @@
 </head>
 <body>
   <div id="nav-mount"></div>
-  <script src="/static/nav.js"></script>
+  <script src="/shared/nav.js"></script>
 
   <div style="display:flex; justify-content:space-between; align-items:baseline; gap:16px;">
     <div>
@@ -259,6 +271,14 @@ function renderDetailShell(meta, timeline) {
       <span class="val"><span class="chunk-duration-val">20</span></span>
 
       <label></label>
+      <div class="cfgbar" style="grid-column: 2 / 4;">
+        <span class="cfgnow">현재 적용값 불러오는 중…</span>
+        <button class="cfgsave" type="button">이 값으로 변경</button>
+        <button class="cfgreset" type="button">기본값</button>
+        <span class="cfgmsg"></span>
+      </div>
+
+      <label></label>
       <div style="font-size:12px; color:#666; grid-column: 2 / 4; line-height:1.6;">
         motion 임계값 = 프레임 변화량이 이 값을 초과하면 "동작 있음".<br>
         hysteresis = 연속 N샘플 초과해야 시작 확정 (0.2s/샘플).<br>
@@ -297,6 +317,26 @@ function renderDetailShell(meta, timeline) {
 /**
  * 카드 한 개의 슬라이더/그래프/표 바인딩. 다른 카드와 격리되도록 body 스코프로.
  */
+/* ─────────────────────────────────────────────────────────────────────
+ * 스마트 청킹 임계값 — 본 파이프라인(/analyze/motion)과 같은 설정을 쓴다.
+ * 여기서 저장하면 실제 분석에 그대로 적용됨. 한 번만 받아서 전 카드가 공유.
+ * ───────────────────────────────────────────────────────────────────── */
+let MCFG = null;
+const mcfgReady = fetch("/api/motion-thresholds")
+  .then(r => r.json()).then(d => { MCFG = d; return d; });
+
+function mcfgText() {
+  if (!MCFG) return "현재 적용값 불러오는 중…";
+  const v = MCFG.values;
+  return `현재 적용값 — motion <b>${v.motion_thresh}</b> · ` +
+         `hysteresis <b>${v.hysteresis_frames}</b> · 청크 <b>${v.chunk_duration}초</b>`;
+}
+
+/** 저장 후 모든 카드의 "현재 적용값" 표시를 갱신 */
+function mcfgRefreshAll() {
+  document.querySelectorAll(".cfgnow").forEach(el => el.innerHTML = mcfgText());
+}
+
 function bindControls(body, meta, timeline, duration) {
   const motionSlider = body.querySelector(".motion-thresh");
   const hysteresisSlider = body.querySelector(".hysteresis");
@@ -427,6 +467,51 @@ function bindControls(body, meta, timeline, duration) {
   chunkDurationSlider.addEventListener("input", rerender);
   window.addEventListener("resize", rerender);
   rerender();
+
+  // ── 임계값 표시 + 저장 ──────────────────────────────────────────────
+  const nowEl = body.querySelector(".cfgnow");
+  const msgEl = body.querySelector(".cfgmsg");
+
+  mcfgReady.then(() => {
+    // 슬라이더를 **현재 적용값**으로 맞춰서 시작 (하드코딩 기본값이 아니라)
+    motionSlider.value = MCFG.values.motion_thresh;
+    hysteresisSlider.value = MCFG.values.hysteresis_frames;
+    chunkDurationSlider.value = MCFG.values.chunk_duration;
+    if (nowEl) nowEl.innerHTML = mcfgText();
+    rerender();
+  });
+
+  function flash(text) {
+    if (!msgEl) return;
+    msgEl.textContent = text;
+    setTimeout(() => { msgEl.textContent = ""; }, 3000);
+  }
+
+  const saveBtn = body.querySelector(".cfgsave");
+  if (saveBtn) saveBtn.onclick = async () => {
+    const fd = new FormData();
+    fd.append("values", JSON.stringify({
+      motion_thresh: parseFloat(motionSlider.value),
+      hysteresis_frames: parseInt(hysteresisSlider.value, 10),
+      chunk_duration: parseFloat(chunkDurationSlider.value),
+    }));
+    const r = await (await fetch("/api/motion-thresholds", {method:"POST", body:fd})).json();
+    MCFG.values = r.values;
+    mcfgRefreshAll();
+    flash("저장됨 — 이후 분석에 적용");
+  };
+
+  const resetBtn = body.querySelector(".cfgreset");
+  if (resetBtn) resetBtn.onclick = async () => {
+    const r = await (await fetch("/api/motion-thresholds/reset", {method:"POST"})).json();
+    MCFG.values = r.values;
+    motionSlider.value = r.values.motion_thresh;
+    hysteresisSlider.value = r.values.hysteresis_frames;
+    chunkDurationSlider.value = r.values.chunk_duration;
+    mcfgRefreshAll();
+    rerender();
+    flash("기본값으로 되돌림");
+  };
 }
 
 load();

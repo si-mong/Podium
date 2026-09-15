@@ -2,12 +2,15 @@
 <html lang="ko">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<script>window.APP_BASE="/voice";</script>
+<script src="/shared/base.js"></script>
+<script defer src="/shared/nav.js"></script>
 <title>Podium STEP 3 — 음성분석 테스트</title>
 <style>
   :root { color-scheme: light dark; --line:#8883; }
   * { box-sizing: border-box; }
   body { font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", sans-serif;
-         margin: 0; padding: 24px; max-width: 1500px; }
+         margin: 0; padding: 24px; max-width: 1400px; margin-inline: auto; }
   h1 { font-size: 19px; margin: 0 0 2px; }
   h2 { font-size: 15px; margin: 26px 0 10px; }
   .sub { opacity: .6; font-size: 13px; margin-bottom: 20px; }
@@ -83,8 +86,29 @@
   audio.full { width: 100%; height: 34px; margin-top: 6px; }
 </style>
 
+<div id="nav-mount"></div>
+
 <h1>STEP 3 — 음성분석 테스트</h1>
 <div class="sub">음성/영상 파일 → 무음 구간 · 필러 · 발화 속도. DB 연결 안 함.</div>
+
+<div class="panel" id="thpanel" style="padding:12px 16px">
+  <div class="row">
+    <b style="font-size:13px">현재 임계값</b>
+    <span id="thsummary" style="font-size:12px;opacity:.75">불러오는 중…</span>
+    <span style="margin-left:auto"></span>
+    <button id="thtoggle">임계값 변경</button>
+  </div>
+  <div id="thedit" style="display:none;margin-top:12px">
+    <div id="thsliders"></div>
+    <div class="row" style="margin-top:8px">
+      <button class="primary" id="thsave">저장</button>
+      <button id="thdefault">기본값으로</button>
+      <span id="thmsg" style="font-size:12px;opacity:.75"></span>
+      <span style="margin-left:auto;font-size:12px;opacity:.55">
+        저장하면 이후 모든 분석과 본 파이프라인에 적용됩니다</span>
+    </div>
+  </div>
+</div>
 
 <div class="panel">
   <div class="row" style="margin-bottom:12px">
@@ -401,7 +425,7 @@ function timelineHtml(R) {
     </div>
     <div class="tl" id="tl">${blocks}${marks}<div class="head" id="head" style="left:0"></div></div>
     <div class="axis">${ticks}</div>
-    <audio class="full" id="fullaudio" controls preload="metadata" src="/audio/${jobId}"></audio>`;
+    <audio class="full" id="fullaudio" controls preload="metadata" src="${APP_BASE}/audio/${jobId}"></audio>`;
 }
 
 function silenceTableHtml(R) {
@@ -827,7 +851,7 @@ function renderTable(R, keyPrefix) {
     ${cands.filter(vis).map(c => { const l = labels[key(c)]; return `<tr>
       <td class="num">${c.index}</td><td class="num">${fmt(c.t_start)}</td>
       <td class="num">${c.duration.toFixed(2)}s</td>
-      <td><audio controls preload="none" src="/media/${jobId}/${c.clip}"></audio></td>
+      <td><audio controls preload="none" src="${APP_BASE}/media/${jobId}/${c.clip}"></audio></td>
       <td class="lb">
         <button class="y ${l==="y"?"on":""}" data-k="${key(c)}" data-v="y">필러</button>
         <button class="n ${l==="n"?"on":""}" data-k="${key(c)}" data-v="n">아님</button>

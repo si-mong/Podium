@@ -59,6 +59,9 @@ app = FastAPI(title="Podium STEP 3 Test")
 # 후보 클립 재생용
 app.mount("/media", StaticFiles(directory=str(WORK_DIR)), name="media")
 
+# 정적 자산 (base.js 등). 마운트 prefix 보정 shim 이 여기서 로드됨.
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
 # job_id -> {"queue": asyncio.Queue, "loop": asyncio.AbstractEventLoop}
 _jobs: dict[str, dict] = {}
 
