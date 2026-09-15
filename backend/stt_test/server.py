@@ -26,7 +26,7 @@ from fastapi import FastAPI, Form, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from stt_test.audio import TARGET_SR
+from app.pipeline.voice.audio import TARGET_SR
 from stt_test.report import write_clips
 
 BASE_DIR = Path(__file__).parent
@@ -101,7 +101,7 @@ def _run_job(job_id: str, job_dir: Path, wav: Path, mode: str,
              model: str, verbatim: bool, models: list[str] | None = None,
              keywords: str = "") -> None:
     """실제 분석 (별도 스레드에서 실행 — STT 가 블로킹이라)."""
-    from stt_test.analyze import (  # 무거우므로 lazy
+    from app.pipeline.voice.analyze import (  # 무거우므로 lazy
         analyze, analyze_compare, analyze_keywords, analyze_models,
     )
 
@@ -281,6 +281,27 @@ def _vocab_warning(model_dir: Path) -> str | None:
     return (f"추가 토큰 {extra}개가 타임스탬프 영역과 겹칩니다. 모델이 이 토큰을 "
             f"실제로 생성하면 토큰 소실·전사 잘림이 발생할 수 있습니다. "
             f"(실측 전 · 결과를 확인하세요)")
+
+
+@app.get("/api/thresholds")
+def api_thresholds() -> dict:
+    """현재 임계값 + UI 슬라이더 메타데이터."""
+    from app.pipeline.voice import config
+    return {"values": config.load(), "spec": config.ui_spec(),
+            "defaults": config.DEFAULTS}
+
+
+@app.post("/api/thresholds")
+async def api_save_thresholds(values: str = Form(...)) -> dict:
+    """UI 에서 맞춘 임계값을 저장 — 이후 모든 분석에 적용된다."""
+    from app.pipeline.voice import config
+    return {"values": config.save(json.loads(values))}
+
+
+@app.post("/api/thresholds/reset")
+def api_reset_thresholds() -> dict:
+    from app.pipeline.voice import config
+    return {"values": config.reset()}
 
 
 @app.get("/api/models")

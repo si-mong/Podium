@@ -137,7 +137,7 @@ def transcribe(
     # 비유창성 토큰을 추가한 파인튜닝 모델은 CTranslate2 에서 토큰이 소실되고
     # 세그먼트가 깨지기 때문 — 자세한 이유는 stt_hf.py 상단 참고.
     if model_size.startswith("hf:"):
-        from stt_test.stt_hf import transcribe_hf
+        from app.pipeline.voice.stt_hf import transcribe_hf
         return transcribe_hf(wav_path, model_size[3:], language=language)
 
     from faster_whisper import WhisperModel  # 무거우므로 lazy import
@@ -160,10 +160,14 @@ def transcribe(
         # ⚠️ temperature 를 단일값으로 고정하면 Whisper 의 **반복 루프 방어 기제가 꺼진다.**
         #    라이브러리 기본 사다리를 쓰면 compression_ratio_threshold(2.4)가 반복 출력을
         #    감지해 더 높은 온도로 재시도한다. 다만 실측 결과 **사다리만으로는 부족**했고
-        #    ("네. 네. 네…" 25회 연속 유지), 아래 두 옵션을 함께 켜야 사라졌다(3회로 감소).
+        #    ("네. 네. 네…" 25회 연속 유지), no_repeat_ngram_size 를 함께 켜야 사라졌다.
+        #
+        # ⚠️ repetition_penalty 는 쓰지 않는다. 같은 토큰 재생성 전반에 페널티를 주어
+        #    **진짜 말더듬까지 억누른다** ("제 제 제가" → "제제 제가" 로 붙어버려 3-5
+        #    반복 검출이 2/3 로 떨어짐). no_repeat_ngram_size 는 4-gram 단위만 막으므로
+        #    짧은 말더듬 반복은 통과시키면서 할루시네이션 루프만 끊는다.
         temperature=[0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
-        repetition_penalty=1.1,     # 같은 토큰 재생성에 페널티
-        no_repeat_ngram_size=4,     # 4-gram 반복 금지
+        no_repeat_ngram_size=4,     # 4-gram 반복 금지 (할루시네이션 루프 차단)
         initial_prompt=VERBATIM_PROMPT if verbatim_prompt else None,
         hotwords=keywords.strip() if keywords and keywords.strip() else None,
         suppress_tokens=suppress,

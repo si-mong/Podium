@@ -6,6 +6,7 @@
   POST /sessions/{id}/video                     -> 전체 연속 webm 업로드 (Stop 시 1회)
   POST /sessions/{id}/end                       -> 오디오 추출 + concat (전처리만 완료)
   POST /sessions/{id}/analyze/motion            -> STEP 2 VLM 동작 분석 (별도 호출)
+  POST /sessions/{id}/analyze/voice             -> STEP 3 음성 분석 (별도 호출)
   GET    /sessions/{id}                         -> 메타 + 청크 목록
   DELETE /sessions/{id}                         -> 세션 (DB + 파일) 삭제
 """
@@ -17,7 +18,7 @@ from sqlalchemy.orm import Session as DbSession, selectinload
 
 from app.api._dev_auth import get_current_user_id
 from app.core.database import get_db
-from app.models import Chunk, Project, Session, VideoAnalysis
+from app.models import Chunk, Project, Session, SttSentence, VideoAnalysis, VoiceRaw
 from app.pipeline.step1_preprocess import concat_audio, extract_chunk_audio, probe_duration
 from app.schemas.session import (
     MotionAnalysisResult,
@@ -25,6 +26,7 @@ from app.schemas.session import (
     SessionDetail,
     SessionRead,
     UploadResult,
+    VoiceAnalysisResult,
 )
 from app.services import storage
 
@@ -317,3 +319,68 @@ def _settings_upload_dir():
     # config의 upload_dir이 Path임을 보장. 매 호출 가져와 테스트 시 패치 쉬움.
     from app.core.config import settings
     return settings.upload_dir
+
+
+# ---------------------------------------------------------------------------
+# STEP 3 — 음성 분석
+# ---------------------------------------------------------------------------
+
+@router.post("/sessions/{session_id}/analyze/voice", response_model=VoiceAnalysisResult)
+def analyze_voice(
+    session_id: int,
+    keywords: str = "",
+    db: DbSession = Depends(get_db),
+):
+    """full_audio 로 STT + 무음 + 필러 + 반복 + 발화속도 → voice_raws / stt_sentences 저장.
+
+    /end (전처리) 이후 호출. STEP 2(동작 분석)와 **서로 의존하지 않으므로** 순서 무관하며
+    동시에 돌려도 된다. 10분 발표에 수 분이 걸려 /end 에 묶지 않고 분리했다.
+
+    keywords: 발표 주제·고유명사를 쉼표로. hotwords 로 전달돼 해당 어휘 인식률이 오른다.
+      **발표에 실제로 나오는 고유명사만** 넣을 것 — 무관한 단어는 디코딩을 흔든다.
+
+    재호출 시 이 세션의 기존 voice_raws / stt_sentences 는 지우고 새로 넣는다.
+    """
+    session = _get_owned_session(db, session_id)
+    if session.status not in ("preprocessed", "analyzed"):
+        raise HTTPException(
+            400,
+            f"session status must be preprocessed (got {session.status!r}); call /end first",
+        )
+
+    full_audio = storage.full_audio_path(session_id)
+    if not full_audio.exists():
+        raise HTTPException(400, "full_audio missing; call /end first")
+
+    # lazy import — torch/transformers 미설치 환경에서도 API 서버는 정상 기동.
+    from app.pipeline import step3_voice_analysis
+
+    result = step3_voice_analysis.run(full_audio, keywords=keywords)
+    rows = step3_voice_analysis.to_db_rows(session_id, result)
+
+    # 재분석 시 이전 회차 행이 남지 않도록 통째로 교체.
+    db.query(SttSentence).filter(SttSentence.session_id == session_id).delete()
+    db.query(VoiceRaw).filter(VoiceRaw.session_id == session_id).delete()
+
+    db.add(VoiceRaw(**rows["voice_raw"]))
+    for row in rows["stt_sentences"]:
+        db.add(SttSentence(**row))
+
+    session.status = "analyzed"
+    db.commit()
+
+    m = result["metrics"]
+    elapsed = sum(result["diagnostics"]["elapsed"].values())
+    return VoiceAnalysisResult(
+        session_id=session_id,
+        status=session.status,
+        model=result["diagnostics"]["model_size"],
+        total_duration=m["total_duration"],
+        sentence_count=len(rows["stt_sentences"]),
+        silence_count=m["silence_count"],
+        filler_count=m["filler_count"],
+        repetition_count=m["repetition_count"],
+        speaking_rate_spm=m["speaking_rate_spm"],
+        articulation_rate_spm=m["articulation_rate_spm"],
+        elapsed_sec=round(elapsed, 2),
+    )

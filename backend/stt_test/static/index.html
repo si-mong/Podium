@@ -719,6 +719,12 @@ function thresholdHtml(R) {
           (STT 재실행 없음). 어휘 후보는 영향받지 않습니다.</span>
         <span style="margin-left:auto;font-size:12px;opacity:.85" id="fthstat">채택 ${n}건</span>
       </div>
+      <div class="row" style="margin:2px 0 10px">
+        <button id="fthsave" class="primary" style="padding:4px 12px;font-size:12px">
+          서버에 저장 (이후 분석에 적용)</button>
+        <button id="fthreset" style="padding:4px 12px;font-size:12px">기본값으로</button>
+        <span id="fthsaved" style="font-size:12px;opacity:.7"></span>
+      </div>
       ${FTH_UI.map(([k, label, min, max, step, unit]) => `
         <div class="row" style="gap:8px;margin-bottom:2px">
           <label style="width:88px">${label}</label>
@@ -733,7 +739,42 @@ function thresholdHtml(R) {
     </div>`;
 }
 
+/** 현재 슬라이더 값들을 서버 저장 형식으로 모은다. */
+function collectThresholds() {
+  return {
+    min_silence_sec:     silMin,
+    min_candidate_sec:   fth.min_duration,
+    max_candidate_sec:   fth.max_duration,
+    min_relative_db:     fth.min_relative_db,
+    min_voiced_ratio:    fth.min_voiced_ratio,
+    max_f0_std_semitone: fth.max_f0_std_semitone,
+  };
+}
+
 function wireThresholds(root, R) {
+  const saved = root.querySelector("#fthsaved");
+  const btn = root.querySelector("#fthsave");
+  if (btn) btn.onclick = async () => {
+    const fd = new FormData();
+    fd.append("values", JSON.stringify(collectThresholds()));
+    const r = await (await fetch("/api/thresholds", {method:"POST", body:fd})).json();
+    saved.textContent = "저장됨 — 다음 분석부터 적용";
+    saved.style.color = "#16a34a";
+    setTimeout(() => { saved.textContent = ""; saved.style.color = ""; }, 4000);
+  };
+  const rst = root.querySelector("#fthreset");
+  if (rst) rst.onclick = async () => {
+    const r = await (await fetch("/api/thresholds/reset", {method:"POST"})).json();
+    silMin = r.values.min_silence_sec;
+    fth = {
+      min_duration: r.values.min_candidate_sec,
+      max_duration: r.values.max_candidate_sec,
+      min_relative_db: r.values.min_relative_db,
+      min_voiced_ratio: r.values.min_voiced_ratio,
+      max_f0_std_semitone: r.values.max_f0_std_semitone,
+    };
+    render();
+  };
   root.querySelectorAll(".fth").forEach(sl => {
     sl.oninput = () => {
       const k = sl.dataset.k;

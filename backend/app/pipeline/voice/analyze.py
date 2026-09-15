@@ -20,12 +20,13 @@ from pathlib import Path
 
 import numpy as np
 
-from stt_test import stt as stt_mod
-from stt_test import vad as vad_mod
-from stt_test.audio import load_wav
-from stt_test.filler import detect_fillers, merge_accepted, strip_filler_words
-from stt_test import filler as filler_mod
-from stt_test.stutter import detect_repetitions
+from app.pipeline.voice import stt as stt_mod
+from app.pipeline.voice import vad as vad_mod
+from app.pipeline.voice.audio import load_wav
+from app.pipeline.voice.filler import detect_fillers, merge_accepted, strip_filler_words
+from app.pipeline.voice import config as config_mod
+from app.pipeline.voice import filler as filler_mod
+from app.pipeline.voice.stutter import detect_repetitions
 
 
 @dataclass
@@ -41,6 +42,7 @@ class Context:
     stt: stt_mod.SttResult = field(default_factory=stt_mod.SttResult)
     verbatim_prompt: bool = False
     keywords: str = ""
+    thresholds: dict = field(default_factory=dict)
     elapsed: dict = field(default_factory=dict)
 
     @property
@@ -48,7 +50,8 @@ class Context:
         return vad_mod.total_duration_of(self.speech)
 
 
-def prepare_audio(wav_path: Path, on_progress=None) -> Context:
+def prepare_audio(wav_path: Path, on_progress=None,
+                  thresholds: dict | None = None) -> Context:
     """3-1 만 실행 (로딩 + VAD). STT 는 아직 안 돌림.
 
     모델 비교처럼 같은 오디오에 STT 만 여러 번 돌릴 때 이 결과를 공유함.
@@ -62,9 +65,12 @@ def prepare_audio(wav_path: Path, on_progress=None) -> Context:
     samples, sr = load_wav(wav_path)
     total_duration = len(samples) / sr
 
-    note("vad", f"3-1 VAD 무음 검출 ({total_duration:.1f}초)")
+    th = thresholds or config_mod.load()
+    note("vad", f"3-1 VAD 무음 검출 ({total_duration:.1f}초, "
+                f"무음 기준 {th['min_silence_sec']}초)")
     speech = vad_mod.speech_regions(samples, sr)
-    silence = vad_mod.silence_regions(speech, total_duration)
+    silence = vad_mod.silence_regions(speech, total_duration,
+                                      min_silence_sec=th["min_silence_sec"])
     t_vad = time.perf_counter()
     note("vad_done", f"발화 {len(speech)}구간 / 무음 {len(silence)}구간 ({t_vad - t0:.1f}초)")
 
@@ -73,6 +79,7 @@ def prepare_audio(wav_path: Path, on_progress=None) -> Context:
         speech=speech, silence=silence,
         stt=stt_mod.SttResult(model_size="(skipped)"),
         elapsed={"vad_sec": round(t_vad - t0, 2), "stt_sec": 0.0},
+        thresholds=th,
     )
 
 
@@ -125,15 +132,18 @@ def prepare(
     return run_stt(ctx, model_size, language, verbatim_prompt, keywords, on_progress)
 
 
-def build_result(ctx: Context, ablate_lexical: bool = False) -> dict:
+def build_result(ctx: Context, ablate_lexical: bool = False,
+                 thresholds: dict | None = None) -> dict:
     """3-3 + 3-4 실행 후 결과 dict 조립. ctx 재사용 가능."""
     t0 = time.perf_counter()
+    th = thresholds or ctx.thresholds or config_mod.load()
 
     # ablate_lexical: STT 가 필러를 지우는 상황(클로바노트류)을 시뮬레이션해
     # 음향 경로(VAD ∧ ¬STT)만의 성능을 측정. → filler.strip_filler_words 참고
     words = strip_filler_words(ctx.stt.words) if ablate_lexical else ctx.stt.words
     filler_result = detect_fillers(
-        ctx.samples, ctx.sr, ctx.speech, words, use_lexical=not ablate_lexical
+        ctx.samples, ctx.sr, ctx.speech, words,
+        use_lexical=not ablate_lexical, thresholds=th,
     )
     fillers = merge_accepted(filler_result)
 
@@ -185,15 +195,16 @@ def build_result(ctx: Context, ablate_lexical: bool = False) -> dict:
             "ablate_lexical": ablate_lexical,
             "speech_regions": [r.to_dict() for r in ctx.speech],
             # UI 슬라이더가 무음을 재계산할 때 쓰는 기준값 (vad.MIN_SILENCE_SEC)
-            "min_silence_sec": vad_mod.MIN_SILENCE_SEC,
+            "min_silence_sec": th["min_silence_sec"],
             # UI 슬라이더가 음향 후보 판정을 재계산할 때 쓰는 기준값
             "filler_thresholds": {
-                "min_duration": filler_mod.MIN_CANDIDATE_SEC,
-                "max_duration": filler_mod.MAX_CANDIDATE_SEC,
-                "min_relative_db": filler_mod.MIN_RELATIVE_DB,
-                "min_voiced_ratio": filler_mod.MIN_VOICED_RATIO,
-                "max_f0_std_semitone": filler_mod.MAX_F0_STD_SEMITONE,
+                "min_duration": th["min_candidate_sec"],
+                "max_duration": th["max_candidate_sec"],
+                "min_relative_db": th["min_relative_db"],
+                "min_voiced_ratio": th["min_voiced_ratio"],
+                "max_f0_std_semitone": th["max_f0_std_semitone"],
             },
+            "thresholds": th,
             "speech_reference_db": round(filler_result.speech_reference_db, 1),
             "candidates": [c.to_dict() for c in filler_result.candidates],
             "words": [w.to_dict() for w in ctx.stt.words],

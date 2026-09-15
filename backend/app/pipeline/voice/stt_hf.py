@@ -24,8 +24,8 @@ from pathlib import Path
 
 import numpy as np
 
-from stt_test.audio import TARGET_SR, load_wav
-from stt_test.stt import Sentence, SttResult, Word
+from app.pipeline.voice.audio import TARGET_SR, load_wav
+from app.pipeline.voice.stt import Sentence, SttResult, Word
 
 # 모델이 내보내는 비유창성 태그. 값은 대응하는 한국어 표기(필러 집계용).
 DISFLUENCY_TAGS = {

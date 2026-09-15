@@ -33,6 +33,9 @@ class VoiceRaw(Base):
     total_duration: Mapped[float] = mapped_column(Float, nullable=False)
     silence_segments: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     filler_words: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    # 반복(말더듬). silence_segments / filler_words 와 같은 구조의 배열:
+    # [{t_start, t_end, duration, kind("exact"|"stem"), count, text}, ...]
+    repetitions: Mapped[list | None] = mapped_column(JSONB, nullable=True)
 
     session: Mapped["Session"] = relationship(back_populates="voice_raw")  # noqa: F821
 
@@ -78,9 +81,13 @@ class SegmentAnalysis(Base):
         primary_key=True,
     )
     stt_text: Mapped[str | None] = mapped_column(Text, nullable=True)
-    wpm: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # 한국어는 어절(WPM)이 아니라 **음절(SPM)** 기준. 띄어쓰기 정책에 따라 어절 수가
+    # 크게 흔들리기 때문. 두 값을 나누면 "말은 빠른데 자주 멈춘다" 같은 진단이 가능:
+    speaking_rate_spm: Mapped[float | None] = mapped_column(Float, nullable=True)      # 무음 포함
+    articulation_rate_spm: Mapped[float | None] = mapped_column(Float, nullable=True)  # 무음 제외
     silence_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     filler_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    repetition_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # VLM 동작 분석 (구간 집계): 카테고리별 카운트 dict.
     # 키셋은 step2_video_analysis.py 의 카테고리 enum과 일치.
@@ -160,7 +167,9 @@ class SessionSummary(Base):
     segment_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     overall_scores: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     total_filler_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    avg_wpm: Mapped[float | None] = mapped_column(Float, nullable=True)
+    total_repetition_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    avg_speaking_rate_spm: Mapped[float | None] = mapped_column(Float, nullable=True)
+    avg_articulation_rate_spm: Mapped[float | None] = mapped_column(Float, nullable=True)
     best_segment_id: Mapped[int | None] = mapped_column(
         BigInteger,
         ForeignKey("segments.segment_id", ondelete="SET NULL"),

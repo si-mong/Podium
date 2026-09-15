@@ -42,6 +42,21 @@ class PreprocessResult(BaseModel):
     chunk_count: int
 
 
+class VoiceAnalysisResult(BaseModel):
+    """STEP 3 음성분석 결과 요약. 상세 수치는 voice_raws / stt_sentences 에 저장됨."""
+    session_id: int
+    status: str
+    model: str                      # 실제 사용한 STT 모델 (설정으로 교체 가능)
+    total_duration: float
+    sentence_count: int
+    silence_count: int
+    filler_count: int
+    repetition_count: int
+    speaking_rate_spm: float        # 무음 포함 — 전체 템포
+    articulation_rate_spm: float    # 무음 제외 — 조음 속도
+    elapsed_sec: float
+
+
 class MotionAnalysisResult(BaseModel):
     session_id: int
     status: str

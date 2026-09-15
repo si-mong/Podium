@@ -26,7 +26,7 @@ from pathlib import Path
 
 import numpy as np
 
-from stt_test.audio import TARGET_SR, load_wav, rms_db, write_wav
+from app.pipeline.voice.audio import TARGET_SR, load_wav, rms_db, write_wav
 
 VOICE = "Yuna"
 

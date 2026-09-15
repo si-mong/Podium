@@ -23,8 +23,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from stt_test.filler import FILLER_STRONG, _STRIP
-from stt_test.stt import Word
+from app.pipeline.voice.filler import FILLER_STRONG, _STRIP
+from app.pipeline.voice.stt import Word
 
 # 반복으로 묶을 최대 간격(초). 이보다 벌어지면 말더듬이 아니라 서로 다른 문장에서
 # 우연히 같은 단어가 나온 것으로 봄.

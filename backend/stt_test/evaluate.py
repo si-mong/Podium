@@ -17,7 +17,7 @@ import json
 from itertools import product
 from pathlib import Path
 
-from stt_test.filler import (
+from app.pipeline.voice.filler import (
     MAX_F0_STD_SEMITONE,
     MIN_RELATIVE_DB,
     MIN_VOICED_RATIO,
