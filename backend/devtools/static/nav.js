@@ -25,7 +25,15 @@
         ]},
       ],
     },
-    { base: "/voice/", text: "STEP 3 음성", groups: [] },
+    {
+      base: "/voice/", text: "STEP 3·4 음성",
+      groups: [
+        { label: "테스트", items: [
+          { url: "/voice/",         text: "STEP 3 음성분석" },
+          { url: "/voice/segments", text: "STEP 4 구간분리" },
+        ]},
+      ],
+    },
   ];
 
   // 페이지마다 body 폭·색이 달라 토큰을 못 쓰므로 투명도/테두리 기반으로 칠한다.

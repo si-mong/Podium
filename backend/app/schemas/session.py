@@ -42,6 +42,30 @@ class PreprocessResult(BaseModel):
     chunk_count: int
 
 
+class SegmentItem(BaseModel):
+    segment_id: int
+    label: str | None
+    title: str
+    t_start: float
+    t_end: float
+    duration: float
+    silence_count: int | None
+    filler_count: int | None
+    repetition_count: int | None
+    speaking_rate_spm: float | None
+    articulation_rate_spm: float | None
+
+
+class SegmentationResult(BaseModel):
+    """STEP 4 구간 분리 + 구간별 집계 결과."""
+    session_id: int
+    status: str
+    segment_count: int
+    sentence_count: int
+    segments: list[SegmentItem]
+    warnings: list[str]      # LLM 출력 검증·보정 내역
+
+
 class VoiceAnalysisResult(BaseModel):
     """STEP 3 음성분석 결과 요약. 상세 수치는 voice_raws / stt_sentences 에 저장됨."""
     session_id: int

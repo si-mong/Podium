@@ -7,6 +7,7 @@
   POST /sessions/{id}/end                       -> 오디오 추출 + concat (전처리만 완료)
   POST /sessions/{id}/analyze/motion            -> STEP 2 VLM 동작 분석 (별도 호출)
   POST /sessions/{id}/analyze/voice             -> STEP 3 음성 분석 (별도 호출)
+  POST /sessions/{id}/analyze/segments          -> STEP 4 구간 분리 + 집계
   GET    /sessions/{id}                         -> 메타 + 청크 목록
   DELETE /sessions/{id}                         -> 세션 (DB + 파일) 삭제
 """
@@ -18,13 +19,18 @@ from sqlalchemy.orm import Session as DbSession, selectinload
 
 from app.api._dev_auth import get_current_user_id
 from app.core.database import get_db
-from app.models import Chunk, Project, Session, SttSentence, VideoAnalysis, VoiceRaw
+from app.models import (
+    Chunk, Project, Segment, SegmentAnalysis, Session, SessionSummary,
+    SttSentence, VideoAnalysis, VoiceRaw,
+)
 from app.pipeline.step1_preprocess import concat_audio, extract_chunk_audio, probe_duration
 from app.schemas.session import (
     MotionAnalysisResult,
     PreprocessResult,
     SessionDetail,
     SessionRead,
+    SegmentationResult,
+    SegmentItem,
     UploadResult,
     VoiceAnalysisResult,
 )
@@ -383,4 +389,99 @@ def analyze_voice(
         speaking_rate_spm=m["speaking_rate_spm"],
         articulation_rate_spm=m["articulation_rate_spm"],
         elapsed_sec=round(elapsed, 2),
+    )
+
+
+# ---------------------------------------------------------------------------
+# STEP 4 — 구간 분리 + 집계
+# ---------------------------------------------------------------------------
+
+@router.post("/sessions/{session_id}/analyze/segments", response_model=SegmentationResult)
+def analyze_segments(session_id: int, db: DbSession = Depends(get_db)):
+    """STT 문장을 의미 단위 구간으로 나누고, 구간별로 앞 단계 결과를 집계한다.
+
+    **STEP 2(동작)와 STEP 3(음성)이 모두 끝난 뒤** 호출해야 한다. 둘 다 이 단계의
+    입력이기 때문. STEP 3 는 필수(문장이 없으면 나눌 수 없음), STEP 2 는 선택 —
+    없으면 동작 관련 컬럼만 비워둔다.
+
+    LLM 에는 **문장 번호만** 넘기고 시각은 stt_sentences 에서 가져온다.
+    (근거는 docs/Dev-STEP4.md)
+
+    재호출 시 이 세션의 기존 segments 는 통째로 교체된다 — segment_analyses 와
+    feedbacks 는 FK CASCADE 로 함께 지워진다.
+    """
+    session = _get_owned_session(db, session_id)
+
+    sentences = db.scalars(
+        select(SttSentence).where(SttSentence.session_id == session_id)
+        .order_by(SttSentence.t_start)
+    ).all()
+    if not sentences:
+        raise HTTPException(
+            400, "stt_sentences 가 없습니다. 먼저 POST /sessions/{id}/analyze/voice 를 호출하세요.")
+
+    sent_dicts = [{"text": s.text, "t_start": s.t_start, "t_end": s.t_end}
+                  for s in sentences]
+
+    voice_raw = db.get(VoiceRaw, session_id)
+    vr = {
+        "silence_segments": voice_raw.silence_segments if voice_raw else [],
+        "filler_words": voice_raw.filler_words if voice_raw else [],
+        "repetitions": voice_raw.repetitions if voice_raw else [],
+    }
+    videos = [
+        {"t_start": v.t_start, "t_end": v.t_end, "posture": v.posture,
+         "eye_contact": v.eye_contact, "gesture_counts": v.gesture_counts,
+         "notes": v.notes}
+        for v in db.scalars(
+            select(VideoAnalysis).where(VideoAnalysis.session_id == session_id)
+        ).all()
+    ]
+
+    # lazy import — google-genai 미설치 환경에서도 API 서버는 정상 기동.
+    from app.pipeline import step4_aggregate, step4_segmentation
+
+    total = voice_raw.total_duration if voice_raw else sent_dicts[-1]["t_end"]
+    result = step4_segmentation.run(sent_dicts, total_duration=total)
+
+    # 재분석 시 이전 회차가 남지 않도록 통째로 교체 (CASCADE 로 하위도 정리됨).
+    db.query(Segment).filter(Segment.session_id == session_id).delete()
+    db.flush()
+
+    per_segment: list[dict] = []
+    items: list[SegmentItem] = []
+    for seg in result.segments:
+        row = Segment(session_id=session_id, label=seg.label, title=seg.title,
+                      t_start=seg.t_start, t_end=seg.t_end)
+        db.add(row)
+        db.flush()   # segment_id 확보
+
+        agg = step4_aggregate.aggregate(
+            {"t_start": seg.t_start, "t_end": seg.t_end},
+            sent_dicts, vr, videos,
+        )
+        db.add(SegmentAnalysis(segment_id=row.segment_id, **agg))
+        per_segment.append(agg)
+        items.append(SegmentItem(
+            segment_id=row.segment_id, label=seg.label, title=seg.title,
+            t_start=seg.t_start, t_end=seg.t_end,
+            duration=round(seg.t_end - seg.t_start, 3),
+            silence_count=agg["silence_count"], filler_count=agg["filler_count"],
+            repetition_count=agg["repetition_count"],
+            speaking_rate_spm=agg["speaking_rate_spm"],
+            articulation_rate_spm=agg["articulation_rate_spm"],
+        ))
+
+    # 세션 요약 — 1:1 이므로 기존 행을 지우고 새로 넣는다
+    db.query(SessionSummary).filter(SessionSummary.session_id == session_id).delete()
+    db.add(SessionSummary(session_id=session_id,
+                          **step4_aggregate.summarize(per_segment, total)))
+
+    session.status = "segmented"
+    db.commit()
+
+    return SegmentationResult(
+        session_id=session_id, status=session.status,
+        segment_count=len(items), sentence_count=len(sent_dicts),
+        segments=items, warnings=result.warnings,
     )

@@ -286,6 +286,79 @@ def _vocab_warning(model_dir: Path) -> str | None:
             f"(실측 전 · 결과를 확인하세요)")
 
 
+@app.get("/segments")
+def segments_page() -> FileResponse:
+    """STEP 4 구간 분리 테스트 페이지."""
+    return FileResponse(STATIC_DIR / "segments.html")
+
+
+@app.get("/api/step4/labels")
+def api_step4_labels() -> dict:
+    from app.pipeline import step4_segmentation as s4
+    return {"labels": s4.LABELS,
+            "policy": {"min_segment_sec": s4.MIN_SEGMENT_SEC,
+                       "target_sec_per_segment": s4.TARGET_SEC_PER_SEGMENT,
+                       "min_segments": s4.MIN_SEGMENTS,
+                       "max_segments": s4.MAX_SEGMENTS}}
+
+
+@app.get("/api/step4/sources")
+def api_step4_sources() -> list[dict]:
+    """STEP 3 분석 기록 중 문장이 있는 것 — 그대로 구간 분리 입력으로 쓸 수 있음."""
+    out = []
+    for job_dir in WORK_DIR.iterdir():
+        res = job_dir / "result.json"
+        meta = job_dir / "meta.json"
+        if not (res.exists() and meta.exists()):
+            continue
+        try:
+            d = json.loads(res.read_text(encoding="utf-8"))
+            m = json.loads(meta.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+        # 단일 분석 결과만 (모델 비교 결과는 어느 모델 것인지 모호)
+        sents = (d.get("result") or {}).get("stt_sentences")
+        if not sents:
+            continue
+        out.append({"job_id": m["job_id"], "source": m.get("source", ""),
+                    "model": m.get("model", ""), "started_at": m.get("started_at", ""),
+                    "sentence_count": len(sents)})
+    return sorted(out, key=lambda x: x["started_at"], reverse=True)
+
+
+@app.post("/api/step4/run")
+async def api_step4_run(job_id: str = Form(""), text: str = Form("")) -> dict:
+    """구간 분리 실행.
+
+    job_id 가 있으면 그 STEP 3 결과의 문장을 쓰고, 없으면 text 를 줄 단위로 읽는다.
+    직접 입력은 시각 정보가 없으므로 **줄당 3초**로 가정한다 — 라벨·경계 판정만
+    보기 위한 용도이며 실제 시각은 STEP 3 결과를 써야 한다.
+    """
+    from app.pipeline import step4_segmentation as s4
+
+    if job_id:
+        path = WORK_DIR / job_id / "result.json"
+        if not path.exists():
+            raise HTTPException(404, "기록 없음")
+        d = json.loads(path.read_text(encoding="utf-8"))
+        sentences = (d.get("result") or {}).get("stt_sentences") or []
+        if not sentences:
+            raise HTTPException(400, "이 기록에는 문장이 없음 (무음만 모드였을 수 있음)")
+    else:
+        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+        if not lines:
+            raise HTTPException(400, "문장을 입력하세요")
+        sentences = [{"text": ln, "t_start": i * 3.0, "t_end": (i + 1) * 3.0}
+                     for i, ln in enumerate(lines)]
+
+    total = sentences[-1]["t_end"]
+    result = s4.run(sentences, total_duration=total)
+    return {"segments": [x.to_dict() for x in result.segments],
+            "warnings": result.warnings,
+            "sentences": sentences,
+            "synthetic_time": not job_id}
+
+
 @app.get("/api/thresholds")
 def api_thresholds() -> dict:
     """현재 임계값 + UI 슬라이더 메타데이터."""

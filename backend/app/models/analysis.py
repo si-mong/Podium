@@ -50,6 +50,10 @@ class Segment(Base):
         nullable=False,
         index=True,
     )
+    # label = 분류용 semi-enum (도입/문제제시/…). 회차 비교·집계에 씀.
+    #   목록은 step4_segmentation.LABELS. 순서 강제 없고 반복 가능.
+    # title = 사용자에게 보여줄 한 줄 요약. 둘은 역할이 다르므로 분리한다.
+    label: Mapped[str | None] = mapped_column(String(32), nullable=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     t_start: Mapped[float] = mapped_column(Float, nullable=False)
     t_end: Mapped[float] = mapped_column(Float, nullable=False)
