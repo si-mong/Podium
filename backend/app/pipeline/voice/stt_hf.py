@@ -144,17 +144,21 @@ def transcribe_hf(
     decode_sec = round(time.perf_counter() - t1, 2)
 
     # 문장 분리: 종결 부호 기준. faster-whisper 의 세그먼트에 대응하는 근사치.
+    # 문장 텍스트에서는 비유창성 태그를 뺀다 (→ stt_sentences.text 가 평문).
+    # words 에는 그대로 남으므로 필러·반복 검출은 영향받지 않고,
+    # 태그 포함본은 SttResult.tagged_text 로 따로 볼 수 있다.
+    def _join(ws: list[Word]) -> str:
+        return " ".join(w.text for w in ws if not is_tag(w.text)).strip()
+
     sentences: list[Sentence] = []
     cur: list[Word] = []
     for w in words:
         cur.append(w)
         if w.text.endswith((".", "?", "!")):
-            sentences.append(Sentence(" ".join(x.text for x in cur),
-                                      cur[0].t_start, cur[-1].t_end, 0.0))
+            sentences.append(Sentence(_join(cur), cur[0].t_start, cur[-1].t_end, 0.0))
             cur = []
     if cur:
-        sentences.append(Sentence(" ".join(x.text for x in cur),
-                                  cur[0].t_start, cur[-1].t_end, 0.0))
+        sentences.append(Sentence(_join(cur), cur[0].t_start, cur[-1].t_end, 0.0))
 
     return SttResult(sentences=sentences, words=words, language=language,
                      model_size=f"hf:{model_id} ({dev})",

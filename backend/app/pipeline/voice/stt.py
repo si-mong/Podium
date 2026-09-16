@@ -102,7 +102,18 @@ class SttResult:
 
     @property
     def full_text(self) -> str:
+        """DB 저장·LLM 입력용 **평문**. 비유창성 태그는 들어있지 않다."""
         return " ".join(s.text.strip() for s in self.sentences).strip()
+
+    @property
+    def tagged_text(self) -> str:
+        """개발 도구 확인용 — 모델이 찍은 비유창성 태그를 살린 전사문.
+
+        태그 위치는 이미 `filler_words` / `repetitions` 에 시각과 함께 구조화돼
+        저장되므로 DB 에는 넣지 않는다. 사용자에게 보여줄 대본에 `<repeat>` 이
+        섞이면 안 되고, STEP 5 LLM 입력에도 방해가 된다.
+        """
+        return " ".join(w.text for w in self.words).strip()
 
 
 def count_syllables(text: str) -> int:

@@ -532,7 +532,7 @@ function markTags(t) {
 /** 모델별 전사문 토글. 한 번에 한 모델의 전문을 보여준다. */
 function transcriptToggleHtml(models, results) {
   if (txtPane === null || !models.includes(txtPane)) txtPane = models[0];
-  const t = results[txtPane].diagnostics.full_text;
+  const t = (results[txtPane].diagnostics.tagged_text || results[txtPane].diagnostics.full_text);
   const syl = results[txtPane].metrics.syllable_count;
   return `
     <div class="row" style="margin-bottom:8px">
@@ -649,7 +649,7 @@ function renderCompare(out) {
          허위 검출이 대부분이면 폐기, 어휘 경로가 놓친 걸 잡아주면 유지.`}</div>
     <h2>지표</h2>${metricsHtml(L.metrics)}
     <h2>무음 구간</h2>${timelineHtml(L)}${silenceTableHtml(L)}
-    <h2>전사문</h2><div class="panel" style="font-size:13px">${markTags(L.diagnostics.full_text)||"(없음)"}</div>
+    <h2>전사문</h2><div class="panel" style="font-size:13px">${markTags((L.diagnostics.tagged_text || L.diagnostics.full_text))||"(없음)"}</div>
     <h2>반복 (말더듬)</h2>${repetitionHtml(L)}
     <h2>필러 후보</h2>
     <div class="row" style="margin-bottom:10px">
@@ -668,7 +668,7 @@ function renderSingle(out) {
     <h2>무음 구간</h2>${timelineHtml(R)}${silenceTableHtml(R)}
     ${data.mode === "silence" ? "" : `
       <h2>전사문</h2>
-      <div class="panel" style="font-size:13px">${markTags(R.diagnostics.full_text)||"(없음)"}</div>
+      <div class="panel" style="font-size:13px">${markTags((R.diagnostics.tagged_text || R.diagnostics.full_text))||"(없음)"}</div>
       <h2>반복 (말더듬)</h2>${repetitionHtml(R)}
       <h2>필러 후보</h2><div id="tablewrap"></div>`}`;
   if (data.mode !== "silence") renderTable(R, "lex");

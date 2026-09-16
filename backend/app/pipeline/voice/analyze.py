@@ -208,7 +208,8 @@ def build_result(ctx: Context, ablate_lexical: bool = False,
             "speech_reference_db": round(filler_result.speech_reference_db, 1),
             "candidates": [c.to_dict() for c in filler_result.candidates],
             "words": [w.to_dict() for w in ctx.stt.words],
-            "full_text": ctx.stt.full_text,
+            "full_text": ctx.stt.full_text,        # 평문 (DB 저장분과 동일)
+            "tagged_text": ctx.stt.tagged_text,    # 태그 포함 (개발 확인용)
             "elapsed": {**ctx.elapsed, "filler_sec": round(time.perf_counter() - t0, 2)},
         },
     }
