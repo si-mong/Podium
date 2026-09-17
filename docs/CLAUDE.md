@@ -24,7 +24,7 @@
 
 1. **(현재 단계) 파이프라인 PoC 병렬** — 사용자=전처리/STT, 팀원=VLM. 함수 단위로 동작 검증
 2. **수직 슬라이스** — 매주 한 기능을 (DB→API→파이프라인→프론트) 끝까지 구현해 데모 가능한 상태 유지
-3. **인증** — 후반부에 `_dev_auth.py`를 JWT로 교체 (반나절 작업으로 예상)
+3. **인증** — ~~후반부에 `_dev_auth.py`를 JWT로 교체~~ **완료 (2026-09-18)**. `_dev_auth.py` 제거, JWT + refresh 회전
 
 이유: 사용자가 백엔드+파이프라인 병목. 통합을 마지막에 미루면 폭발 → 슬라이스로 분산.
 
@@ -61,7 +61,7 @@ STEP 1 (청크) ─┬─> STEP 2 VLM (청크별)
 - **Backend**: FastAPI + SQLAlchemy 2.0 + Alembic + PostgreSQL 16 (Docker)
 - **Frontend**: Next.js 14 (App Router, TS, Tailwind) — 페이지 미작성
 - **AI/파이프라인 (`requirements-pipeline.txt`)**: Whisper, librosa, OpenCV, pdfplumber, OpenAI GPT-4o — 미설치
-- **인증**: 임시 더미(`_dev_auth.py`). 실제 JWT는 후반부
+- **인증**: JWT (python-jose) + bcrypt. access 60분 / refresh 14일 회전. `app/core/security.py`, `app/api/auth.py`
 
 ---
 
@@ -76,9 +76,10 @@ Podium/
 │   │   │   ├── config.py              pydantic-settings Settings
 │   │   │   └── database.py            engine, SessionLocal, Base, get_db
 │   │   ├── api/                       ★
-│   │   │   ├── _dev_auth.py           ★ 임시 더미 사용자(dev@podium.local) — 실제 인증 만들면 제거
-│   │   │   ├── projects.py            GET/POST /projects
-│   │   │   └── sessions.py            세션 라이프사이클 5개 엔드포인트
+│   │   │   ├── _deps.py               ★ 인증(Bearer) + 소유권 검사 공용 의존성
+│   │   │   ├── auth.py                signup / login / refresh / logout / me
+│   │   │   ├── projects.py            프로젝트 CRUD + 휴지통
+│   │   │   └── sessions.py            세션 라이프사이클 + 분석 트리거
 │   │   ├── models/                    SQLAlchemy 10 테이블 (4파일 분할)
 │   │   │   ├── user.py, project.py, session.py, analysis.py, __init__.py
 │   │   ├── schemas/                   ★
@@ -375,7 +376,7 @@ uvicorn devtools.server:app --reload --port 8001
     - `services/storage.py` — 파일 경로/IO
     - `schemas/project.py`, `schemas/session.py`
     - `api/projects.py`, `api/sessions.py`
-    - `api/_dev_auth.py` — 임시 더미 사용자 시드 (lifespan에서 자동 실행)
+    - `api/_deps.py` — 인증 + 소유권 검사 / `api/auth.py` — 회원가입·로그인·갱신·로그아웃
     - `backend/dev_static/index.html` — 시스템 촬영 검증용 정적 페이지
     - **STEP 1 end-to-end 검증 통과** (촬영 → 청크/영상 저장 → DB → ffmpeg 전처리 → full_audio.wav)
 - **STEP 2 VLM (Gemini 2.5-flash) 통합** (2026-05-21~22):
@@ -420,7 +421,7 @@ uvicorn devtools.server:app --reload --port 8001
 - 슬라이스 5: 회차 비교 + 추세
 
 **후반부**:
-- 인증 (`_dev_auth.py` → JWT 교체, `/dev` mount 제거)
+- ~~인증 (JWT 교체)~~ **완료**. 남은 것: `/dev` mount 제거 (본 프론트 촬영 페이지 완성 후)
 - 폴리싱 + 발표 준비
 
 ### ⚠️ 알려진 이슈
@@ -436,10 +437,10 @@ uvicorn devtools.server:app --reload --port 8001
 ### 백엔드
 - **새 모델**: `app/models/<domain>.py` 작성 → `app/models/__init__.py`에 re-export → `alembic revision --autogenerate -m "..."` → 파일 검토 → `alembic upgrade head`
 - **새 라우터**: `app/api/<domain>.py`에 `APIRouter` → `app/main.py`에서 `include_router`
-- **소유권 체크**: 라우터 진입 시 `_get_owned_session` 같은 헬퍼로 dev 사용자 소유 확인 (인증 만들면 JWT로 교체)
+- **인증/소유권**: 라우트에 `user_id: int = Depends(get_current_user_id)` 를 받아 `get_owned_project/session(db, id, user_id)` 에 넘긴다. 둘 다 `app/api/_deps.py`
 - **DB 세션**: `Depends(get_db)`로 주입
 - **환경변수**: `app.core.config.settings`로 접근. `os.getenv` 직접 호출 X
-- **임시 코드** (`_dev_auth.py`, `/legacy` mount): 파일명/경로에 `_` prefix나 명시 주석으로 임시성 표시
+- **임시 코드** (`/dev` mount 등): 파일명/경로에 `_` prefix나 명시 주석으로 임시성 표시
 
 ### git
 - 커밋 메시지: 영문, 명령형 ("Add X", "Fix Y")

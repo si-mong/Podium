@@ -10,6 +10,8 @@ backend/vlm_test/work/*
 _refs/
 _legacy/
 .claude/
+docs/CLAUDE.md
+~$*.xlsx
 
 # Frontend (Next.js manages its own .gitignore inside frontend/, but cover the basics here too)
 node_modules/
