@@ -29,6 +29,17 @@ class SessionDetail(SessionRead):
     chunks: List[ChunkRead] = []
 
 
+class VideoTicket(BaseModel):
+    """`<video>` 태그용 단기 재생 티켓.
+
+    사용법: `<video src="/sessions/{id}/video?ticket={ticket}">`
+    expires_in 초가 지나면 401 — 재생 시작 전에 새로 받을 것.
+    """
+
+    ticket: str
+    expires_in: int
+
+
 class UploadResult(BaseModel):
     ok: bool = True
     size_bytes: int
