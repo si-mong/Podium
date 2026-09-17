@@ -245,3 +245,10 @@ backend/stt_test/fixtures/*.wav
 backend/stt_test/models/*
 backend/stt_test/work/*
 !backend/stt_test/work/.gitkeep
+
+# 로컬 작업 노트 (GitHub 제외)
+backend/vlm_test/DEV_NOTES.md
+backend/vlm_test/voice_analyzer_설명.py
+
+# 음성 테스트 업로드/결과물 (용량 큼, GitHub 제외)
+backend/vlm_test/voice_uploads/

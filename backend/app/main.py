@@ -30,6 +30,11 @@ app.add_middleware(
 app.include_router(projects.router)
 app.include_router(sessions.router)
 
+# 업로드된 영상/오디오 파일을 프론트엔드에서 직접 재생할 수 있도록 정적 서빙.
+# 예: uploads/1/full_video.webm -> http://localhost:8000/media/1/full_video.webm
+settings.upload_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/media", StaticFiles(directory=str(settings.upload_dir)), name="media")
+
 
 @app.get("/health")
 def health():
