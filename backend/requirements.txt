@@ -13,7 +13,10 @@ alembic==1.13.3
 
 # Auth
 python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
+# passlib 은 1.7.4 이후 유지보수가 멈춰 bcrypt 5.x 와 호환이 깨졌다
+# (module 'bcrypt' has no attribute '__about__'). bcrypt 를 직접 쓴다.
+bcrypt==5.0.0
+email-validator==2.2.0
 
 # OpenAI (VLM/LLM 호출 — API 서버에서 직접 사용)
 openai==1.54.4

@@ -40,7 +40,15 @@
 </head>
 <body>
   <h1>Podium Recorder · 30s chunking demo</h1>
-  <div class="row"><span class="pill">project: <code id="projectId">—</code></span></div>
+  <div class="row">
+    <span class="pill">project: <code id="projectId">—</code></span>
+    <span class="pill">auth: <code id="authState">—</code></span>
+  </div>
+  <div class="row">
+    <input id="token" type="password" placeholder="access_token (POST /auth/login 응답)"
+           style="flex:1; min-width:280px; padding:6px 10px; font-family:monospace; font-size:12px;">
+    <button id="saveToken" class="primary">토큰 저장</button>
+  </div>
   <video id="preview" autoplay muted playsinline></video>
 
   <div class="row">
@@ -67,6 +75,39 @@ const CHUNK_MS = 30_000;
 // 미리 POST /projects 로 프로젝트 만들고 그 id를 URL에 붙일 것.
 const PROJECT_ID = new URLSearchParams(location.search).get("project");
 document.getElementById("projectId").textContent = PROJECT_ID || "(missing)";
+
+// ── 인증 ────────────────────────────────────────────────────────────────────
+// 모든 API 가 Bearer 토큰을 요구한다. 이 페이지는 개발용이라 로그인 폼 대신
+// access_token 을 직접 붙여넣어 localStorage 에 둔다.
+//   1) curl -X POST localhost:8000/auth/login -H 'Content-Type: application/json' \
+//        -d '{"email":"...","password":"..."}'
+//   2) 응답의 access_token 을 위 입력칸에 붙여넣고 "토큰 저장"
+// 기본 수명 60분 — 401 이 뜨면 다시 로그인해서 갈아끼울 것.
+const TOKEN_KEY = "podium_dev_token";
+let TOKEN = localStorage.getItem(TOKEN_KEY) || "";
+
+function renderAuthState() {
+  document.getElementById("authState").textContent = TOKEN ? "토큰 있음" : "(없음)";
+}
+renderAuthState();
+document.getElementById("token").value = TOKEN;
+document.getElementById("saveToken").addEventListener("click", () => {
+  TOKEN = document.getElementById("token").value.trim();
+  localStorage.setItem(TOKEN_KEY, TOKEN);
+  renderAuthState();
+  log(TOKEN ? "토큰 저장됨" : "토큰 비움");
+});
+
+/** fetch + Authorization 헤더. 401 이면 원인을 로그에 명확히 남긴다. */
+async function authFetch(url, options = {}) {
+  if (!TOKEN) throw new Error("access_token 이 없습니다. 위 입력칸에 붙여넣고 '토큰 저장'을 누르세요.");
+  const headers = { ...(options.headers || {}), Authorization: `Bearer ${TOKEN}` };
+  const res = await fetch(url, { ...options, headers });
+  if (res.status === 401) {
+    log("✗ 401 — 토큰이 없거나 만료됐습니다. 다시 로그인해 access_token 을 갈아끼우세요.");
+  }
+  return res;
+}
 
 let stream = null;              // 원본 스트림 (미리보기 + 청크 recorder 용)
 let fullStream = null;          // 풀 recorder 전용 클론 스트림 (간섭 방지)
@@ -107,7 +148,7 @@ function pickMime() {
 
 async function startSession() {
   const url = `${API}/projects/${PROJECT_ID}/sessions/start`;
-  const res = await fetch(url, { method: "POST" });
+  const res = await authFetch(url, { method: "POST" });
   if (!res.ok) throw new Error(`start failed: ${res.status} ${await res.text()}`);
   const data = await res.json();
   sessionId = data.session_id;
@@ -118,7 +159,7 @@ async function startSession() {
 async function uploadFullVideo(blob) {
   const fd = new FormData();
   fd.append("file", blob, "full_video.webm");
-  const p = fetch(`${API}/sessions/${sessionId}/video`, { method: "POST", body: fd })
+  const p = authFetch(`${API}/sessions/${sessionId}/video`, { method: "POST", body: fd })
     .then((r) => r.json())
     .then((data) => {
       log(`✓ uploaded full video (${(blob.size / 1024 / 1024).toFixed(2)} MB)`);
@@ -133,7 +174,7 @@ async function uploadChunk(blob, idx) {
   const fd = new FormData();
   fd.append("file", blob, `chunk_${String(idx).padStart(3, "0")}.webm`);
   const url = `${API}/sessions/${sessionId}/chunks?chunk_index=${idx}`;
-  const p = fetch(url, { method: "POST", body: fd })
+  const p = authFetch(url, { method: "POST", body: fd })
     .then((r) => r.json())
     .then((data) => {
       log(`✓ uploaded chunk ${idx} (${(blob.size / 1024).toFixed(1)} KB)`);
@@ -262,7 +303,7 @@ async function stop() {
 
   log("calling /end (audio extract + concat)…");
   try {
-    const res = await fetch(`${API}/sessions/${sessionId}/end`, { method: "POST" });
+    const res = await authFetch(`${API}/sessions/${sessionId}/end`, { method: "POST" });
     const data = await res.json();
     if (!res.ok) throw new Error(JSON.stringify(data));
     log(`✓ /end done. chunks=${data.chunk_count}, total_duration=${data.total_duration_sec}s, status=${data.status}`);
@@ -286,7 +327,7 @@ async function analyze() {
   log(`calling /sessions/${sessionId}/analyze/motion … (Gemini 호출, 청크당 수십초 소요)`);
   const t0 = performance.now();
   try {
-    const res = await fetch(`${API}/sessions/${sessionId}/analyze/motion`, { method: "POST" });
+    const res = await authFetch(`${API}/sessions/${sessionId}/analyze/motion`, { method: "POST" });
     const data = await res.json();
     if (!res.ok) throw new Error(JSON.stringify(data));
     const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
@@ -304,7 +345,7 @@ async function analyze() {
 async function showResult() {
   if (!sessionId) return;
   try {
-    const res = await fetch(`${API}/sessions/${sessionId}/analysis`);
+    const res = await authFetch(`${API}/sessions/${sessionId}/analysis`);
     const data = await res.json();
     $("resultArea").style.display = "block";
     $("resultJson").textContent = JSON.stringify(data, null, 2);

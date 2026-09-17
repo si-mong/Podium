@@ -5,15 +5,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.api import projects, sessions
-from app.api._dev_auth import ensure_dev_user
+from app.api import auth, projects, sessions
 from app.core.config import settings
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
-    ensure_dev_user()
     yield
 
 
@@ -27,6 +25,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth.router)
 app.include_router(projects.router)
 app.include_router(sessions.router)
 

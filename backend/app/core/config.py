@@ -20,7 +20,10 @@ class Settings(BaseSettings):
     # Auth
     jwt_secret: str = "change-me-in-production"
     jwt_algorithm: str = "HS256"
-    jwt_expire_minutes: int = 60 * 24
+    # access 토큰 수명. 짧을수록 탈취 피해가 줄지만 갱신 요청이 잦아진다.
+    jwt_expire_minutes: int = 60
+    # refresh 토큰 수명 = 로그인 유지 기간. 이 기간이 지나면 다시 로그인해야 한다.
+    jwt_refresh_expire_days: int = 14
 
     # Storage
     upload_dir: Path = Path("./uploads")
