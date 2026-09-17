@@ -41,7 +41,7 @@ STEP 1  전처리 (청크 분할 → 오디오 추출 + full_audio.wav)   사용
 STEP 2  VLM 동작 분석                                       팀원   ← (예전 STEP 4)
 STEP 3  Whisper STT + 음성 수치화                           사용자  ← (예전 STEP 2)
 STEP 4  LLM 구간 분리                                       사용자  ← (예전 STEP 3)
-STEP 5  LLM 종합 피드백                                     사용자
+STEP 5  LLM 종합 피드백                                     팀원   ← (2026-09-18 변경)
 ```
 
 의존성 그래프(번호와 무관):
@@ -52,7 +52,7 @@ STEP 1 (청크) ─┬─> STEP 2 VLM (청크별)
                               └─> STEP 5 종합 (STEP 2+3 결과 다 사용)
 ```
 
-→ STEP 1만 끝나면 사용자(STEP 3 이후)와 팀원(STEP 2)이 진짜 병렬 가능.
+→ STEP 1만 끝나면 사용자(STEP 3·4)와 팀원(STEP 2)이 진짜 병렬 가능. STEP 5는 팀원 담당이며 STEP 2~4 결과가 모두 필요하므로 마지막.
 
 ---
 
