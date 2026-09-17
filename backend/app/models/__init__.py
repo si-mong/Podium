@@ -1,10 +1,10 @@
 from app.models.analysis import (
-    ChunkAnalysis,
     Feedback,
     Segment,
     SegmentAnalysis,
     SessionSummary,
     SttSentence,
+    VideoAnalysis,
     VoiceRaw,
 )
 from app.models.project import Project
@@ -16,7 +16,7 @@ __all__ = [
     "Project",
     "Session",
     "Chunk",
-    "ChunkAnalysis",
+    "VideoAnalysis",
     "SttSentence",
     "VoiceRaw",
     "Segment",

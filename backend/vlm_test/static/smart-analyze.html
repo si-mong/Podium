@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<script>window.APP_BASE="/vlm";</script>
+<script src="/shared/base.js"></script>
+
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Podium VLM Test · Smart Analyze (스마트 청킹 + VLM)</title>
+<style>
+  :root { color-scheme: light; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    margin: 0; padding: 24px; max-width: 1400px; margin-inline: auto;
+    color: #111;
+  }
+  h1 { margin: 0 0 6px; font-size: 22px; }
+  .subtitle { color: #666; font-size: 13px; margin-bottom: 20px; }
+  a { color: #1565c0; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .top-bar { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 20px; }
+  .nav a { margin-left: 14px; }
+  .row { display: flex; align-items: center; gap: 10px; margin: 12px 0; flex-wrap: wrap; }
+  input[type=file] { font-size: 14px; }
+  button {
+    padding: 9px 18px; font-size: 15px; border: 0; border-radius: 8px;
+    cursor: pointer; font-weight: 600;
+  }
+  button.primary { background: #111; color: #fff; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .pill {
+    display: inline-block; padding: 4px 10px; border-radius: 999px;
+    background: #eee; font-size: 13px;
+  }
+  .pill.live  { background: #1565c0; color: #fff; }
+  .pill.done  { background: #2e7d32; color: #fff; }
+  .pill.error { background: #b71c1c; color: #fff; }
+
+  /* 옵션 슬라이더 박스 */
+  .options {
+    background: #fafafa; padding: 12px 16px; border-radius: 8px;
+    border: 1px solid #ddd; margin: 12px 0;
+  }
+  .options h3 { margin: 0 0 10px; font-size: 14px; color: #333; }
+  .slider-grid { display: grid; grid-template-columns: 170px 1fr 80px; gap: 8px 12px; align-items: center; }
+  .slider-grid input[type=range] { width: 100%; }
+  .slider-grid .val { font-family: ui-monospace, Menlo, Monaco, monospace; font-size: 13px; text-align: right; }
+
+  .progress-wrap { background: #eee; border-radius: 6px; overflow: hidden; height: 8px; margin: 6px 0; }
+  .progress-bar { background: #1565c0; height: 100%; width: 0%; transition: width 0.3s; }
+  #log {
+    background: #0f0f0f; color: #d8e3ff; padding: 12px;
+    border-radius: 8px; margin-top: 16px;
+    font-family: ui-monospace, Menlo, Monaco, monospace;
+    font-size: 12.5px; max-height: 240px; overflow-y: auto;
+    white-space: pre-wrap;
+  }
+
+  /* 청크 계획 시각화 (timeline bar) */
+  .plan-bar {
+    display: flex; width: 100%; height: 24px; border-radius: 4px;
+    overflow: hidden; margin: 10px 0 4px; background: #eee;
+  }
+  .plan-seg.intro  { background: rgba(46, 125, 50, 0.6);  }
+  .plan-seg.motion { background: rgba(21, 101, 192, 0.6); }
+  .plan-seg.outro  { background: rgba(239, 108, 0, 0.6);  }
+  .plan-seg { font-size: 10px; color: #fff; text-align: center; line-height: 24px; font-family: ui-monospace, monospace; }
+  .plan-gap { background: transparent; }
+  .plan-meta { font-size: 12px; color: #666; }
+
+  table { border-collapse: collapse; margin-top: 16px; width: 100%; font-size: 13px; }
+  th, td { border: 1px solid #ddd; padding: 6px 10px; text-align: left; vertical-align: top; }
+  th { background: #f6f6f6; font-weight: 600; }
+  .notes { font-size: 12px; color: #555; max-width: 240px; }
+  .counts { font-family: ui-monospace, Menlo, Monaco, monospace; font-size: 11px; color: #333; max-width: 200px; }
+  .timeline-cell { font-family: ui-monospace, Menlo, Monaco, monospace; font-size: 11px; color: #555; max-width: 180px; }
+  tr.intro  td:nth-child(2) { color: #2e7d32; font-weight: 600; }
+  tr.motion td:nth-child(2) { color: #1565c0; font-weight: 600; }
+  tr.outro  td:nth-child(2) { color: #ef6c00; font-weight: 600; }
+
+  details summary { cursor: pointer; font-weight: 600; margin: 16px 0 8px; }
+  pre.json { background: #f7f7f7; padding: 12px; border-radius: 6px; font-size: 12px; max-height: 400px; overflow: auto; }
+
+  .metrics-section { margin-top: 28px; }
+  .metrics-section h3 { font-size: 15px; font-weight: 700; margin: 0 0 14px; }
+  .metrics-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .metric-card {
+    background: #fff; border: 1px solid #e8e8e8; border-radius: 12px;
+    padding: 16px 18px; box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .metric-card .card-top { display: flex; justify-content: space-between; align-items: center; }
+  .metric-card .card-title { font-size: 13px; color: #555; }
+  .metric-card .card-icon { font-size: 18px; }
+  .metric-card .card-value { font-size: 26px; font-weight: 700; color: #111; }
+</style>
+</head>
+<body>
+  <div id="nav-mount"></div>
+  <script src="/shared/nav.js"></script>
+
+  <h1>스마트 청킹 + VLM 분석</h1>
+  <div class="subtitle">
+    영상을 분석해 <strong>동작 시작 시점</strong>부터 청크를 잘라내고 Gemini 호출.
+    정적 구간은 청크 자체를 안 만들어 ffmpeg + VLM 비용 동시 절감.
+  </div>
+
+  <div class="row">
+    <input type="file" id="file" accept="video/*" />
+    <button id="run" class="primary">분석 시작</button>
+    <span id="status" class="pill">idle</span>
+    <span id="counter" class="pill">0 / 0</span>
+  </div>
+
+  <div class="options">
+    <h3>스마트 청킹 옵션</h3>
+    <div class="slider-grid">
+      <label for="motionThresh">motion 임계값</label>
+      <input type="range" id="motionThresh" min="0" max="30" step="0.1" value="3.5" />
+      <span class="val"><span id="motionThreshVal">3.5</span></span>
+
+      <label for="hysteresis">hysteresis (샘플)</label>
+      <input type="range" id="hysteresis" min="1" max="20" step="1" value="5" />
+      <span class="val"><span id="hysteresisVal">5</span></span>
+
+      <label for="chunkDuration">청크 길이 (초)</label>
+      <input type="range" id="chunkDuration" min="10" max="60" step="5" value="20" />
+      <span class="val"><span id="chunkDurationVal">20</span></span>
+    </div>
+  </div>
+
+  <div class="progress-wrap"><div id="progress" class="progress-bar"></div></div>
+
+  <pre id="log"></pre>
+
+  <!-- 청크 계획 (분석 시작 직후 표시) -->
+  <div id="planSection" style="display:none">
+    <h3 style="margin-bottom:4px; font-size:14px;">청크 계획 <span id="planCount" class="pill"></span></h3>
+    <div class="plan-bar" id="planBar"></div>
+    <div class="plan-meta" id="planMeta"></div>
+  </div>
+
+  <!-- 청크별 VLM 결과 -->
+  <table id="results">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>구간</th>
+        <th>posture</th>
+        <th>eye</th>
+        <th>gesture</th>
+        <th>counts</th>
+        <th>timelines</th>
+        <th>notes</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <!-- 지표 요약 -->
+  <div id="metricsSection" class="metrics-section" style="display:none">
+    <h3>전체 지표 요약</h3>
+    <div class="metrics-grid">
+      <div class="metric-card">
+        <div class="card-top"><span class="card-title">필러 단어 빈도</span><span class="card-icon">💬</span></div>
+        <div class="card-value">-</div>
+      </div>
+      <div class="metric-card">
+        <div class="card-top"><span class="card-title">평균 말하기 속도</span><span class="card-icon">📈</span></div>
+        <div class="card-value">-</div>
+      </div>
+      <div class="metric-card">
+        <div class="card-top"><span class="card-title">전체 무음 비율</span><span class="card-icon">🎙️</span></div>
+        <div class="card-value">-</div>
+      </div>
+      <div class="metric-card">
+        <div class="card-top"><span class="card-title">발견된 발화 습관</span><span class="card-icon">📊</span></div>
+        <div class="card-value">-</div>
+      </div>
+      <div class="metric-card">
+        <div class="card-top"><span class="card-title">긍정적 제스처</span><span class="card-icon">👍</span></div>
+        <div class="card-value" id="positiveCount">0회</div>
+      </div>
+      <div class="metric-card">
+        <div class="card-top"><span class="card-title">부정적 제스처</span><span class="card-icon">⚠️</span></div>
+        <div class="card-value" id="negativeCount">0회</div>
+      </div>
+    </div>
+  </div>
+
+  <details id="final">
+    <summary>최종 JSON</summary>
+    <pre class="json" id="finalJson"></pre>
+  </details>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const log = (msg) => {
+  const t = new Date().toLocaleTimeString();
+  $("log").textContent += `[${t}] ${msg}\n`;
+  $("log").scrollTop = $("log").scrollHeight;
+};
+const setStatus = (text, cls = "") => {
+  const el = $("status");
+  el.className = "pill " + cls;
+  el.textContent = text;
+};
+
+let plan = [];       // 청크 계획 (서버 plan_done 이벤트에서 받음)
+let total = 0;
+let done = 0;
+
+// 슬라이더 값 표시 동기화
+["motionThresh", "hysteresis", "chunkDuration"].forEach(id => {
+  $(id).addEventListener("input", () => {
+    $(id + "Val").textContent = $(id).value;
+  });
+});
+
+function resetUI() {
+  $("results").querySelector("tbody").innerHTML = "";
+  $("log").textContent = "";
+  $("progress").style.width = "0%";
+  $("counter").textContent = "0 / 0";
+  $("final").open = false;
+  $("finalJson").textContent = "";
+  $("planSection").style.display = "none";
+  $("planBar").innerHTML = "";
+  $("planMeta").textContent = "";
+  plan = [];
+  total = 0;
+  done = 0;
+}
+
+/** 청크 계획을 받으면 가로 timeline bar 로 시각화 + 빈 행 미리 생성 */
+function renderPlan(chunks, videoDuration) {
+  $("planSection").style.display = "block";
+  $("planCount").textContent = `${chunks.length}개`;
+
+  const bar = $("planBar");
+  bar.innerHTML = "";
+
+  let coveredSec = 0;
+  let lastEnd = 0;
+  chunks.forEach((c) => {
+    // 청크 사이 정적 구간 = gap (투명)
+    if (c.start_sec > lastEnd) {
+      const gap = document.createElement("div");
+      gap.className = "plan-seg plan-gap";
+      gap.style.flexBasis = `${((c.start_sec - lastEnd) / videoDuration) * 100}%`;
+      bar.appendChild(gap);
+    }
+    const seg = document.createElement("div");
+    seg.className = `plan-seg ${c.kind}`;
+    seg.style.flexBasis = `${(c.duration_sec / videoDuration) * 100}%`;
+    seg.textContent = c.kind;
+    seg.title = `${c.start_sec.toFixed(1)}s ~ ${c.end_sec.toFixed(1)}s (${c.kind})`;
+    bar.appendChild(seg);
+    coveredSec += c.duration_sec;
+    lastEnd = c.end_sec;
+  });
+
+  const saving = videoDuration > 0 ? Math.round((1 - coveredSec / videoDuration) * 100) : 0;
+  $("planMeta").textContent =
+    `영상 ${videoDuration.toFixed(0)}s 중 분석 ${coveredSec.toFixed(0)}s · 절약 ${saving}%`;
+
+  // 빈 행 미리 생성 (segment_id 순서 유지)
+  const tbody = $("results").querySelector("tbody");
+  chunks.forEach((c, i) => {
+    const tr = document.createElement("tr");
+    tr.dataset.id = i + 1;
+    tr.className = c.kind;
+    tr.innerHTML = `
+      <td>${i + 1}</td>
+      <td>${c.kind}<br><span style="font-size:11px; color:#666;">${c.start_sec.toFixed(1)}~${c.end_sec.toFixed(1)}s</span></td>
+      <td colspan="6"><em>대기 중...</em></td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function fillRow(segId, vlm) {
+  const tbody = $("results").querySelector("tbody");
+  const tr = tbody.querySelector(`tr[data-id="${segId}"]`);
+  if (!tr) return;
+
+  const counts = Object.entries(vlm.gesture_counts || {})
+    .filter(([, v]) => v > 0)
+    .map(([k, v]) => `${k}: ${v}`)
+    .join("<br>") || "(all 0)";
+
+  const timelines = Object.entries(vlm.gesture_timelines || {})
+    .filter(([, arr]) => arr && arr.length > 0)
+    .map(([k, arr]) => `${k}: ${arr.join(", ")}`)
+    .join("<br>") || "—";
+
+  // 청크 메타는 두 번째 셀 유지, 그 외 갱신
+  const kindCell = tr.children[1].innerHTML;
+  tr.innerHTML = `
+    <td>${segId}</td>
+    <td>${kindCell}</td>
+    <td>${vlm.posture}</td>
+    <td>${vlm.eye_contact}</td>
+    <td>${vlm.gesture}</td>
+    <td class="counts">${counts}</td>
+    <td class="timeline-cell">${timelines}</td>
+    <td class="notes">${vlm.notes || ""}</td>
+  `;
+  tr.className = (plan[segId - 1] || {}).kind || "";
+}
+
+function markFailed(segId, errMsg) {
+  const tbody = $("results").querySelector("tbody");
+  const tr = tbody.querySelector(`tr[data-id="${segId}"]`);
+  if (!tr) return;
+  const kindCell = tr.children[1].innerHTML;
+  tr.innerHTML = `
+    <td>${segId}</td>
+    <td>${kindCell}</td>
+    <td colspan="6" style="color:#b71c1c">실패: ${errMsg}</td>
+  `;
+}
+
+function updateProgress() {
+  if (total > 0) {
+    const pct = Math.round((done / total) * 100);
+    $("progress").style.width = pct + "%";
+    $("counter").textContent = `${done} / ${total}`;
+  }
+}
+
+async function run() {
+  const file = $("file").files[0];
+  if (!file) { alert("영상 파일을 선택하세요."); return; }
+
+  resetUI();
+  $("run").disabled = true;
+  setStatus("uploading…", "live");
+  log(`업로드 시작: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`);
+
+  // 옵션 query string
+  const params = new URLSearchParams({
+    motion_thresh: $("motionThresh").value,
+    hysteresis_frames: $("hysteresis").value,
+    chunk_duration: $("chunkDuration").value,
+  });
+
+  let jobId;
+  try {
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch(`/smart-analyze?${params}`, { method: "POST", body: fd });
+    if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+    const data = await res.json();
+    jobId = data.job_id;
+    log(`job_id=${jobId} (서버 저장 ${(data.size_bytes / 1024 / 1024).toFixed(2)} MB)`);
+    log(`옵션: motion≥${data.params.motion_thresh}, hysteresis=${data.params.hysteresis_frames}, chunk=${data.params.chunk_duration}s`);
+  } catch (e) {
+    log(`업로드 실패: ${e}`);
+    setStatus("error", "error");
+    $("run").disabled = false;
+    return;
+  }
+
+  setStatus("scanning + analyzing…", "live");
+  const es = new EventSource(`/events/${jobId}`);
+
+  es.addEventListener("timeline_scanning", (e) => {
+    log("motion 시계열 추출 중...");
+  });
+  es.addEventListener("timeline_done", (e) => {
+    const d = JSON.parse(e.data);
+    log(`시계열 ${d.total_points} 점, 영상 ${d.duration}s`);
+  });
+  es.addEventListener("plan_done", (e) => {
+    const d = JSON.parse(e.data);
+    plan = d.chunks;
+    total = d.total;
+    log(`청크 계획 완료: ${total}개`);
+    // 영상 duration 알아야 plan bar 그릴 수 있음
+    // timeline_done 의 duration 사용 → 마지막 청크 끝으로 추정
+    const videoDuration = Math.max(...plan.map(c => c.end_sec), 1);
+    renderPlan(plan, videoDuration);
+    updateProgress();
+  });
+  es.addEventListener("extract_done", (e) => {
+    const d = JSON.parse(e.data);
+    log(`ffmpeg 청크 추출 완료: ${d.total}개. VLM 호출 시작...`);
+  });
+  es.addEventListener("chunk_start", (e) => {
+    const d = JSON.parse(e.data);
+    log(`#${d.segment_id} VLM 호출 시작 (${d.name})`);
+  });
+  es.addEventListener("chunk_retry", (e) => {
+    const d = JSON.parse(e.data);
+    log(`#${d.segment_id} 시도 ${d.attempt} 실패: ${d.error}`);
+  });
+  es.addEventListener("chunk_done", (e) => {
+    const d = JSON.parse(e.data);
+    fillRow(d.result.segment_id, d.result);
+    done++;
+    updateProgress();
+    log(`#${d.result.segment_id} 완료 (시도 ${d.attempt})`);
+  });
+  es.addEventListener("chunk_failed", (e) => {
+    const d = JSON.parse(e.data);
+    markFailed(d.segment_id, d.error);
+    done++;
+    updateProgress();
+    log(`#${d.segment_id} 최종 실패: ${d.error}`);
+  });
+  es.addEventListener("done", (e) => {
+    const d = JSON.parse(e.data);
+    log("모든 청크 분석 완료");
+    $("finalJson").textContent = JSON.stringify(d, null, 2);
+    $("final").open = true;
+    setStatus("done", "done");
+    $("run").disabled = false;
+    es.close();
+
+    // 긍정/부정 제스처 합산
+    const positiveKeys = ["explanatory_gesture", "pointing"];
+    const negativeKeys = ["distracting_gesture", "touching_face_or_hair", "fidgeting_with_objects", "closed_posture"];
+    let pos = 0, neg = 0;
+    (d.VLM_segment_result || []).forEach((seg) => {
+      const counts = (seg.vlm || seg).gesture_counts || {};
+      positiveKeys.forEach((k) => { pos += counts[k] || 0; });
+      negativeKeys.forEach((k) => { neg += counts[k] || 0; });
+    });
+    $("positiveCount").textContent = pos + "회";
+    $("negativeCount").textContent = neg + "회";
+    $("metricsSection").style.display = "block";
+  });
+  es.addEventListener("error", (e) => {
+    if (e.data) {
+      try {
+        const d = JSON.parse(e.data);
+        log(`서버 에러: ${d.message}`);
+      } catch {
+        log(`서버 에러 (raw): ${e.data}`);
+      }
+      setStatus("error", "error");
+      $("run").disabled = false;
+      es.close();
+    } else {
+      log("SSE 연결 끊김");
+    }
+  });
+}
+
+$("run").addEventListener("click", run);
+</script>
+</body>
+</html>

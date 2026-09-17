@@ -1,0 +1,50 @@
+{
+  "wav": "stt_test/fixtures/synthetic_ko.wav",
+  "duration": 32.057,
+  "speech_reference_db": -16.8,
+  "injections": [
+    {
+      "kind": "filler",
+      "text": "음",
+      "t_start": 3.829,
+      "t_end": 4.173,
+      "expect_filler": true
+    },
+    {
+      "kind": "filler",
+      "text": "으으음",
+      "t_start": 10.152,
+      "t_end": 10.739,
+      "expect_filler": true
+    },
+    {
+      "kind": "filler",
+      "text": "어어",
+      "t_start": 15.532,
+      "t_end": 15.968,
+      "expect_filler": true
+    },
+    {
+      "kind": "breath",
+      "text": null,
+      "t_start": 20.07,
+      "t_end": 20.57,
+      "expect_filler": false
+    },
+    {
+      "kind": "breath",
+      "text": null,
+      "t_start": 25.218,
+      "t_end": 25.668,
+      "expect_filler": false
+    }
+  ],
+  "sentences": [
+    "안녕하세요 오늘 발표를 맡은 김은재입니다",
+    "저희 팀이 개발한 서비스는 발표 연습을 도와주는 인공지능 코치입니다",
+    "영상을 업로드하면 음성과 동작을 함께 분석합니다",
+    "구간별로 어떤 습관이 있었는지 알려드립니다",
+    "발표를 반복할수록 성장 추이가 데이터로 쌓입니다",
+    "지금까지 발표를 들어주셔서 감사합니다"
+  ]
+}
