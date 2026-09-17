@@ -1,0 +1,159 @@
+// Podium ERD
+// 사용법: https://dbdiagram.io/d 에 통째로 붙여넣기 → 자동 렌더링
+// Export: 우측 상단 Export → PNG/PDF/SVG
+
+Project podium {
+  database_type: "PostgreSQL"
+  Note: "발표 분석 시스템 — 사용자가 촬영한 발표 영상을 구간별로 분석하고 피드백 제공"
+}
+
+// ─────────────────────────────────────────────
+// 사용자 / 콘텐츠 계층
+// ─────────────────────────────────────────────
+
+Table users {
+  user_id       bigserial    [pk]
+  email         varchar(255) [unique, not null]
+  password_hash varchar(255) [not null]
+  created_at    timestamptz  [not null, default: `now()`]
+}
+
+Table projects {
+  project_id bigserial    [pk]
+  user_id    bigint       [not null, ref: > users.user_id]
+  title      varchar(255) [not null]
+  created_at timestamptz  [not null, default: `now()`]
+
+  indexes {
+    user_id
+  }
+}
+
+Table sessions {
+  session_id      bigserial    [pk]
+  project_id      bigint       [not null, ref: > projects.project_id]
+  status          varchar(32)  [not null, default: 'processing', note: 'processing / done / error']
+  full_video_path varchar(512)
+  pdf_path        varchar(512)
+  created_at      timestamptz  [not null, default: `now()`]
+
+  indexes {
+    project_id
+  }
+}
+
+Table chunks {
+  chunk_id    bigserial    [pk]
+  session_id  bigint       [not null, ref: > sessions.session_id]
+  chunk_index integer      [not null]
+  file_path   varchar(512) [not null]
+  t_start     float        [not null]
+  t_end       float        [not null]
+
+  indexes {
+    session_id
+  }
+}
+
+// ─────────────────────────────────────────────
+// 분석 결과
+// ─────────────────────────────────────────────
+
+Table stt_sentences {
+  id         bigserial [pk]
+  session_id bigint    [not null, ref: > sessions.session_id]
+  text       text      [not null]
+  t_start    float     [not null]
+  t_end      float     [not null]
+
+  indexes {
+    session_id
+  }
+}
+
+Table voice_raws {
+  session_id        bigint [pk, ref: - sessions.session_id]
+  total_duration    float  [not null]
+  silence_segments  jsonb
+  filler_words      jsonb
+  repetitions        jsonb [note: '반복(말더듬) 구간 배열']
+}
+
+Table video_analyses {
+  analysis_id        bigint       [pk, increment]
+  session_id         bigint       [ref: > sessions.session_id, not null]
+  t_start            float        [note: '스마트 청크 시작(초)']
+  t_end              float        [note: '스마트 청크 끝(초)']
+  kind               varchar(16)  [note: 'intro | motion | outro']
+  posture            varchar(32)
+  eye_contact        varchar(32)
+  gesture            varchar(32)
+  gesture_counts     jsonb        [note: 'category -> count']
+  notes              text
+}
+
+Table segments {
+  segment_id  bigserial    [pk]
+  session_id  bigint       [not null, ref: > sessions.session_id]
+  title       varchar(255) [not null]
+  t_start     float        [not null]
+  t_end       float        [not null]
+  slide_index integer      [note: 'PDF 매핑 시']
+
+  indexes {
+    session_id
+  }
+}
+
+Table segment_analyses {
+  segment_id         bigint [pk, ref: - segments.segment_id]
+  stt_text           text
+  speaking_rate_spm     float [note: '음절/분, 무음 포함']
+  articulation_rate_spm float [note: '음절/분, 무음 제외']
+  silence_count      integer
+  filler_count       integer
+  gesture_counts     jsonb [note: '{"<category>": <count>} — enum은 app/pipeline/step2_motion.py']
+  posture_counts     jsonb [note: '{"<category>": <count>}']
+  eye_contact_counts jsonb [note: '{"<category>": <count>}']
+  motion_notes       text  [note: '카테고리 enum 밖 동작 fallback']
+}
+
+Table feedbacks {
+  segment_id     bigint [pk, ref: - segments.segment_id]
+  score_delivery float
+  score_fluency  float
+  score_motion   float
+  fb_delivery    text
+  fb_fluency     text
+  fb_motion      text
+  fb_overall     text
+}
+
+Table session_summaries {
+  session_id         bigint [pk, ref: - sessions.session_id]
+  total_duration     float
+  segment_count      integer
+  overall_scores     jsonb
+  total_filler_count integer
+  total_repetition_count    int
+  avg_speaking_rate_spm     float
+  avg_articulation_rate_spm float
+  best_segment_id    bigint [ref: > segments.segment_id]
+  worst_segment_id   bigint [ref: > segments.segment_id]
+}
+
+// ─────────────────────────────────────────────
+// 관계 요약 (관계는 위 ref: 로 다 정의됨, 참고용)
+// ─────────────────────────────────────────────
+//
+//   users   ──1:N──>  projects
+//   projects ──1:N──> sessions
+//   sessions ──1:N──> chunks
+//   sessions ──1:N──> stt_sentences
+//   sessions ──1:N──> segments
+//   sessions ──1:N──> video_analyses (STEP 2 스마트 청크)
+//   sessions ──1:1──> voice_raws
+//   sessions ──1:1──> session_summaries
+//   segments ──1:1──> segment_analyses
+//   segments ──1:1──> feedbacks
+//   segments <─0:N── session_summaries (best/worst_segment_id)

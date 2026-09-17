@@ -1,0 +1,894 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>window.APP_BASE="/voice";</script>
+<script src="/shared/base.js"></script>
+<script defer src="/shared/nav.js"></script>
+<title>Podium STEP 3 — 음성분석 테스트</title>
+<style>
+  :root { color-scheme: light dark; --line:#8883; }
+  * { box-sizing: border-box; }
+  body { font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", sans-serif;
+         margin: 0; padding: 24px; max-width: 1400px; margin-inline: auto; }
+  h1 { font-size: 19px; margin: 0 0 2px; }
+  h2 { font-size: 15px; margin: 26px 0 10px; }
+  .sub { opacity: .6; font-size: 13px; margin-bottom: 20px; }
+  .panel { border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  label { font-size: 13px; }
+  select, input[type=file] { font: inherit; padding: 4px 8px; border-radius: 7px;
+         border: 1px solid var(--line); background: transparent; }
+  button { font: inherit; padding: 6px 14px; border-radius: 7px; border: 1px solid var(--line);
+           background: transparent; cursor: pointer; }
+  button:hover:not(:disabled) { border-color: #4a7dff; }
+  button:disabled { opacity: .4; cursor: default; }
+  button.primary, button.on { background: #4a7dff; color: #fff; border-color: #4a7dff; }
+  .drop { border: 2px dashed var(--line); border-radius: 10px; padding: 18px; text-align: center;
+          opacity: .8; cursor: pointer; }
+  .drop.hot { border-color: #4a7dff; opacity: 1; }
+  #log { font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap;
+         max-height: 190px; overflow: auto; background: #8881; border-radius: 8px;
+         padding: 10px; margin-top: 12px; display: none; }
+  .metrics { display: flex; flex-wrap: wrap; gap: 8px; }
+  .m { border: 1px solid var(--line); border-radius: 8px; padding: 6px 11px; font-size: 12px; }
+  .m span { opacity: .6; margin-right: 6px; }
+  .m b { font-variant-numeric: tabular-nums; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { border-bottom: 1px solid var(--line); padding: 6px 8px; text-align: left; }
+  th { position: sticky; top: 0; background: Canvas; font-size: 12px; opacity: .7; z-index: 1; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  audio { height: 30px; width: 185px; }
+  .tag { font-size: 11px; padding: 1px 7px; border-radius: 20px; border: 1px solid var(--line); }
+  .ok { background: #16a34a22; border-color: #16a34a; }
+  .no { background: #88888822; }
+  .lex { background: #a855f722; border-color: #a855f7; }
+  .ctx { max-width: 280px; opacity: .75; font-size: 12px; }
+  .lb button { padding: 3px 9px; font-size: 12px; }
+  .lb button.y.on { background: #16a34a; border-color: #16a34a; }
+  .lb button.n.on { background: #dc2626; border-color: #dc2626; }
+  .lb button.q.on { background: #ca8a04; border-color: #ca8a04; }
+  .cmp { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .cmp .box { border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+  .big { font-size: 30px; font-variant-numeric: tabular-nums; }
+  .verdict { border-left: 3px solid #4a7dff; padding: 10px 14px; background: #4a7dff11;
+             border-radius: 0 8px 8px 0; margin-top: 12px; font-size: 13px; }
+  .jobs { font-size: 12px; }
+  .jobs div { padding: 4px 0; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .jobs div:hover { color: #4a7dff; }
+  .hint { font-size: 12px; opacity: .55; margin-top: 6px; }
+  .err { color: #dc2626; }
+  tr.diff td { background: #ca8a0418; }
+  td.same { opacity: .45; }
+  .del { background: #dc262633; text-decoration: line-through; padding: 0 2px; border-radius: 3px; }
+  .ins { background: #16a34a33; padding: 0 2px; border-radius: 3px; }
+  .legend { font-size: 12px; opacity: .7; margin-bottom: 8px; }
+  #models { display: none; }
+
+  /* 타임라인 */
+  .tl { position: relative; height: 46px; border-radius: 7px; overflow: hidden;
+        background: #4a7dff44; border: 1px solid var(--line); cursor: crosshair;
+        margin-bottom: 4px; }
+  .tl .sil { position: absolute; top: 0; bottom: 0; background: #8884; }
+  .tl .sil.long { background: #dc262655; }
+  .tl .fil { position: absolute; top: 0; bottom: 0; width: 2px; background: #a855f7; }
+  .tl .head { position: absolute; top: 0; bottom: 0; width: 2px; background: #111;
+              mix-blend-mode: difference; pointer-events: none; }
+  .axis { position: relative; height: 16px; font-size: 10px; opacity: .55;
+          font-variant-numeric: tabular-nums; margin-bottom: 10px; }
+  .axis span { position: absolute; transform: translateX(-50%); }
+  .swatch { display: inline-block; width: 11px; height: 11px; border-radius: 3px;
+            vertical-align: -1px; margin-right: 3px; border: 1px solid var(--line); }
+  .seek { padding: 2px 9px; font-size: 12px; }
+  .preset { padding: 2px 10px; font-size: 12px; margin-left: 4px; }
+  .tagmark { background: #a855f733; border: 1px solid #a855f7; border-radius: 4px;
+             padding: 0 3px; font-size: 12px; }
+  audio.full { width: 100%; height: 34px; margin-top: 6px; }
+</style>
+
+<div id="nav-mount"></div>
+
+<h1>STEP 3 — 음성분석 테스트</h1>
+<div class="sub">음성/영상 파일 → 무음 구간 · 필러 · 발화 속도. DB 연결 안 함.</div>
+
+<div class="panel" id="thpanel" style="padding:12px 16px">
+  <div class="row">
+    <b style="font-size:13px">현재 임계값</b>
+    <span id="thsummary" style="font-size:12px;opacity:.75">불러오는 중…</span>
+    <span style="margin-left:auto"></span>
+    <button id="thtoggle">임계값 변경</button>
+  </div>
+  <div id="thedit" style="display:none;margin-top:12px">
+    <div id="thsliders"></div>
+    <div class="row" style="margin-top:8px">
+      <button class="primary" id="thsave">저장</button>
+      <button id="thdefault">기본값으로</button>
+      <span id="thmsg" style="font-size:12px;opacity:.75"></span>
+      <span style="margin-left:auto;font-size:12px;opacity:.55">
+        저장하면 이후 모든 분석과 본 파이프라인에 적용됩니다</span>
+    </div>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="row" style="margin-bottom:12px">
+    <label>기존 녹음</label>
+    <select id="source" style="min-width:340px"><option value="">— 선택 —</option></select>
+    <span style="opacity:.5">또는</span>
+    <input type="file" id="file" accept="audio/*,video/*">
+  </div>
+  <div class="drop" id="drop">여기로 파일을 끌어다 놓아도 됩니다 (webm · mp4 · wav · m4a · mp3)</div>
+
+  <div class="row" style="margin-top:14px">
+    <label>모드</label>
+    <button data-mode="full" class="on">전체 분석</button>
+    <button data-mode="compare">경로 비교 (3-3 판정)</button>
+    <button data-mode="models">모델 비교</button>
+    <button data-mode="silence">무음만 (즉시)</button>
+
+    <span style="width:14px"></span>
+    <span id="single">
+      <label>모델</label>
+      <select id="model" style="max-width:340px"></select>
+    </span>
+    <span id="models" style="display:none">
+      <label>비교할 모델</label>
+      <span id="mmlist" style="display:inline-flex;gap:10px;flex-wrap:wrap"></span>
+    </span>
+    <label><input type="checkbox" id="verbatim"> 필러 유도 프롬프트</label>
+    <label id="kwcmpwrap"><input type="checkbox" id="kwcompare"> 키워드 유무 비교</label>
+
+    <span style="margin-left:auto"></span>
+    <button class="primary" id="run">분석 실행</button>
+  </div>
+  <div class="row" style="margin-top:10px">
+    <label>발표 주제 · 키워드</label>
+    <input type="text" id="keywords" style="flex:1;min-width:340px;font:inherit;padding:5px 9px;
+           border-radius:7px;border:1px solid var(--line);background:transparent"
+           placeholder="고유명사·전문용어를 쉼표로 (예: Podium, 캡스톤디자인, 멀티모달, VLM, 청킹)">
+  </div>
+  <div class="row" id="customrow" style="margin-top:10px;display:none">
+    <label>사용자 지정 모델</label>
+    <input type="text" id="custom" style="flex:1;min-width:340px;font:inherit;padding:5px 9px;
+           border-radius:7px;border:1px solid var(--line);background:transparent"
+           placeholder="HuggingFace 모델 ID, 쉼표로 구분 (예: deepdml/faster-whisper-large-v3-turbo-ct2)">
+  </div>
+  <div class="hint" id="hint">전체 분석: 무음 + STT + 필러 + 발화속도.</div>
+  <div id="log"></div>
+</div>
+
+<div id="out"></div>
+
+<h2>실행 기록</h2>
+<div class="jobs panel" id="jobs" style="max-height:220px;overflow:auto"></div>
+
+<script>
+let mode = "full", jobId = null, data = null, labels = {}, filter = "all", pane = null;
+let silSort = "time";   // time | dur — 무음 표 정렬
+let silMin  = null;     // 무음 최소 길이(초). null 이면 서버 기본값 사용
+let fth     = null;     // 음향 후보 판정 임계값. null 이면 서버 기본값 사용
+let txtPane = null;     // 전사문 토글에서 보고 있는 모델 (필러 탭과 독립)
+
+const $ = s => document.querySelector(s);
+const logEl = $("#log");
+const esc = t => (t||"").replace(/&/g,"&amp;").replace(/</g,"&lt;");
+function log(msg, cls) { logEl.style.display="block";
+  logEl.innerHTML += `<span class="${cls||''}">${esc(msg)}</span>\n`; logEl.scrollTop = 1e9; }
+function fmt(t){ const m=Math.floor(t/60), s=(t%60).toFixed(1).padStart(4,"0"); return m+":"+s; }
+
+const HINTS = {
+  full: "전체 분석: 무음 + STT + 필러 + 발화속도.",
+  compare: "경로 비교: STT 를 한 번만 돌려 «어휘 경로» 와 «음향 경로만» 을 나란히 비교합니다.",
+  models: `같은 오디오를 여러 모델로 돌려 전사문·지표·속도를 나란히 비교합니다.
+    <b>모델 수만큼 STT 가 반복</b>되므로 긴 녹음은 오래 걸립니다.
+    <div style="margin-top:6px;line-height:1.9">
+      <b>추천 조합</b>
+      <button class="preset" data-preset="small,large-v3-turbo,large-v3">속도·품질 절충</button>
+      <button class="preset" data-preset="small,LOCAL_CRISPER,hf:rearleg/SeloWhisper-ko-disfluency">필러·반복 정확도</button>
+      <button class="preset" data-preset="LOCAL_SELO,hf:rearleg/SeloWhisper-ko-disfluency">SeloWhisper 두 방식</button>
+      <span id="presetstat" style="margin-left:8px;opacity:.7"></span>
+      <br>
+      <span style="opacity:.85">
+      · <b>small</b> 가장 빠름(실시간 9배). 비교 기준선<br>
+      · <b>large-v3-turbo</b> large-v3 의 절반 시간, 품질은 근접<br>
+      · <b>crisper-ko</b> verbatim — 필러·반복을 안 지우고 전사. <span style="color:#ca8a04">비상업/연구 한정</span><br>
+      · <b>SeloWhisper · CT2</b> 태그 없음(평문). 가볍고 배포 가능<br>
+      · <b>SeloWhisper · transformers</b> 태그 있음. torch 필요, 메모리 3.2GB
+      </span>
+    </div>`,
+  silence: "무음만: STT 를 생략해 즉시 끝납니다. 3-1 검증용.",
+};
+
+// --- 소스 목록 ---
+fetch("/api/sources").then(r=>r.json()).then(list => {
+  const sel = $("#source");
+  list.forEach(s => sel.add(new Option(`${s.session} (${s.size_mb}MB)`, s.path)));
+});
+
+// --- 모델 목록 (내장 프리셋 + stt_test/models/ 로컬 변환 모델) ---
+const DEFAULT_CHECKED = new Set(["small"]);   // 로컬 모델은 아래에서 자동 체크
+fetch("/api/models").then(r => r.json()).then(list => {
+  const sel = $("#model"), box = $("#mmlist");
+  const note = m => m.kind === "local" ? ` · 로컬 ${m.size_mb}MB`
+                  : m.kind === "hf" ? " · transformers" : "";
+  for (const m of list) {
+    sel.add(new Option(
+      m.label + (m.kind === "local" ? " (로컬 변환)" : "") + (m.warn ? " ⚠" : ""), m.id));
+    void 0;
+    // 경고가 붙은 모델은 기본 선택에서 제외 — 결과가 깨진 채 비교되는 걸 막음
+    const on = DEFAULT_CHECKED.has(m.id)
+      || ((m.kind === "local" || m.kind === "hf") && !m.warn);
+    box.insertAdjacentHTML("beforeend",
+      `<label title="${esc(m.note || m.id)}"><input type="checkbox" class="mm"
+        value="${esc(m.id)}" ${on ? "checked" : ""}> ${esc(m.label)}${
+        m.warn ? '<span style="color:#dc2626"> ⚠</span>'
+               : m.status === "ok" ? '<span style="color:#16a34a"> ✓</span>' : ""}<span
+        style="opacity:.5">${note(m)}${m.license ? " · " + esc(m.license) : ""}</span></label>`);
+  }
+  sel.value = "small";
+  const warned = list.filter(m => m.warn);
+  if (warned.length) {
+    box.insertAdjacentHTML("afterend",
+      `<div style="flex-basis:100%;font-size:12px;color:#dc2626;margin-top:4px">⚠ ${
+        warned.map(m => esc(m.label)).join(", ")}: ${esc(warned[0].warn)}</div>`);
+  }
+});
+
+// --- 모드 토글 ---
+document.querySelectorAll("[data-mode]").forEach(b => b.onclick = () => {
+  document.querySelectorAll("[data-mode]").forEach(x => x.classList.remove("on"));
+  b.classList.add("on"); mode = b.dataset.mode;
+  $("#hint").innerHTML = HINTS[mode];
+  $("#single").style.display = mode === "models" ? "none" : "";
+  $("#models").style.display = mode === "models" ? "" : "none";
+  $("#customrow").style.display = mode === "models" ? "flex" : "none";
+  $("#kwcmpwrap").style.display = mode === "full" ? "" : "none";
+});
+
+/** 추천 조합 버튼 — 해당 모델들만 체크한다.
+ *
+ *  버튼은 모드 전환 시 innerHTML 로 새로 만들어지므로 개별 onclick 을 붙이면
+ *  재생성 타이밍에 끌려간다. 부모(#hint)에 **한 번만** 위임해서 붙인다.
+ */
+document.addEventListener("click", e => {
+  const b = e.target.closest(".preset");
+  if (!b) return;
+  // 로컬 모델은 절대경로라 하드코딩 불가 → 체크박스 목록에서 찾아 치환
+  const vals = [...document.querySelectorAll(".mm")].map(c => c.value);
+  const find = kw => vals.find(v => !v.startsWith("hf:") && v.includes(kw)) || "";
+  const sub = {LOCAL_CRISPER: find("crisper"), LOCAL_SELO: find("Selo")};
+  const want = new Set(b.dataset.preset.split(",")
+    .map(x => sub[x] !== undefined ? sub[x] : x).filter(Boolean));
+
+  let n = 0;
+  document.querySelectorAll(".mm").forEach(c => {
+    c.checked = want.has(c.value);
+    if (c.checked) n++;
+  });
+  // 눌린 게 반영됐는지 바로 보이도록 표시
+  document.querySelectorAll(".preset").forEach(x => x.classList.remove("on"));
+  b.classList.add("on");
+  const st = document.getElementById("presetstat");
+  if (st) st.textContent = `${n}개 선택됨`;
+});
+
+// --- 드래그앤드롭 ---
+const drop = $("#drop");
+drop.onclick = () => $("#file").click();
+drop.ondragover = e => { e.preventDefault(); drop.classList.add("hot"); };
+drop.ondragleave = () => drop.classList.remove("hot");
+drop.ondrop = e => {
+  e.preventDefault(); drop.classList.remove("hot");
+  $("#file").files = e.dataTransfer.files;
+  drop.textContent = e.dataTransfer.files[0]?.name || "";
+};
+
+// --- 실행 ---
+$("#run").onclick = async () => {
+  const fd = new FormData();
+  const f = $("#file").files[0];
+  if (f) fd.append("file", f);
+  else if ($("#source").value) fd.append("source_path", $("#source").value);
+  else return alert("파일을 올리거나 기존 녹음을 선택하세요.");
+
+  const picked = [...document.querySelectorAll(".mm:checked")].map(c => c.value)
+    .concat($("#custom").value.split(",").map(x => x.trim()).filter(Boolean));
+  if (mode === "models" && picked.length < 2) return alert("비교할 모델을 2개 이상 선택하세요.");
+
+  const kwOn = mode === "full" && $("#kwcompare").checked;
+  if (kwOn && !$("#keywords").value.trim())
+    return alert("키워드 유무를 비교하려면 «발표 주제 · 키워드» 를 입력하세요.");
+  fd.append("mode", kwOn ? "kwcompare" : mode);
+  fd.append("model", $("#model").value);
+  fd.append("models", picked.join(","));
+  fd.append("verbatim", $("#verbatim").checked);
+  fd.append("keywords", $("#keywords").value);
+
+  $("#run").disabled = true;
+  logEl.style.display = "block"; logEl.innerHTML = "";
+  $("#out").innerHTML = "";
+  log("업로드 + 오디오 추출…");
+
+  let res;
+  try { res = await (await fetch("/analyze", {method:"POST", body:fd})).json(); }
+  catch (e) { log("요청 실패: "+e, "err"); $("#run").disabled=false; return; }
+  if (!res.job_id) { log("실패: "+(res.detail||JSON.stringify(res)), "err");
+                     $("#run").disabled=false; return; }
+
+  jobId = res.job_id;
+  const es = new EventSource(`/events/${jobId}`);
+  es.onmessage = async ev => {
+    const m = JSON.parse(ev.data);
+    if (m.type === "progress") log("· " + m.message);
+    if (m.type === "error") { log("오류: " + m.message, "err"); es.close(); $("#run").disabled=false; }
+    if (m.type === "done") {
+      es.close(); log("완료");
+      $("#run").disabled = false;
+      await loadJob(jobId); loadJobs();
+    }
+  };
+};
+
+// --- 결과 로딩 ---
+async function loadJob(id) {
+  jobId = id;
+  data = await (await fetch(`/api/jobs/${id}`)).json();
+  labels = data.labels || {};
+  pane = data.mode === "compare" ? "lexical" : (data.models ? data.models[0] : null);
+  render();
+}
+
+const KO = {
+  total_duration:"전체(초)", speech_duration:"발화(초)", silence_duration:"무음(초)",
+  silence_ratio:"무음비율", silence_count:"무음 구간", longest_silence:"최장 무음(초)",
+  filler_count:"필러", filler_per_min:"필러/분", syllable_count:"음절",
+  repetition_count:"반복", repetition_exact:"반복(exact)", repetition_stem:"반복(stem)",
+  repetition_per_min:"반복/분",
+  speaking_rate_spm:"전체 템포(음절/분)", articulation_rate_spm:"조음 속도(음절/분)",
+};
+// STT 와 무관하게 VAD 만으로 정해지는 지표 — 모델을 바꿔도 값이 같은 게 정상
+const VAD_ONLY = new Set(["total_duration","speech_duration","silence_duration",
+                          "silence_ratio","silence_count","longest_silence"]);
+
+function metricsHtml(m) {
+  return `<div class="metrics">` + Object.entries(m).map(([k,v]) =>
+    `<div class="m"><span>${KO[k]||k}</span><b>${v}</b></div>`).join("") + `</div>`;
+}
+
+/** 발화 구간의 여집합 중 minSec 이상 = 무음. `vad.py:silence_regions` 와 같은 계산.
+ *  speech_regions 는 이미 응답에 들어있어 서버 재호출 없이 즉시 재계산된다. */
+function computeSilence(speech, dur, minSec) {
+  const out = []; let cursor = 0;
+  for (const r of speech) {
+    if (r.t_start - cursor >= minSec) out.push({
+      t_start: cursor, t_end: r.t_start, duration: r.t_start - cursor });
+    cursor = Math.max(cursor, r.t_end);
+  }
+  if (dur - cursor >= minSec) out.push({
+    t_start: cursor, t_end: dur, duration: dur - cursor });
+  return out;
+}
+
+/** 현재 슬라이더 값 기준의 무음 목록 + 재계산된 요약 지표 */
+function silenceView(R) {
+  const dur = R.metrics.total_duration || 1;
+  if (silMin === null) silMin = R.diagnostics.min_silence_sec ?? 0.7;
+  const list = computeSilence(R.diagnostics.speech_regions || [], dur, silMin);
+  const total = list.reduce((a, x) => a + x.duration, 0);
+  return {
+    list, dur, minSec: silMin,
+    total: total.toFixed(2),
+    ratio: (total / dur * 100).toFixed(1),
+    longest: list.length ? Math.max(...list.map(x => x.duration)).toFixed(2) : "0.00",
+  };
+}
+
+// ---------- 무음 타임라인 ----------
+// 발화 = 파란 배경, 무음 = 회색(3초 이상은 빨강), 필러 = 보라 세로선.
+// 막대를 클릭하면 그 시각으로 원본 오디오를 이동시켜 바로 들어볼 수 있음.
+function timelineHtml(R) {
+  const v = silenceView(R);
+  const dur = v.dur;
+  const sil = v.list;
+  const fil = R.voice_raw.filler_words || [];
+  const pct = t => (t / dur * 100).toFixed(3);
+
+  const blocks = sil.map(x =>
+    `<div class="sil ${x.duration >= 3 ? "long" : ""}" style="left:${pct(x.t_start)}%;
+      width:${pct(x.duration)}%" title="무음 ${fmt(x.t_start)}–${fmt(x.t_end)} (${x.duration.toFixed(2)}s)"></div>`
+  ).join("");
+  const marks = fil.map(x =>
+    `<div class="fil" style="left:${pct(x.t_start)}%" title="필러 ${fmt(x.t_start)}${x.text?" «"+esc(x.text)+"»":""}"></div>`
+  ).join("");
+
+  // 시간 눈금 — 전체 길이에 따라 간격 자동 선택
+  const step = [5,10,15,30,60,120,300].find(v => dur / v <= 12) || 600;
+  let ticks = "";
+  for (let t = 0; t <= dur; t += step) ticks += `<span style="left:${pct(t)}%">${fmt(t)}</span>`;
+
+  return `
+    <div class="row" style="margin-bottom:8px">
+      <label>무음 최소 길이</label>
+      <input type="range" id="silmin" min="0.3" max="5" step="0.1" value="${v.minSec}"
+             style="width:230px">
+      <b id="silminval" style="font-variant-numeric:tabular-nums">${v.minSec.toFixed(1)}초</b>
+      <span style="font-size:12px;opacity:.6">이보다 짧은 침묵은 무음으로 세지 않음</span>
+      <span style="margin-left:auto;font-size:12px;opacity:.8" id="silstat">
+        ${v.list.length}개 · 총 ${v.total}초 (${v.ratio}%) · 최장 ${v.longest}초</span>
+    </div>
+    <div class="legend">
+      <span class="swatch" style="background:#4a7dff44"></span>발화
+      <span class="swatch" style="background:#8884;margin-left:10px"></span>무음
+      <span class="swatch" style="background:#dc262655;margin-left:10px"></span>무음 3초 이상
+      <span class="swatch" style="background:#a855f7;margin-left:10px"></span>필러
+      <span style="margin-left:12px">막대를 클릭하면 그 지점부터 재생됩니다</span>
+    </div>
+    <div class="tl" id="tl">${blocks}${marks}<div class="head" id="head" style="left:0"></div></div>
+    <div class="axis">${ticks}</div>
+    <audio class="full" id="fullaudio" controls preload="metadata" src="${APP_BASE}/audio/${jobId}"></audio>`;
+}
+
+function silenceTableHtml(R) {
+  const v = silenceView(R);
+  const sil = v.list.map((x, i) => ({...x, i}));
+  if (!sil.length) return `<div class="panel" style="opacity:.6">
+    ${v.minSec.toFixed(1)}초 이상인 무음 구간 없음</div>`;
+  const rows = (silSort === "dur" ? [...sil].sort((a,b) => b.duration - a.duration) : sil);
+  return `
+    <div class="row" style="margin-bottom:10px">
+      <span style="opacity:.6">정렬</span>
+      <button data-sort="time" class="${silSort==="time"?"on":""}">시간순</button>
+      <button data-sort="dur" class="${silSort==="dur"?"on":""}">긴 순</button>
+      <span style="margin-left:auto;font-size:12px;opacity:.8">
+        ${sil.length}개 · 총 ${v.total}초 (${v.ratio}%) · 최장 ${v.longest}초</span>
+    </div>
+    <div style="max-height:340px;overflow:auto">
+    <table><thead><tr><th>#</th><th>시작</th><th>끝</th><th class="num">길이</th>
+      <th>듣기</th><th>직전 발화</th></tr></thead><tbody>
+    ${rows.map(x => `<tr>
+      <td class="num">${x.i}</td><td class="num">${fmt(x.t_start)}</td>
+      <td class="num">${fmt(x.t_end)}</td>
+      <td class="num"><b>${x.duration.toFixed(2)}s</b></td>
+      <td><button class="seek" data-t="${Math.max(0, x.t_start - 1.5)}">1.5초 전부터</button></td>
+      <td class="ctx">${esc(prevText(x.t_start))}</td></tr>`).join("")}
+    </tbody></table></div>`;
+}
+
+/** 무음 시작 직전에 나온 STT 단어 몇 개 — 어디서 멈췄는지 파악용 */
+function prevText(t) {
+  const R = firstResult();
+  const words = R.diagnostics.words || [];
+  return words.filter(w => w.t_end <= t + 0.05).slice(-7).map(w => w.text).join(" ");
+}
+
+function firstResult() {
+  if (data.mode === "models") return data.results[data.models[0]];
+  if (data.mode === "compare") return data.lexical;
+  return data.result;
+}
+
+/** 오디오 탐색. 메타데이터가 아직 없으면(readyState 0) 로드를 기다렸다가 이동한다.
+ *  이걸 안 하면 재생 직전에 클릭했을 때 currentTime 설정이 무시되고 0초부터 재생된다. */
+function seekTo(au, t) {
+  const go = () => { au.currentTime = t; au.play().catch(() => {}); };
+  if (au.readyState >= 1) go();                                   // HAVE_METADATA 이상
+  else au.addEventListener("loadedmetadata", go, { once: true });
+}
+
+function wireTimeline(root) {
+  const tl = root.querySelector("#tl"), au = root.querySelector("#fullaudio");
+  if (!tl || !au) return;
+  const dur = firstResult().metrics.total_duration || 1;
+
+  tl.onclick = e => {
+    const r = tl.getBoundingClientRect();
+    seekTo(au, Math.max(0, Math.min(dur, (e.clientX - r.left) / r.width * dur)));
+  };
+  au.ontimeupdate = () => {
+    const h = root.querySelector("#head");
+    if (h) h.style.left = (au.currentTime / dur * 100) + "%";
+  };
+  const slider = root.querySelector("#silmin");
+  if (slider) {
+    // 드래그 중에는 막대·요약만 다시 그림 (전체 재렌더하면 재생이 끊김)
+    slider.oninput = () => {
+      silMin = parseFloat(slider.value);
+      root.querySelector("#silminval").textContent = silMin.toFixed(1) + "초";
+      const v = silenceView(firstResult());
+      root.querySelector("#silstat").textContent =
+        `${v.list.length}개 · 총 ${v.total}초 (${v.ratio}%) · 최장 ${v.longest}초`;
+      const pct = t => (t / v.dur * 100).toFixed(3);
+      tl.querySelectorAll(".sil").forEach(el => el.remove());
+      tl.insertAdjacentHTML("afterbegin", v.list.map(x =>
+        `<div class="sil ${x.duration >= 3 ? "long" : ""}" style="left:${pct(x.t_start)}%;
+          width:${pct(x.duration)}%" title="무음 ${fmt(x.t_start)}–${fmt(x.t_end)} (${x.duration.toFixed(2)}s)"></div>`
+      ).join(""));
+    };
+    // 놓았을 때만 표까지 갱신
+    slider.onchange = () => render();
+  }
+  root.querySelectorAll("[data-sort]").forEach(b => b.onclick = () => { silSort = b.dataset.sort; render(); });
+  root.querySelectorAll(".seek").forEach(b => b.onclick = () => {
+    seekTo(au, parseFloat(b.dataset.t));
+    au.scrollIntoView({block:"nearest", behavior:"smooth"});
+  });
+}
+
+function render() {
+  const out = $("#out");
+  if (!data) return;
+  if (data.mode === "models") renderModels(out);
+  else if (data.mode === "compare") renderCompare(out);
+  else renderSingle(out);
+  wireTimeline(out);
+}
+
+/** 전사문 안의 비유창성 태그(`<um>` 등)를 눈에 띄게 표시. */
+function markTags(t) {
+  return esc(t || "").replace(/&lt;([a-z]+)&gt;/g,
+    '<span class="tagmark">&lt;$1&gt;</span>');
+}
+
+/** 모델별 전사문 토글. 한 번에 한 모델의 전문을 보여준다. */
+function transcriptToggleHtml(models, results) {
+  if (txtPane === null || !models.includes(txtPane)) txtPane = models[0];
+  const t = (results[txtPane].diagnostics.tagged_text || results[txtPane].diagnostics.full_text);
+  const syl = results[txtPane].metrics.syllable_count;
+  return `
+    <div class="row" style="margin-bottom:8px">
+      ${models.map(m => `<button data-txt="${esc(m)}" class="${txtPane===m?'on':''}"
+        >${esc(shortModel(m))}</button>`).join("")}
+      <span style="margin-left:auto;font-size:12px;opacity:.7">음절 ${syl} · ${
+        (t||"").length}자</span>
+    </div>
+    <div class="panel" style="font-size:13px;max-height:340px;overflow:auto">${
+      markTags(t) || "(없음)"}</div>`;
+}
+
+// ---------- 모델 비교 ----------
+function renderModels(out) {
+  const models = data.models, R = data.results;
+  const keys = Object.keys(R[models[0]].metrics);
+  const base = models[0];
+
+  const cards = models.map(m => {
+    const d = R[m].diagnostics, mt = R[m].metrics;
+    const load = d.elapsed.stt_load_sec ?? 0;
+    const rt = (mt.total_duration / (d.elapsed.stt_decode_sec || 1)).toFixed(1);
+    return `<div class="box">
+      <div style="opacity:.6;font-size:12px" title="${esc(m)}">${esc(shortModel(m))}</div>
+      <div class="big">${d.elapsed.stt_decode_sec}<span style="font-size:13px;opacity:.6">초</span></div>
+      <div style="font-size:12px;opacity:.7">디코딩 · 실시간 대비 ${rt}배</div>
+      <div style="font-size:12px;opacity:.5;margin-top:4px">
+        모델 로딩 ${load}초${load > 20 ? " ⚠ 최초 다운로드 포함" : ""}</div>
+      <div style="font-size:12px;opacity:.7;margin-top:6px">
+        필러 ${mt.filler_count} · 음절 ${mt.syllable_count} · 단어 ${d.words.length}</div>
+    </div>`;}).join("");
+
+  const rows = keys.map(k => {
+    const vals = models.map(m => R[m].metrics[k]);
+    const same = vals.every(v => v === vals[0]);
+    const cls = VAD_ONLY.has(k) ? "same" : (same ? "" : "diff");
+    return `<tr class="${same?'':'diff'}">
+      <td class="${VAD_ONLY.has(k)?'same':''}">${KO[k]||k}${VAD_ONLY.has(k)?
+        ` <span class="tag no" title="STT 무관 — VAD 로만 결정">VAD</span>`:""}</td>
+      ${vals.map(v=>`<td class="num ${VAD_ONLY.has(k)?'same':''}">${v}</td>`).join("")}</tr>`;
+  }).join("");
+
+  const diffHtml = models.slice(1).map(m => {
+    const ops = data.diffs[m] || [];
+    const changed = ops.filter(o => o.tag !== "equal").length;
+    const body = ops.map(o => {
+      if (o.tag === "equal") return esc(o.a);
+      if (o.tag === "delete") return `<span class="del">${esc(o.a)}</span>`;
+      if (o.tag === "insert") return `<span class="ins">${esc(o.b)}</span>`;
+      return `<span class="del">${esc(o.a)}</span> <span class="ins">${esc(o.b)}</span>`;
+    }).join(" ");
+    return `<h2>전사문 차이 — ${esc(shortModel(base))} → ${esc(shortModel(m))} <span style="opacity:.5;font-weight:400;font-size:13px">
+      (${changed}곳)</span></h2>
+      <div class="legend"><span class="del">${esc(shortModel(base))} 에만</span> ·
+        <span class="ins">${esc(shortModel(m))} 에만</span> · 나머지는 동일</div>
+      <div class="panel" style="font-size:13px">${body || "(차이 없음)"}</div>`;
+  }).join("");
+
+  out.innerHTML = `
+    <h2>${esc(data.title) || "모델 비교 — STT 디코딩 속도"}</h2>
+    <div class="cmp" style="grid-template-columns:repeat(${models.length},1fr)">${cards}</div>
+    <div class="verdict">속도는 <b>디코딩 시간</b> 기준입니다 — 모델 로딩(캐시에 없으면 다운로드)은
+      따로 표시했습니다. 처음 쓰는 모델은 로딩에 수 분이 걸릴 수 있지만 두 번째 실행부터는 사라지므로
+      속도 비교에서 제외해야 합니다.<br>
+      오디오 로딩과 VAD(3-1)는 한 번만 실행하고 STT 만 모델별로 돌렸습니다.
+      <b>«VAD» 표시된 지표는 모든 모델에서 같은 값이 나오는 게 정상</b>입니다 — STT 와 무관하게
+      파형에서 직접 뽑기 때문입니다. 모델에 따라 달라지는 건 전사문·음절·발화속도·필러뿐입니다.</div>
+
+    <h2>지표 비교 <span style="opacity:.5;font-weight:400;font-size:13px">(다른 값은 강조)</span></h2>
+    <table><thead><tr><th>지표</th>
+      ${models.map(m=>`<th class="num" title="${esc(m)}">${esc(shortModel(m))}</th>`).join("")}</tr></thead>
+      <tbody>${rows}</tbody></table>
+
+    <h2>전사문 <span style="opacity:.5;font-weight:400;font-size:13px">
+      (모델별 전문 — 버튼으로 전환)</span></h2>
+    ${transcriptToggleHtml(models, R)}
+
+    <h2>무음 구간</h2>${timelineHtml(R[models[0]])}${silenceTableHtml(R[models[0]])}
+
+    ${diffHtml}
+
+    <h2>반복 (말더듬) — ${esc(shortModel(pane))}</h2>${repetitionHtml(R[pane])}
+
+    <h2>필러 후보</h2>
+    <div class="row" style="margin-bottom:10px">
+      ${models.map(m=>`<button data-pane="${esc(m)}" class="${pane===m?'on':''}">${esc(shortModel(m))}</button>`).join("")}
+    </div>
+    <div id="tablewrap"></div>`;
+
+  out.querySelectorAll("[data-txt]").forEach(b => b.onclick = () => {
+    txtPane = b.dataset.txt; render();
+  });
+  out.querySelectorAll("[data-pane]").forEach(b => b.onclick = () => { pane=b.dataset.pane; render(); });
+  renderTable(R[pane], `m${models.indexOf(pane)}`);
+}
+
+// ---------- 경로 비교 ----------
+function renderCompare(out) {
+  const L = data.lexical, A = data.acoustic;
+  const lc = L.metrics.filler_count, ac = A.metrics.filler_count;
+  out.innerHTML = `
+    <h2>경로 비교 — 3-3(음향 경로) 판정</h2>
+    <div class="cmp">
+      <div class="box"><div style="opacity:.6;font-size:12px">어휘 경로 포함 (기본)</div>
+        <div class="big">${lc}<span style="font-size:13px;opacity:.6"> 건</span></div>
+        <div style="font-size:12px;opacity:.6">STT 가 뱉은 필러 어휘 + 음향 후보</div></div>
+      <div class="box"><div style="opacity:.6;font-size:12px">음향 경로만 (어휘 제거)</div>
+        <div class="big">${ac}<span style="font-size:13px;opacity:.6"> 건</span></div>
+        <div style="font-size:12px;opacity:.6">STT 가 필러를 지운 상황 시뮬레이션</div></div>
+    </div>
+    <div class="verdict">${ac === 0
+      ? `음향 경로가 <b>한 건도 못 잡음</b>. 이 녹음에서는 3-3 이 기여하는 바가 없음 → 어휘 매칭만 남기고 폐기 검토.`
+      : `음향 경로가 <b>${ac}건</b> 검출. 아래 표에서 직접 들어보고 진짜 필러인지 확인하세요 —
+         허위 검출이 대부분이면 폐기, 어휘 경로가 놓친 걸 잡아주면 유지.`}</div>
+    <h2>지표</h2>${metricsHtml(L.metrics)}
+    <h2>무음 구간</h2>${timelineHtml(L)}${silenceTableHtml(L)}
+    <h2>전사문</h2><div class="panel" style="font-size:13px">${markTags((L.diagnostics.tagged_text || L.diagnostics.full_text))||"(없음)"}</div>
+    <h2>반복 (말더듬)</h2>${repetitionHtml(L)}
+    <h2>필러 후보</h2>
+    <div class="row" style="margin-bottom:10px">
+      <button data-pane="lexical" class="${pane==='lexical'?'on':''}">어휘 경로 결과</button>
+      <button data-pane="acoustic" class="${pane==='acoustic'?'on':''}">음향 경로 결과</button>
+    </div><div id="tablewrap"></div>`;
+  out.querySelectorAll("[data-pane]").forEach(b => b.onclick = () => { pane=b.dataset.pane; render(); });
+  renderTable(data[pane], pane === "acoustic" ? "aco" : "lex");
+}
+
+// ---------- 단일 ----------
+function renderSingle(out) {
+  const R = data.result;
+  out.innerHTML = `
+    <h2>지표</h2>${metricsHtml(R.metrics)}
+    <h2>무음 구간</h2>${timelineHtml(R)}${silenceTableHtml(R)}
+    ${data.mode === "silence" ? "" : `
+      <h2>전사문</h2>
+      <div class="panel" style="font-size:13px">${markTags((R.diagnostics.tagged_text || R.diagnostics.full_text))||"(없음)"}</div>
+      <h2>반복 (말더듬)</h2>${repetitionHtml(R)}
+      <h2>필러 후보</h2><div id="tablewrap"></div>`}`;
+  if (data.mode !== "silence") renderTable(R, "lex");
+}
+
+// ---------- 반복(말더듬) ----------
+function repetitionHtml(R) {
+  const reps = R.repetitions || [];
+  const m = R.metrics;
+  if (!reps.length) return `<div class="panel" style="opacity:.6">반복 검출 없음</div>`;
+  return `
+    <div class="legend">
+      <span class="tag ok">exact</span> 같은 말을 그대로 반복 ·
+      <span class="tag" style="background:#ca8a0422;border-color:#ca8a04">stem</span>
+      앞부분만 반복 (정상 관형사+명사가 섞일 수 있어 신뢰도 낮음)
+      <span style="margin-left:12px">exact ${m.repetition_exact} · stem ${m.repetition_stem}
+        · 분당 ${m.repetition_per_min}회</span>
+    </div>
+    <div style="max-height:320px;overflow:auto">
+    <table><thead><tr><th>시각</th><th class="num">횟수</th><th>유형</th>
+      <th>내용</th><th>듣기</th></tr></thead><tbody>
+    ${reps.map(r => `<tr>
+      <td class="num">${fmt(r.t_start)}</td>
+      <td class="num"><b>${r.count}</b></td>
+      <td><span class="tag ${r.kind === "exact" ? "ok" : ""}"
+          ${r.kind === "stem" ? 'style="background:#ca8a0422;border-color:#ca8a04"' : ""}
+          >${r.kind}</span></td>
+      <td>${esc(r.text)}</td>
+      <td><button class="seek" data-t="${Math.max(0, r.t_start - 1.0)}">1초 전부터</button></td>
+    </tr>`).join("")}
+    </tbody></table></div>`;
+}
+
+/** `filler.py:_classify_acoustic` 과 같은 순서로 음향 후보를 다시 판정.
+ *  후보의 측정값(길이·상대dB·유성비·F0편차)이 이미 응답에 들어있어
+ *  STT 재실행 없이 브라우저에서 즉시 재계산된다. 어휘 후보는 대상 아님. */
+function reclassify(c, t) {
+  if (c.source !== "acoustic") return null;          // 어휘 후보는 항상 채택
+  if (c.duration < t.min_duration) return "too_short";
+  if (c.duration > t.max_duration) return "too_long";
+  if (c.relative_db < t.min_relative_db) return "too_quiet";
+  if ((c.voiced_ratio ?? 0) < t.min_voiced_ratio) return "unvoiced";
+  if ((c.f0_std_semitone ?? 99) > t.max_f0_std_semitone) return "pitch_moves";
+  return null;                                       // 채택
+}
+
+function applyThresholds(R) {
+  if (!fth) fth = {...(R.diagnostics.filler_thresholds || {})};
+  for (const c of R.diagnostics.candidates) {
+    const reason = reclassify(c, fth);
+    if (c.source === "acoustic") { c.is_filler = reason === null; c.reject_reason = reason; }
+  }
+  return R.diagnostics.candidates.filter(c => c.is_filler).length;
+}
+
+const FTH_UI = [
+  ["min_duration",        "최소 길이",   0.02, 1.0,  0.01, "초"],
+  ["max_duration",        "최대 길이",   0.5,  6.0,  0.1,  "초"],
+  ["min_relative_db",     "최소 상대dB", -40,  0,    1,    "dB"],
+  ["min_voiced_ratio",    "최소 유성비", 0,    1,    0.05, ""],
+  ["max_f0_std_semitone", "최대 F0편차", 0.3,  6.0,  0.1,  "반음"],
+];
+
+function thresholdHtml(R) {
+  const n = applyThresholds(R);
+  const pad = 0.12;  // filler.WORD_PAD_SEC — 실제 길이 환산 안내용
+  return `
+    <div class="panel" style="padding:12px">
+      <div class="row" style="margin-bottom:8px">
+        <b style="font-size:13px">음향 후보 판정 임계값</b>
+        <span style="font-size:12px;opacity:.6">슬라이더를 움직이면 즉시 재판정됩니다
+          (STT 재실행 없음). 어휘 후보는 영향받지 않습니다.</span>
+        <span style="margin-left:auto;font-size:12px;opacity:.85" id="fthstat">채택 ${n}건</span>
+      </div>
+      <div class="row" style="margin:2px 0 10px">
+        <button id="fthsave" class="primary" style="padding:4px 12px;font-size:12px">
+          서버에 저장 (이후 분석에 적용)</button>
+        <button id="fthreset" style="padding:4px 12px;font-size:12px">기본값으로</button>
+        <span id="fthsaved" style="font-size:12px;opacity:.7"></span>
+      </div>
+      ${FTH_UI.map(([k, label, min, max, step, unit]) => `
+        <div class="row" style="gap:8px;margin-bottom:2px">
+          <label style="width:88px">${label}</label>
+          <input type="range" class="fth" data-k="${k}" min="${min}" max="${max}"
+                 step="${step}" value="${fth[k]}" style="width:210px">
+          <b style="width:64px;font-variant-numeric:tabular-nums"
+             id="v_${k}">${fth[k]}${unit}</b>
+          ${k === "min_duration" ? `<span style="font-size:12px;opacity:.55"
+            id="realdur">단어 패딩 ${pad}초 x2 를 더하면 실제 필러 길이 약
+            ${(fth[k] + 2*pad).toFixed(2)}초 이상에 해당</span>` : ""}
+        </div>`).join("")}
+    </div>`;
+}
+
+/** 현재 슬라이더 값들을 서버 저장 형식으로 모은다. */
+function collectThresholds() {
+  return {
+    min_silence_sec:     silMin,
+    min_candidate_sec:   fth.min_duration,
+    max_candidate_sec:   fth.max_duration,
+    min_relative_db:     fth.min_relative_db,
+    min_voiced_ratio:    fth.min_voiced_ratio,
+    max_f0_std_semitone: fth.max_f0_std_semitone,
+  };
+}
+
+function wireThresholds(root, R) {
+  const saved = root.querySelector("#fthsaved");
+  const btn = root.querySelector("#fthsave");
+  if (btn) btn.onclick = async () => {
+    const fd = new FormData();
+    fd.append("values", JSON.stringify(collectThresholds()));
+    const r = await (await fetch("/api/thresholds", {method:"POST", body:fd})).json();
+    saved.textContent = "저장됨 — 다음 분석부터 적용";
+    saved.style.color = "#16a34a";
+    setTimeout(() => { saved.textContent = ""; saved.style.color = ""; }, 4000);
+  };
+  const rst = root.querySelector("#fthreset");
+  if (rst) rst.onclick = async () => {
+    const r = await (await fetch("/api/thresholds/reset", {method:"POST"})).json();
+    silMin = r.values.min_silence_sec;
+    fth = {
+      min_duration: r.values.min_candidate_sec,
+      max_duration: r.values.max_candidate_sec,
+      min_relative_db: r.values.min_relative_db,
+      min_voiced_ratio: r.values.min_voiced_ratio,
+      max_f0_std_semitone: r.values.max_f0_std_semitone,
+    };
+    render();
+  };
+  root.querySelectorAll(".fth").forEach(sl => {
+    sl.oninput = () => {
+      const k = sl.dataset.k;
+      fth[k] = parseFloat(sl.value);
+      const unit = (FTH_UI.find(x => x[0] === k) || [])[5] ?? "";
+      root.querySelector("#v_" + k).textContent = fth[k] + unit;
+      if (k === "min_duration") {
+        const el = root.querySelector("#realdur");
+        if (el) el.textContent =
+          `단어 패딩 0.12초 x2 를 더하면 실제 필러 길이 약 ${(fth[k]+0.24).toFixed(2)}초 이상에 해당`;
+      }
+      const n = applyThresholds(R);
+      root.querySelector("#fthstat").textContent = `채택 ${n}건`;
+    };
+    sl.onchange = () => render();
+  });
+}
+
+// ---------- 후보 표 ----------
+function renderTable(R, keyPrefix) {
+  const wrap = $("#tablewrap");
+  if (!wrap) return;
+  applyThresholds(R);
+  const cands = R.diagnostics.candidates;
+  if (!cands.length) { wrap.innerHTML = `<div class="panel" style="opacity:.6">후보 없음</div>`; return; }
+
+  const key = c => `${keyPrefix}:${c.index}`;
+  const vis = c => filter==="all" || (filter==="yes"&&c.is_filler) ||
+                   (filter==="no"&&!c.is_filler) || (filter==="lexical"&&c.source==="lexical");
+
+  let tp=0, fp=0, n=0;
+  cands.forEach(c => { const l = labels[key(c)];
+    if (l===undefined) return; n++;
+    if (c.is_filler && l==="y") tp++; if (c.is_filler && l==="n") fp++; });
+  const prec = (tp+fp) ? (tp/(tp+fp)*100).toFixed(0)+"%" : "–";
+
+  wrap.innerHTML = thresholdHtml(R) + `
+    <div class="row" style="margin-bottom:10px">
+      <span style="opacity:.6">보기</span>
+      ${["all:전체","yes:채택","no:기각","lexical:어휘"].map(o=>{const [k,t]=o.split(":");
+        return `<button data-f="${k}" class="${filter===k?'on':''}">${t}</button>`}).join("")}
+      <span style="margin-left:auto;font-size:12px;opacity:.8">
+        라벨 ${n}/${cands.length} · 채택분 precision ${prec} (TP ${tp} / FP ${fp})</span>
+    </div>
+    <div style="max-height:560px;overflow:auto">
+    <table><thead><tr>
+      <th>#</th><th>시간</th><th>길이</th><th>듣기</th><th>정답 라벨</th><th>판정</th>
+      <th>기각 사유</th><th class="num">상대dB</th><th class="num">유성비</th>
+      <th class="num">F0편차</th><th>문맥</th></tr></thead><tbody>
+    ${cands.filter(vis).map(c => { const l = labels[key(c)]; return `<tr>
+      <td class="num">${c.index}</td><td class="num">${fmt(c.t_start)}</td>
+      <td class="num">${c.duration.toFixed(2)}s</td>
+      <td><audio controls preload="none" src="${APP_BASE}/media/${jobId}/${c.clip}"></audio></td>
+      <td class="lb">
+        <button class="y ${l==="y"?"on":""}" data-k="${key(c)}" data-v="y">필러</button>
+        <button class="n ${l==="n"?"on":""}" data-k="${key(c)}" data-v="n">아님</button>
+        <button class="q ${l==="q"?"on":""}" data-k="${key(c)}" data-v="q">모호</button></td>
+      <td>${c.source==="lexical" ? `<span class="tag lex">어휘 «${esc(c.text)}»</span>`
+           : c.is_filler ? `<span class="tag ok">필러</span>` : `<span class="tag no">기각</span>`}</td>
+      <td style="opacity:.6">${c.reject_reason??""}</td>
+      <td class="num">${c.relative_db?.toFixed(1)??""}</td>
+      <td class="num">${c.voiced_ratio?.toFixed(2)??""}</td>
+      <td class="num">${c.f0_std_semitone?.toFixed(2)??""}</td>
+      <td class="ctx">${esc(c.context_text)}</td></tr>`}).join("")}
+    </tbody></table></div>`;
+
+  wireThresholds(wrap, R);
+  wrap.querySelectorAll("[data-f]").forEach(b => b.onclick = () => { filter=b.dataset.f; render(); });
+  wrap.querySelectorAll(".lb button").forEach(b => b.onclick = async () => {
+    const k = b.dataset.k, v = b.dataset.v;
+    if (labels[k] === v) delete labels[k]; else labels[k] = v;
+    const fd = new FormData(); fd.append("labels", JSON.stringify(labels));
+    await fetch(`/api/jobs/${jobId}/labels`, {method:"POST", body:fd});
+    render();
+  });
+}
+
+/** 로컬 모델은 절대경로라 목록에서 마지막 경로 조각만 보여준다. */
+function shortModel(m) {
+  return String(m || "").split(",").map(x => x.trim().split("/").pop()).join(", ");
+}
+
+// --- 실행 기록 ---
+async function loadJobs() {
+  const list = await (await fetch("/api/jobs")).json();
+  $("#jobs").innerHTML = list.map(j => `<div data-id="${j.job_id}">
+    <b>${j.mode}</b> · ${esc(shortModel(j.model))} · ${esc(j.source)}${j.keywords?` · kw«${esc(j.keywords)}»`:""}
+    <span style="opacity:.5"> — ${j.started_at} ${j.status==="done"?"":"(실행중)"}${j.has_labels?" · 라벨있음":""}</span>
+    </div>`).join("") || `<div style="opacity:.5">아직 없음</div>`;
+  $("#jobs").querySelectorAll("[data-id]").forEach(d => d.onclick = () => loadJob(d.dataset.id));
+}
+loadJobs();
+</script>

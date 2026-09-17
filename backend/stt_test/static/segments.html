@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>window.APP_BASE="/voice";</script>
+<script src="/shared/base.js"></script>
+<script defer src="/shared/nav.js"></script>
+<title>STEP 4 — 구간 분리 테스트</title>
+<style>
+  :root { color-scheme: light dark; --line:#8883; }
+  * { box-sizing: border-box; }
+  body { font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", sans-serif;
+         margin: 0; padding: 24px; max-width: 1400px; margin-inline: auto; }
+  h1 { font-size: 19px; margin: 0 0 2px; }
+  h2 { font-size: 15px; margin: 24px 0 10px; }
+  .sub { opacity: .6; font-size: 13px; margin-bottom: 18px; }
+  .panel { border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  button { font: inherit; padding: 6px 14px; border-radius: 7px; border: 1px solid var(--line);
+           background: transparent; cursor: pointer; }
+  button:hover:not(:disabled) { border-color: #4a7dff; }
+  button:disabled { opacity: .4; cursor: default; }
+  button.primary, button.on { background: #4a7dff; color: #fff; border-color: #4a7dff; }
+  select, textarea { font: inherit; padding: 6px 9px; border-radius: 7px;
+         border: 1px solid var(--line); background: transparent; color: inherit; }
+  textarea { width: 100%; min-height: 150px; font-size: 13px; line-height: 1.7; resize: vertical; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { border-bottom: 1px solid var(--line); padding: 8px; text-align: left; vertical-align: top; }
+  th { font-size: 12px; opacity: .65; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .label { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 9px;
+           border-radius: 20px; background: #4a7dff22; border: 1px solid #4a7dff; white-space: nowrap; }
+  .bar { display: flex; height: 40px; border-radius: 8px; overflow: hidden;
+         border: 1px solid var(--line); margin-bottom: 6px; }
+  .bar div { display: flex; align-items: center; justify-content: center; font-size: 11px;
+             overflow: hidden; white-space: nowrap; border-right: 1px solid #fff4; }
+  .bar div:last-child { border-right: none; }
+  .warn { color: #ca8a04; font-size: 12px; }
+  .hint { font-size: 12px; opacity: .6; }
+  .sent { font-size: 12px; opacity: .8; max-width: 620px; }
+  .seg { border: 1px solid var(--line); border-left-width: 4px; border-radius: 0 10px 10px 0;
+         padding: 12px 14px; margin-bottom: 10px; }
+  .seghead { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+             margin-bottom: 8px; }
+  .segtitle { font-weight: 600; }
+  .segmeta { font-size: 12px; opacity: .6; font-variant-numeric: tabular-nums; }
+  .line { display: flex; gap: 10px; padding: 3px 0; font-size: 13px; line-height: 1.7; }
+  .idx { flex: 0 0 34px; text-align: right; font-size: 11px; opacity: .45;
+         font-variant-numeric: tabular-nums; padding-top: 3px; }
+  .tm  { flex: 0 0 46px; font-size: 11px; opacity: .5;
+         font-variant-numeric: tabular-nums; padding-top: 3px; }
+  .txt { flex: 1; }
+  .full .line { border-left: 4px solid transparent; padding-left: 8px; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+  #log { font: 12px/1.5 ui-monospace, Menlo, monospace; white-space: pre-wrap;
+         background: #8881; border-radius: 8px; padding: 10px; margin-top: 10px; display: none; }
+</style>
+
+<div id="nav-mount"></div>
+
+<h1>STEP 4 — 구간 분리 테스트</h1>
+<div class="sub">STT 문장을 의미 단위로 묶어 발표 구간을 나눕니다. LLM(Gemini)에 <b>문장 번호</b>만 넘기고
+  시각은 STT 값을 그대로 씁니다 — 타임스탬프는 LLM 을 거치지 않습니다.</div>
+
+<div class="panel">
+  <div class="row" style="margin-bottom:10px">
+    <button data-src="job" class="on">STEP 3 기록에서</button>
+    <button data-src="text">직접 입력</button>
+    <span style="margin-left:auto" class="hint" id="policy"></span>
+  </div>
+
+  <div id="srcjob">
+    <div class="row">
+      <label>분석 기록</label>
+      <select id="job" style="min-width:520px"></select>
+    </div>
+    <div class="hint" style="margin-top:6px">STEP 3 에서 분석한 결과의 문장을 그대로 사용합니다 (실제 시각 포함).</div>
+  </div>
+
+  <div id="srctext" style="display:none">
+    <textarea id="text" placeholder="한 줄에 한 문장씩 입력하세요.&#10;&#10;안녕하세요. 오늘 발표를 맡은 김은재입니다.&#10;저희 팀이 만든 서비스를 소개하겠습니다.&#10;기존 방식에는 이런 문제가 있었습니다."></textarea>
+    <div class="hint" style="margin-top:6px">⚠ 직접 입력은 시각 정보가 없어 <b>줄당 3초</b>로 가정합니다.
+      라벨·경계 판정만 보기 위한 용도이며, 실제 시각은 STEP 3 결과를 쓰세요.</div>
+  </div>
+
+  <div class="row" style="margin-top:12px">
+    <button class="primary" id="run">구간 분리 실행</button>
+    <span id="status" class="hint"></span>
+  </div>
+  <div id="log"></div>
+</div>
+
+<div id="out"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = t => (t||"").replace(/&/g,"&amp;").replace(/</g,"&lt;");
+const fmt = t => Math.floor(t/60) + ":" + (t%60).toFixed(0).padStart(2,"0");
+let mode = "job";
+
+// 라벨별 색 — 해시로 고르면 같은 라벨은 항상 같은 색
+const hue = s => [...s].reduce((a,c)=>a+c.charCodeAt(0),0) * 37 % 360;
+
+fetch("/api/step4/labels").then(r=>r.json()).then(d => {
+  const p = d.policy;
+  $("#policy").textContent =
+    `정책: 구간당 약 ${p.target_sec_per_segment}초 · 최소 ${p.min_segment_sec}초 · ${p.min_segments}~${p.max_segments}개 · 라벨 ${d.labels.length}종`;
+  $("#policy").title = d.labels.join(", ");
+});
+
+fetch("/api/step4/sources").then(r=>r.json()).then(list => {
+  const sel = $("#job");
+  if (!list.length) { sel.add(new Option("— STEP 3 분석 기록이 없습니다 —", "")); return; }
+  list.forEach(s => sel.add(new Option(
+    `${s.source.split("/").pop()} · 문장 ${s.sentence_count}개 · ${s.model.split("/").pop()} · ${s.started_at}`,
+    s.job_id)));
+});
+
+document.querySelectorAll("[data-src]").forEach(b => b.onclick = () => {
+  document.querySelectorAll("[data-src]").forEach(x => x.classList.remove("on"));
+  b.classList.add("on"); mode = b.dataset.src;
+  $("#srcjob").style.display = mode === "job" ? "" : "none";
+  $("#srctext").style.display = mode === "text" ? "" : "none";
+});
+
+$("#run").onclick = async () => {
+  const fd = new FormData();
+  if (mode === "job") {
+    if (!$("#job").value) return alert("분석 기록을 선택하세요.");
+    fd.append("job_id", $("#job").value);
+  } else {
+    if (!$("#text").value.trim()) return alert("문장을 입력하세요.");
+    fd.append("text", $("#text").value);
+  }
+  $("#run").disabled = true;
+  $("#status").textContent = "LLM 호출 중… (재시도 포함 최대 3회)";
+  $("#out").innerHTML = "";
+  try {
+    const r = await (await fetch("/api/step4/run", {method:"POST", body:fd})).json();
+    if (r.detail) throw new Error(r.detail);
+    render(r);
+    $("#status").textContent = "";
+  } catch (e) {
+    $("#status").textContent = "실패: " + e.message;
+  }
+  $("#run").disabled = false;
+};
+
+function render(r) {
+  const segs = r.segments, sents = r.sentences;
+  const total = segs.length ? segs[segs.length - 1].t_end : 1;
+  const color = lab => `hsl(${hue(lab)} 60% 50%)`;
+
+  const bar = segs.map(s => `<div style="width:${(s.duration/total*100).toFixed(2)}%;
+      background:hsl(${hue(s.label)} 70% 55% / .25)"
+      title="${esc(s.label)} · ${esc(s.title)}">${esc(s.label)}</div>`).join("");
+
+  // 구간별 — 해당 구간의 문장을 **전부** 보여준다
+  const detail = segs.map((s, i) => `
+    <div class="seg" style="border-left-color:${color(s.label)}">
+      <div class="seghead">
+        <span class="label" style="background:hsl(${hue(s.label)} 70% 55% / .2);
+              border-color:${color(s.label)}">${esc(s.label)}</span>
+        <span class="segtitle">${esc(s.title)}</span>
+        <span class="segmeta">${fmt(s.t_start)} – ${fmt(s.t_end)} · ${s.duration.toFixed(1)}초 ·
+          문장 ${s.end_idx - s.start_idx + 1}개 [${s.start_idx}–${s.end_idx}]</span>
+      </div>
+      ${sents.slice(s.start_idx, s.end_idx + 1).map((x, k) => `
+        <div class="line"><span class="idx">${s.start_idx + k}</span>
+          <span class="tm">${fmt(x.t_start)}</span>
+          <span class="txt">${esc(x.text)}</span></div>`).join("")}
+    </div>`).join("");
+
+  // 전체 전사문 — 문장이 어느 구간에 속하는지 왼쪽 색띠로 표시
+  const owner = new Array(sents.length).fill(null);
+  segs.forEach(s => { for (let i = s.start_idx; i <= s.end_idx; i++) owner[i] = s; });
+  const full = `<div class="panel full" style="max-height:520px;overflow:auto">` +
+    sents.map((x, i) => {
+      const o = owner[i];
+      const first = o && o.start_idx === i;
+      return `<div class="line" style="border-left-color:${o ? color(o.label) : "transparent"}">
+        <span class="idx">${i}</span>
+        <span class="tm">${fmt(x.t_start)}</span>
+        <span class="txt">${first ? `<span class="label" style="background:hsl(${hue(o.label)} 70% 55% / .2);
+          border-color:${color(o.label)};margin-right:6px">${esc(o.label)}</span>` : ""}${esc(x.text)}</span>
+      </div>`;
+    }).join("") + `</div>`;
+
+  $("#out").innerHTML = `
+    <h2>구간 ${segs.length}개 · 문장 ${sents.length}개
+      ${r.synthetic_time ? '<span class="warn">· 시각은 가정값(줄당 3초)</span>' : ""}</h2>
+    <div class="bar">${bar}</div>
+    <div class="hint" style="margin-bottom:16px">전체 ${fmt(total)} · 막대 너비는 구간 길이 비율</div>
+
+    <div class="tabs">
+      <button data-view="seg" class="on">구간별 보기</button>
+      <button data-view="full">전체 전사문</button>
+    </div>
+    <div id="viewseg">${detail}</div>
+    <div id="viewfull" style="display:none">${full}</div>
+
+    ${r.warnings.length
+      ? `<h2>검증 경고</h2><div class="panel">` +
+        r.warnings.map(w => `<div class="warn">⚠ ${esc(w)}</div>`).join("") + `</div>`
+      : `<div class="hint" style="margin-top:14px">검증 통과 — 보정 없음</div>`}`;
+
+  $("#out").querySelectorAll("[data-view]").forEach(b => b.onclick = () => {
+    $("#out").querySelectorAll("[data-view]").forEach(x => x.classList.remove("on"));
+    b.classList.add("on");
+    $("#viewseg").style.display = b.dataset.view === "seg" ? "" : "none";
+    $("#viewfull").style.display = b.dataset.view === "full" ? "" : "none";
+  });
+}
+</script>

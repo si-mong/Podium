@@ -2,9 +2,28 @@
 # API 서버 띄울 때는 안 깔아도 됨.
 # 무거운 패키지(PyTorch 포함)이므로 파이프라인 작성 시점에 설치.
 
-openai-whisper==20240930
+# STT: openai-whisper 대신 faster-whisper.
+#   - Python 3.13 에서 openai-whisper 빌드 실패(pkg_resources) 해소
+#   - CTranslate2 기반이라 CPU 에서 수 배 빠르고 torch 불필요
+#   - word_timestamps=True 네이티브 지원 (STEP 3 가 단어 경계를 요구)
+#   - Silero VAD(ONNX) 번들 → 무음 검출도 추가 설치 없이 해결
+faster-whisper==1.2.1
+
+# STEP 3 본 파이프라인 STT 모델 = SeloWhisper (한국어 비유창성 파인튜닝).
+# 이 모델은 필러/반복을 특수 토큰(<um>, <repeat> 등)으로 출력하는데, 해당 토큰 id 가
+# faster-whisper 의 타임스탬프 영역과 겹쳐 CTranslate2 로는 전사가 깨진다.
+# 따라서 transformers 런타임이 필수 — 자세한 내용은 app/pipeline/voice/stt_hf.py 참고.
+#
+# ⚠️ 리눅스 배포 시 주의: PyPI 기본 torch 휠은 CUDA 의존성이 딸려와 2.5GB 를 넘는다.
+#    GPU 를 안 쓰므로 CPU 전용 인덱스를 지정할 것:
+#        pip install torch==2.14.0 --index-url https://download.pytorch.org/whl/cpu
+torch==2.14.0
+transformers==5.16.1
+
+# librosa 는 STEP 3 에서 안 씀 (numba 의존 → Python 3.13 + numpy 2.x 호환 이슈).
+# 음향 특징은 stt_test/audio.py 에서 순수 numpy 로 구현.
 librosa==0.10.2.post1
-opencv-python==4.10.0.84
+opencv-python-headless>=4.10   # 서버는 GUI 불필요 → headless. STEP 2 스마트 청킹(motion 시계열)에 사용
 pdfplumber==0.11.4
 
 # STEP 2 VLM (Gemini)

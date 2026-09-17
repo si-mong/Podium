@@ -1,0 +1,9 @@
+# VLM 테스트(vlm_test/) 전용. Gemini 호출에 필요한 최소 의존성.
+# STEP 2 본격 작업 시 requirements-pipeline.txt 에 흡수 예정.
+
+google-genai>=1.0.0
+python-dotenv==1.0.1
+
+# 청크 motion score 계산 (preview 페이지). headless 버전이 가벼움.
+# 4.10+ 이면 OK. conda 환경에 4.12가 이미 있으면 재설치 불필요.
+opencv-python-headless>=4.10

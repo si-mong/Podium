@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<script>window.APP_BASE="/vlm";</script>
+<script src="/shared/base.js"></script>
+
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Podium VLM Test · Smart Chunking (v2)</title>
+<style>
+  :root { color-scheme: light; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    margin: 0; padding: 24px; max-width: 1400px; margin-inline: auto;
+    color: #111;
+  }
+  h1 { margin: 0 0 6px; font-size: 22px; }
+  .subtitle { color: #666; font-size: 13px; margin-bottom: 20px; }
+  a { color: #1565c0; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .top-bar { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 20px; }
+  .nav a { margin-left: 14px; }
+  .row { display: flex; align-items: center; gap: 10px; margin: 12px 0; flex-wrap: wrap; }
+  button {
+    padding: 9px 18px; font-size: 15px; border: 0; border-radius: 8px;
+    cursor: pointer; font-weight: 600;
+  }
+  button.primary { background: #111; color: #fff; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .pill {
+    display: inline-block; padding: 4px 10px; border-radius: 999px;
+    background: #eee; font-size: 13px;
+  }
+  .pill.live  { background: #1565c0; color: #fff; }
+  .pill.done  { background: #2e7d32; color: #fff; }
+  .pill.error { background: #b71c1c; color: #fff; }
+  #log {
+    background: #0f0f0f; color: #d8e3ff; padding: 12px;
+    border-radius: 8px; margin-top: 16px;
+    font-family: ui-monospace, Menlo, Monaco, monospace;
+    font-size: 12.5px; max-height: 140px; overflow-y: auto;
+    white-space: pre-wrap;
+  }
+
+  .panel {
+    margin-top: 24px; padding: 16px; border: 1px solid #ddd; border-radius: 10px;
+    background: #fafafa;
+  }
+  .panel h2 { margin: 0 0 12px; font-size: 16px; }
+  .slider-grid { display: grid; grid-template-columns: 170px 1fr 80px; gap: 10px 14px; align-items: center; }
+  .slider-grid input[type=range] { width: 100%; }
+  .slider-grid .val { font-family: ui-monospace, Menlo, Monaco, monospace; font-size: 13px; text-align: right; }
+
+  .summary { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 14px; }
+  .stat {
+    background: #fff; border: 1px solid #ddd; border-radius: 8px;
+    padding: 8px 14px; min-width: 110px;
+  }
+  .stat .label { font-size: 11.5px; color: #666; }
+  .stat .value { font-size: 18px; font-weight: 700; margin-top: 2px; }
+  .stat.kept .value { color: #2e7d32; }
+  .stat.saved .value { color: #ef6c00; }
+
+  /* SVG 시계열 그래프 */
+  svg.timeline { width: 100%; height: 200px; background: #fff; border: 1px solid #ddd; border-radius: 8px; margin-top: 12px; }
+  .thresh-line { stroke: #b71c1c; stroke-width: 1; stroke-dasharray: 4 4; }
+  .motion-path { fill: none; stroke: #1565c0; stroke-width: 1.2; }
+  .chunk-rect.intro  { fill: rgba(46, 125, 50, 0.20); }
+  .chunk-rect.motion { fill: rgba(21, 101, 192, 0.20); }
+  .chunk-rect.outro  { fill: rgba(239, 108, 0, 0.20); }
+  .chunk-rect { stroke: none; }
+  .chunk-label { font-size: 10px; fill: #333; font-family: ui-monospace, Menlo, Monaco, monospace; }
+  .axis-x { stroke: #ccc; stroke-width: 1; }
+  .axis-tick { font-size: 10px; fill: #888; }
+
+  /* 청크 리스트 표 */
+  table { border-collapse: collapse; margin-top: 12px; width: 100%; font-size: 12.5px; }
+  th, td { border: 1px solid #ddd; padding: 5px 9px; }
+  th { background: #f6f6f6; font-weight: 600; text-align: left; }
+  td.num { font-family: ui-monospace, Menlo, Monaco, monospace; text-align: right; }
+  tr.intro  td:last-child { color: #2e7d32; font-weight: 600; }
+  tr.motion td:last-child { color: #1565c0; font-weight: 600; }
+  tr.outro  td:last-child { color: #ef6c00; font-weight: 600; }
+
+  video { width: 100%; max-height: 360px; background: #000; border-radius: 8px; margin-top: 12px; }
+</style>
+</head>
+<body>
+  <div id="nav-mount"></div>
+  <script src="/shared/nav.js"></script>
+
+  <h1>스마트 청킹 미리보기 (v2)</h1>
+  <div class="subtitle">
+    영상을 처음부터 읽으면서 <strong>동작 시작 시점</strong>부터 20초 청크를 잘라냄.
+    정적 구간은 청크 자체를 안 만듦. 슬라이더로 임계값/hysteresis 튜닝.
+  </div>
+
+  <div class="row">
+    <input type="file" id="file" accept="video/*" />
+    <button id="run" class="primary">시계열 계산</button>
+    <span id="status" class="pill">idle</span>
+  </div>
+
+  <pre id="log"></pre>
+
+  <div class="panel" id="resultPanel" style="display:none">
+    <h2>임계값 · Hysteresis (드래그하면 청크 마커가 즉시 재계산됨)</h2>
+    <div class="slider-grid">
+      <label for="thresh">motion 임계값</label>
+      <input type="range" id="thresh" min="0" max="30" step="0.1" value="3.5" />
+      <span class="val"><span id="threshVal">3.5</span></span>
+
+      <label for="hysteresis">hysteresis (연속 샘플)</label>
+      <input type="range" id="hysteresis" min="1" max="20" step="1" value="5" />
+      <span class="val"><span id="hysteresisVal">5</span></span>
+
+      <label for="chunkDuration">청크 길이 (초)</label>
+      <input type="range" id="chunkDuration" min="10" max="60" step="5" value="20" />
+      <span class="val"><span id="chunkDurationVal">20</span></span>
+
+      <label></label>
+      <div style="font-size:12px; color:#666; grid-column: 2 / 4; line-height:1.6;">
+        motion 임계값 = 프레임 변화량이 이 값을 초과하면 "동작 있음".<br>
+        hysteresis = 연속 N 샘플 (1샘플 = 0.2초) 초과해야 "동작 시작" 확정. 깜빡임 방지.<br>
+        청크 길이 = intro/motion/outro 각각 이 길이로 자름. 영상 길이도 같이 조정됨.
+      </div>
+    </div>
+
+    <div class="summary">
+      <div class="stat kept"><div class="label">v2 청크</div><div class="value" id="chunkCount">0</div></div>
+      <div class="stat"><div class="label">v1 청크 (30s 고정)</div><div class="value" id="v1ChunkCount">0</div></div>
+      <div class="stat saved"><div class="label">청크 감소</div><div class="value" id="chunkDelta">0</div></div>
+      <div class="stat saved"><div class="label">절약 시간 (초)</div><div class="value" id="savedSec">0</div></div>
+      <div class="stat"><div class="label">영상 길이 (초)</div><div class="value" id="durationSec">0</div></div>
+      <div class="stat"><div class="label">분석 비율</div><div class="value" id="coverage">0%</div></div>
+    </div>
+
+    <svg class="timeline" id="chart" preserveAspectRatio="none"></svg>
+
+    <video controls preload="metadata" id="videoPlayer"></video>
+
+    <table id="chunkTable">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>start (s)</th>
+          <th>end (s)</th>
+          <th>길이 (s)</th>
+          <th>종류</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const log = (msg) => {
+  const t = new Date().toLocaleTimeString();
+  $("log").textContent += `[${t}] ${msg}\n`;
+  $("log").scrollTop = $("log").scrollHeight;
+};
+const setStatus = (text, cls = "") => {
+  const el = $("status"); el.className = "pill " + cls; el.textContent = text;
+};
+
+// 서버에서 받은 응답을 보관해두고 슬라이더 조정 때마다 재계산
+let timeline = [];          // [{t, m}, ...]
+let videoDuration = 0;
+let motionMax = 1;          // 그래프 Y축 정규화용
+const SAMPLE_FPS = 5;       // scoring.py SAMPLE_FPS 와 동일
+
+/**
+ * scoring.py 의 smart_chunk_plan() 와 동일 로직 (JS 버전).
+ * 정책 v2: intro 강제(1A) + 동작 시작 hysteresis(2A) + 곧장 다음 청크(3A) + 정적 강제 X(4B)
+ */
+function smartChunkPlan(timeline, duration, motionThresh, hysteresisFrames, chunkDuration = 20) {
+  const chunks = [];
+
+  // 1A. intro 강제 (도입부 baseline)
+  const introEnd = Math.min(chunkDuration, duration);
+  chunks.push({ start: 0.0, end: introEnd, kind: "intro" });
+
+  if (duration <= chunkDuration) return chunks;
+
+  // 2. intro 이후 motion 시계열 스캔
+  let state = "idle";
+  let chunkStart = null;
+  let streak = 0;
+
+  for (const { t, m } of timeline) {
+    if (t < chunkDuration) continue;            // intro 영역은 무시 (이미 청크 잡힘)
+
+    if (state === "active") {
+      // 현재 청크 30초 채워졌나
+      if (t - chunkStart >= chunkDuration) {
+        chunks.push({ start: chunkStart, end: chunkStart + chunkDuration, kind: "motion" });
+        state = "idle";
+        chunkStart = null;
+        streak = 0;
+      }
+      continue;
+    }
+
+    // idle 상태에서 동작 시작 감지
+    if (m > motionThresh) {
+      streak += 1;
+      if (streak >= hysteresisFrames) {
+        // 살짝 뒤로: 놓친 동작 시작 부분 포함
+        const offset = streak / SAMPLE_FPS;
+        let candidateStart = Math.max(chunkDuration, t - offset);
+        // 직전 청크 끝과 겹치지 않게
+        if (chunks.length > 0) {
+          candidateStart = Math.max(candidateStart, chunks[chunks.length - 1].end);
+        }
+        chunkStart = candidateStart;
+        state = "active";
+      }
+    } else {
+      streak = 0;
+    }
+  }
+
+  // 영상 끝까지 동작 지속 케이스
+  if (state === "active" && chunkStart !== null) {
+    chunks.push({
+      start: chunkStart,
+      end: Math.min(chunkStart + chunkDuration, duration),
+      kind: "motion",
+    });
+  }
+
+  // outro 강제: 마지막 청크와 겹치지 않으면
+  const outroStart = Math.max(0, duration - chunkDuration);
+  if (chunks[chunks.length - 1].end <= outroStart) {
+    chunks.push({ start: outroStart, end: duration, kind: "outro" });
+  }
+
+  return chunks;
+}
+
+async function run() {
+  const file = $("file").files[0];
+  if (!file) { alert("영상 파일을 선택하세요."); return; }
+
+  $("run").disabled = true;
+  $("resultPanel").style.display = "none";
+  $("log").textContent = "";
+  setStatus("uploading + scanning…", "live");
+  log(`업로드: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`);
+
+  try {
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch("/smart-preview/analyze", { method: "POST", body: fd });
+    if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+    const data = await res.json();
+    timeline = data.timeline || [];
+    videoDuration = data.duration || 0;
+    motionMax = Math.max(1, ...timeline.map(p => p.m));
+    log(`시계열 ${timeline.length}점, 영상 길이 ${videoDuration.toFixed(1)}s, motion max ${motionMax.toFixed(2)}`);
+
+    // 영상 플레이어 src 설정
+    $("videoPlayer").src = `/media/${data.job_id}/${data.video_filename}`;
+    $("durationSec").textContent = videoDuration.toFixed(0);
+
+    // motion 임계값 슬라이더 범위 동적 조정
+    const tSlider = $("thresh");
+    tSlider.max = (Math.ceil(motionMax) + 1).toString();
+    if (parseFloat(tSlider.value) > motionMax) tSlider.value = (motionMax / 2).toFixed(1);
+
+    $("resultPanel").style.display = "block";
+    rerender();
+    setStatus("done", "done");
+  } catch (e) {
+    log(`실패: ${e}`);
+    setStatus("error", "error");
+  } finally {
+    $("run").disabled = false;
+  }
+}
+
+/**
+ * SVG로 motion 시계열 + 임계값 라인 + 청크 영역 그리기.
+ * 매번 임계값/hysteresis 바뀔 때 재호출.
+ */
+function drawChart(chunks, motionThresh) {
+  const svg = $("chart");
+  const W = svg.clientWidth || 1000;
+  const H = svg.clientHeight || 200;
+  const padX = 30, padY = 10;
+  const innerW = W - padX * 2;
+  const innerH = H - padY * 2;
+
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.innerHTML = "";
+
+  if (videoDuration <= 0 || timeline.length === 0) return;
+
+  // 좌표 변환 헬퍼
+  const xOf = (t) => padX + (t / videoDuration) * innerW;
+  const yOf = (m) => padY + innerH - (m / motionMax) * innerH;
+
+  // 청크 배경 영역 (motion path 뒤에 깔림)
+  for (const c of chunks) {
+    const rx = xOf(c.start);
+    const rw = xOf(c.end) - rx;
+    const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    rect.setAttribute("class", `chunk-rect ${c.kind}`);
+    rect.setAttribute("x", rx);
+    rect.setAttribute("y", padY);
+    rect.setAttribute("width", rw);
+    rect.setAttribute("height", innerH);
+    svg.appendChild(rect);
+
+    // 청크 종류 라벨
+    if (rw > 30) {
+      const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      label.setAttribute("class", "chunk-label");
+      label.setAttribute("x", rx + 4);
+      label.setAttribute("y", padY + 12);
+      label.textContent = c.kind;
+      svg.appendChild(label);
+    }
+  }
+
+  // 임계값 가로선 (빨강 점선)
+  const ty = yOf(motionThresh);
+  const tline = document.createElementNS("http://www.w3.org/2000/svg", "line");
+  tline.setAttribute("class", "thresh-line");
+  tline.setAttribute("x1", padX); tline.setAttribute("x2", W - padX);
+  tline.setAttribute("y1", ty);   tline.setAttribute("y2", ty);
+  svg.appendChild(tline);
+
+  // motion 시계열 라인
+  let d = "";
+  for (let i = 0; i < timeline.length; i++) {
+    const { t, m } = timeline[i];
+    const x = xOf(t), y = yOf(m);
+    d += (i === 0 ? `M${x},${y}` : ` L${x},${y}`);
+  }
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("class", "motion-path");
+  path.setAttribute("d", d);
+  svg.appendChild(path);
+
+  // X축 시간 눈금 (10s 간격)
+  for (let t = 0; t <= videoDuration; t += 10) {
+    const x = xOf(t);
+    const tick = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    tick.setAttribute("class", "axis-tick");
+    tick.setAttribute("x", x);
+    tick.setAttribute("y", H - 2);
+    tick.setAttribute("text-anchor", "middle");
+    tick.textContent = `${t}s`;
+    svg.appendChild(tick);
+  }
+}
+
+function rerender() {
+  const motionThresh = parseFloat($("thresh").value);
+  const hysteresisFrames = parseInt($("hysteresis").value, 10);
+  const chunkDuration = parseInt($("chunkDuration").value, 10);
+  $("threshVal").textContent = motionThresh.toFixed(1);
+  $("hysteresisVal").textContent = hysteresisFrames;
+  $("chunkDurationVal").textContent = chunkDuration;
+
+  const chunks = smartChunkPlan(timeline, videoDuration, motionThresh, hysteresisFrames, chunkDuration);
+
+  // 통계
+  const totalChunkSec = chunks.reduce((s, c) => s + (c.end - c.start), 0);
+  const savedSec = Math.max(0, videoDuration - totalChunkSec);
+  const coverage = videoDuration > 0 ? Math.round((totalChunkSec / videoDuration) * 100) : 0;
+
+  // v1 (30s 고정) 기준 청크 수 — Math.ceil 로 마지막 짧은 청크 포함
+  const v1ChunkCount = videoDuration > 0 ? Math.ceil(videoDuration / 30) : 0;
+  const delta = v1ChunkCount - chunks.length;  // 양수 = v2 가 v1 보다 청크 적음 (감소)
+
+  $("chunkCount").textContent = chunks.length;
+  $("v1ChunkCount").textContent = v1ChunkCount;
+  $("chunkDelta").textContent = delta > 0 ? `-${delta}` : (delta < 0 ? `+${-delta}` : "0");
+  $("chunkDelta").style.color = delta > 0 ? "#2e7d32" : (delta < 0 ? "#b71c1c" : "#666");
+  $("savedSec").textContent = savedSec.toFixed(0);
+  $("coverage").textContent = `${coverage}%`;
+
+  // 청크 리스트 표
+  const tbody = $("chunkTable").querySelector("tbody");
+  tbody.innerHTML = "";
+  chunks.forEach((c, i) => {
+    const tr = document.createElement("tr");
+    tr.className = c.kind;
+    tr.innerHTML = `
+      <td>${i + 1}</td>
+      <td class="num">${c.start.toFixed(1)}</td>
+      <td class="num">${c.end.toFixed(1)}</td>
+      <td class="num">${(c.end - c.start).toFixed(1)}</td>
+      <td>${c.kind}</td>
+    `;
+    // 클릭 시 영상 그 시점으로 이동
+    tr.style.cursor = "pointer";
+    tr.addEventListener("click", () => {
+      const v = $("videoPlayer");
+      v.currentTime = c.start;
+      v.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    tbody.appendChild(tr);
+  });
+
+  // SVG 차트 다시 그리기
+  drawChart(chunks, motionThresh);
+}
+
+$("run").addEventListener("click", run);
+$("thresh").addEventListener("input", rerender);
+$("hysteresis").addEventListener("input", rerender);
+$("chunkDuration").addEventListener("input", rerender);
+// 창 리사이즈 시 SVG 폭 변하므로 재렌더
+window.addEventListener("resize", () => {
+  if (timeline.length > 0) rerender();
+});
+</script>
+</body>
+</html>

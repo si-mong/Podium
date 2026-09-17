@@ -27,7 +27,11 @@ class Settings(BaseSettings):
 
     # External APIs
     openai_api_key: str = ""
-    whisper_model: str = "large-v3"
+    gemini_api_key: str = ""      # STEP 2 VLM · STEP 4 구간분리
+    # STEP 3 STT 모델. `hf:` 접두사면 transformers 런타임(비유창성 태그 O),
+    # 그 외에는 faster-whisper(CTranslate2). 자세한 비교는
+    # app/pipeline/step3_voice_analysis.py 모듈 주석 참고.
+    whisper_model: str = "hf:rearleg/SeloWhisper-ko-disfluency"
 
 
 settings = Settings()

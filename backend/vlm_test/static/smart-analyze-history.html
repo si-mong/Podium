@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<script>window.APP_BASE="/vlm";</script>
+<script src="/shared/base.js"></script>
+
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Podium VLM Test · Smart Analyze History</title>
+<style>
+  :root { color-scheme: light; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    margin: 0; padding: 24px; max-width: 1400px; margin-inline: auto;
+    color: #111;
+  }
+  h1 { margin: 0; font-size: 22px; }
+  .subtitle { color: #666; font-size: 13px; margin-top: 4px; }
+  a { color: #1565c0; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .empty { color: #888; padding: 40px 0; text-align: center; }
+
+  .card {
+    border: 1px solid #ddd; border-radius: 10px;
+    margin-bottom: 14px; overflow: hidden;
+    background: #fff;
+  }
+  .card-head {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 16px; cursor: pointer;
+    background: #fafafa;
+    flex-wrap: wrap;
+  }
+  .card-head:hover { background: #f0f4f9; }
+  .card-title { font-weight: 600; font-size: 15px; flex: 1; min-width: 200px; }
+  .meta { font-size: 12.5px; color: #666; }
+  .params {
+    font-family: ui-monospace, Menlo, Monaco, monospace; font-size: 11.5px;
+    color: #444; background: #eef; padding: 2px 8px; border-radius: 4px;
+  }
+  .pill {
+    display: inline-block; padding: 3px 9px; border-radius: 999px;
+    background: #eee; font-size: 12px;
+  }
+  .pill.ok { background: #2e7d32; color: #fff; }
+  .pill.partial { background: #ef6c00; color: #fff; }
+  .card-body { display: none; padding: 16px; border-top: 1px solid #eee; }
+  .card.open .card-body { display: block; }
+  .card-head .chev { transition: transform 0.15s; }
+  .card.open .chev { transform: rotate(90deg); }
+
+  video { width: 100%; max-height: 380px; background: #000; border-radius: 8px; margin-bottom: 12px; }
+
+  /* 청크 계획 timeline bar (smart-analyze.html 과 통일) */
+  .plan-bar {
+    display: flex; width: 100%; height: 24px; border-radius: 4px;
+    overflow: hidden; margin: 8px 0 4px; background: #eee;
+  }
+  .plan-seg.intro  { background: rgba(46, 125, 50, 0.6);  }
+  .plan-seg.motion { background: rgba(21, 101, 192, 0.6); }
+  .plan-seg.outro  { background: rgba(239, 108, 0, 0.6);  }
+  .plan-seg { font-size: 10px; color: #fff; text-align: center; line-height: 24px; font-family: ui-monospace, monospace; }
+  .plan-gap { background: transparent; }
+  .plan-meta { font-size: 12px; color: #666; margin-bottom: 12px; }
+
+  table { border-collapse: collapse; margin-top: 12px; width: 100%; font-size: 12.5px; }
+  th, td { border: 1px solid #ddd; padding: 5px 9px; vertical-align: top; }
+  th { background: #f6f6f6; font-weight: 600; text-align: left; }
+  td.num { font-family: ui-monospace, Menlo, Monaco, monospace; text-align: right; }
+  .notes { font-size: 11.5px; color: #555; max-width: 200px; }
+  .counts, .timeline-cell { font-family: ui-monospace, Menlo, Monaco, monospace; font-size: 11px; color: #333; max-width: 180px; }
+  tr.intro  td:nth-child(2) { color: #2e7d32; font-weight: 600; }
+  tr.motion td:nth-child(2) { color: #1565c0; font-weight: 600; }
+  tr.outro  td:nth-child(2) { color: #ef6c00; font-weight: 600; }
+  tr { cursor: pointer; }
+
+  details summary { cursor: pointer; font-weight: 600; margin: 14px 0 6px; font-size: 13px; }
+  pre.json { background: #f7f7f7; padding: 12px; border-radius: 6px; font-size: 11.5px; max-height: 360px; overflow: auto; }
+  .metrics-section { margin-top: 20px; }
+  .metrics-section h3 { font-size: 14px; font-weight: 700; margin: 0 0 10px; }
+  .metrics-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .metric-card { background: #fafafa; border: 1px solid #e8e8e8; border-radius: 10px; padding: 12px 14px; }
+  .metric-card .card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+  .metric-card .card-title { font-size: 12px; color: #666; }
+  .metric-card .card-icon { font-size: 15px; }
+  .metric-card .card-value { font-size: 22px; font-weight: 700; color: #111; }
+
+  .log-box {
+    background: #0f0f0f; color: #d8e3ff; padding: 12px; border-radius: 6px;
+    font-family: ui-monospace, Menlo, Monaco, monospace;
+    font-size: 11.5px; max-height: 320px; overflow-y: auto;
+  }
+  .log-line { white-space: pre-wrap; padding: 1px 0; }
+  .log-line .ts { color: #888; margin-right: 8px; }
+  .log-line .type { color: #80cbc4; margin-right: 8px; }
+  .log-line.error .type, .log-line.chunk_failed .type, .log-line.chunk_retry .type { color: #ff8a80; }
+  .log-line.chunk_done .type, .log-line.done .type, .log-line.extract_done .type { color: #a5d6a7; }
+</style>
+</head>
+<body>
+  <div id="nav-mount"></div>
+  <script src="/shared/nav.js"></script>
+
+  <div style="display:flex; justify-content:space-between; align-items:baseline; gap:16px;">
+    <div>
+      <h1>스마트 분석 기록</h1>
+      <div class="subtitle">스마트 청킹 + VLM 호출 완료된 케이스 목록. 카드 클릭 시 영상 + 청크 계획 + 청크별 결과 펼침.</div>
+    </div>
+    <a href="/smart-analyze" style="background:#111; color:#fff; padding:9px 16px; border-radius:8px; text-decoration:none; font-weight:600; font-size:14px; white-space:nowrap;">
+      + 새 스마트 분석
+    </a>
+  </div>
+
+  <div id="summary" style="margin: 20px 0 24px; display: none; padding: 14px 18px; background: #f0f7ff; border-left: 4px solid #1565c0; border-radius: 6px; font-size: 14px;"></div>
+
+  <div id="list" style="margin-top: 20px;">
+    <div class="empty">불러오는 중...</div>
+  </div>
+
+<script>
+const $ = (q) => document.querySelector(q);
+const fmtBytes = (n) => (n / 1024 / 1024).toFixed(2) + " MB";
+const fmtTime = (iso) => iso ? iso.replace("T", " ") : "";
+
+function escapeHtml(s) {
+  return String(s).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
+}
+
+async function load() {
+  const res = await fetch("/api/smart-analyze-history");
+  const items = await res.json();
+  const list = $("#list");
+  list.innerHTML = "";
+  if (items.length === 0) {
+    list.innerHTML = '<div class="empty">스마트 분석 기록이 없습니다. <a href="/smart-analyze">새 스마트 분석 시작</a></div>';
+    return;
+  }
+
+  // 전체 평균 절약도 계산 + 표시 (실제 사용된 청크 plan 기준)
+  const valid = items.filter(it => typeof it.saving_pct === "number");
+  if (valid.length > 0) {
+    const avg = valid.reduce((s, it) => s + it.saving_pct, 0) / valid.length;
+    const min = Math.min(...valid.map(it => it.saving_pct));
+    const max = Math.max(...valid.map(it => it.saving_pct));
+    const summary = $("#summary");
+    summary.style.display = "block";
+    summary.innerHTML = `
+      <strong>전체 ${items.length}개 케이스 · 평균 절약 ${avg.toFixed(1)}%</strong>
+      <span style="color:#666; margin-left:8px;">(최소 ${min.toFixed(1)}% / 최대 ${max.toFixed(1)}%)</span>
+    `;
+  }
+
+  for (const item of items) {
+    list.appendChild(renderCard(item));
+  }
+}
+
+function renderCard(item) {
+  const card = document.createElement("div");
+  card.className = "card";
+  card.dataset.jobId = item.job_id;
+
+  const success = item.success_count;
+  const total = item.chunk_count;
+  const pillClass = success === total ? "ok" : "partial";
+  const p = item.params || {};
+  const paramsHtml = p.motion_thresh != null
+    ? `<span class="params">motion≥${p.motion_thresh} · hys=${p.hysteresis_frames} · chunk=${p.chunk_duration}s</span>`
+    : "";
+  const elapsedHtml = item.elapsed_sec != null
+    ? `<span class="pill" style="background:#e1f5fe; color:#0277bd;">처리 ${item.elapsed_sec.toFixed(1)}s</span>`
+    : "";
+
+  card.innerHTML = `
+    <div class="card-head">
+      <span class="chev">▶</span>
+      <div class="card-title">${escapeHtml(item.original_name)}</div>
+      <span class="meta">${fmtTime(item.uploaded_at)} · ${fmtBytes(item.size_bytes)}</span>
+      ${paramsHtml}
+      ${elapsedHtml}
+      <span class="pill ${pillClass}">${success} / ${total} 청크</span>
+    </div>
+    <div class="card-body"></div>
+  `;
+  card.querySelector(".card-head").addEventListener("click", () => toggle(card, item));
+  return card;
+}
+
+async function toggle(card, item) {
+  const body = card.querySelector(".card-body");
+  if (card.classList.contains("open")) {
+    card.classList.remove("open");
+    return;
+  }
+  card.classList.add("open");
+  if (body.dataset.loaded === "1") return;
+
+  body.innerHTML = '<div class="empty">로드 중...</div>';
+  try {
+    const res = await fetch(`/api/smart-analyze-history/${item.job_id}`);
+    const data = await res.json();
+    body.innerHTML = renderDetail(item, data);
+    bindRowClicks(body);
+    body.dataset.loaded = "1";
+  } catch (e) {
+    body.innerHTML = `<div class="empty">로드 실패: ${e}</div>`;
+  }
+}
+
+function calcMetricsHtml(segments, getGestureCounts) {
+  const positiveKeys = ["explanatory_gesture", "pointing"];
+  const negativeKeys = ["distracting_gesture", "touching_face_or_hair", "fidgeting_with_objects", "closed_posture"];
+  let pos = 0, neg = 0;
+  segments.forEach((s) => {
+    const counts = getGestureCounts(s) || {};
+    positiveKeys.forEach((k) => { pos += counts[k] || 0; });
+    negativeKeys.forEach((k) => { neg += counts[k] || 0; });
+  });
+  return `
+    <div class="metrics-section">
+      <h3>전체 지표 요약</h3>
+      <div class="metrics-grid">
+        <div class="metric-card"><div class="card-top"><span class="card-title">필러 단어 빈도</span><span class="card-icon">💬</span></div><div class="card-value">-</div></div>
+        <div class="metric-card"><div class="card-top"><span class="card-title">평균 말하기 속도</span><span class="card-icon">📈</span></div><div class="card-value">-</div></div>
+        <div class="metric-card"><div class="card-top"><span class="card-title">전체 무음 비율</span><span class="card-icon">🎙️</span></div><div class="card-value">-</div></div>
+        <div class="metric-card"><div class="card-top"><span class="card-title">발견된 발화 습관</span><span class="card-icon">📊</span></div><div class="card-value">-</div></div>
+        <div class="metric-card"><div class="card-top"><span class="card-title">긍정적 제스처</span><span class="card-icon">👍</span></div><div class="card-value">${pos}회</div></div>
+        <div class="metric-card"><div class="card-top"><span class="card-title">부정적 제스처</span><span class="card-icon">⚠️</span></div><div class="card-value">${neg}회</div></div>
+      </div>
+    </div>`;
+}
+
+function renderDetail(item, data) {
+  const segments = data.result.VLM_segment_result || [];
+  const plan = data.result.chunk_plan || segments;  // chunk_plan 없으면 segments 자체 사용
+  const videoSrc = `/media/${item.job_id}/${item.video_filename}`;
+  const videoDuration = Math.max(...plan.map(c => c.end_sec || 0), 1);
+
+  // ── timeline bar ────────────────────────────────────────────────
+  let barHtml = "";
+  let coveredSec = 0;
+  let lastEnd = 0;
+  for (const c of plan) {
+    if (c.start_sec > lastEnd) {
+      const gapPct = ((c.start_sec - lastEnd) / videoDuration) * 100;
+      barHtml += `<div class="plan-seg plan-gap" style="flex-basis:${gapPct}%"></div>`;
+    }
+    const segPct = ((c.end_sec - c.start_sec) / videoDuration) * 100;
+    barHtml += `<div class="plan-seg ${c.kind}" style="flex-basis:${segPct}%" title="${c.start_sec.toFixed(1)}s~${c.end_sec.toFixed(1)}s">${c.kind}</div>`;
+    coveredSec += c.end_sec - c.start_sec;
+    lastEnd = c.end_sec;
+  }
+  const saving = videoDuration > 0 ? Math.round((1 - coveredSec / videoDuration) * 100) : 0;
+
+  // ── 청크별 결과 표 ──────────────────────────────────────────────
+  let rows = "";
+  for (const s of segments) {
+    if (!s.vlm) {
+      rows += `
+        <tr class="${s.kind}" data-time="${s.start_sec}">
+          <td>${s.segment_id}</td>
+          <td>${s.kind}<br><span style="font-size:11px; color:#666;">${s.start_sec.toFixed(1)}~${s.end_sec.toFixed(1)}s</span></td>
+          <td colspan="6" style="color:#b71c1c">분석 실패</td>
+        </tr>`;
+      continue;
+    }
+    const vlm = s.vlm;
+    const counts = Object.entries(vlm.gesture_counts || {})
+      .filter(([, v]) => v > 0)
+      .map(([k, v]) => `${k}: ${v}`)
+      .join("<br>") || "(all 0)";
+    const timelines = Object.entries(vlm.gesture_timelines || {})
+      .filter(([, arr]) => arr && arr.length > 0)
+      .map(([k, arr]) => `${k}: ${arr.join(", ")}`)
+      .join("<br>") || "—";
+
+    rows += `
+      <tr class="${s.kind}" data-time="${s.start_sec}">
+        <td>${s.segment_id}</td>
+        <td>${s.kind}<br><span style="font-size:11px; color:#666;">${s.start_sec.toFixed(1)}~${s.end_sec.toFixed(1)}s</span></td>
+        <td>${vlm.posture}</td>
+        <td>${vlm.eye_contact}</td>
+        <td>${vlm.gesture}</td>
+        <td class="counts">${counts}</td>
+        <td class="timeline-cell">${timelines}</td>
+        <td class="notes">${escapeHtml(vlm.notes || "")}</td>
+      </tr>`;
+  }
+
+  // ── 로그 ────────────────────────────────────────────────────────
+  const logHtml = renderLog(data.log || []);
+
+  return `
+    <video controls preload="metadata" src="${videoSrc}"></video>
+
+    <div style="font-size:13px; color:#333; font-weight:600; margin-bottom:4px;">청크 계획</div>
+    <div class="plan-bar">${barHtml}</div>
+    <div class="plan-meta">영상 ${videoDuration.toFixed(0)}s 중 분석 ${coveredSec.toFixed(0)}s · 절약 ${saving}%</div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>구간</th>
+          <th>posture</th>
+          <th>eye</th>
+          <th>gesture</th>
+          <th>counts</th>
+          <th>timelines</th>
+          <th>notes</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+
+    ${calcMetricsHtml(segments, (s) => s.vlm && s.vlm.gesture_counts)}
+
+    <details>
+      <summary>로그 보기 (${(data.log || []).length} 이벤트)</summary>
+      <div class="log-box">${logHtml}</div>
+    </details>
+
+    <details>
+      <summary>원본 JSON</summary>
+      <pre class="json">${escapeHtml(JSON.stringify(data.result, null, 2))}</pre>
+    </details>
+  `;
+}
+
+function renderLog(events) {
+  if (events.length === 0) return '<div style="color:#888">(로그 없음)</div>';
+  return events.map((ev) => {
+    const ts = (ev.ts || "").split("T")[1] || ev.ts || "";
+    const summary = summarizeData(ev.type, ev.data);
+    return `<div class="log-line ${ev.type}"><span class="ts">${escapeHtml(ts)}</span><span class="type">${escapeHtml(ev.type)}</span>${escapeHtml(summary)}</div>`;
+  }).join("");
+}
+
+function summarizeData(type, data) {
+  if (!data) return "";
+  switch (type) {
+    case "timeline_scanning": return `video=${data.video}`;
+    case "timeline_done":     return `points=${data.total_points} duration=${data.duration}s`;
+    case "plan_done":         return `total=${data.total}`;
+    case "extract_done":      return `total=${data.total}`;
+    case "chunk_start":       return `#${data.segment_id} ${data.name}`;
+    case "chunk_retry":       return `#${data.segment_id} attempt=${data.attempt} error=${data.error}`;
+    case "chunk_done":        return `#${data.result.segment_id} attempt=${data.attempt} → ${data.result.posture}/${data.result.eye_contact}/${data.result.gesture}`;
+    case "chunk_failed":      return `#${data.segment_id} ${data.error}`;
+    case "done":              return `segments=${(data.VLM_segment_result || []).length}`;
+    case "error":             return data.message || "";
+    default:                  return JSON.stringify(data);
+  }
+}
+
+/** 청크 행 클릭 시 영상이 그 시점으로 점프 */
+function bindRowClicks(body) {
+  const video = body.querySelector("video");
+  if (!video) return;
+  body.querySelectorAll("tbody tr").forEach((tr) => {
+    tr.addEventListener("click", () => {
+      const t = parseFloat(tr.dataset.time);
+      if (!isNaN(t)) {
+        video.currentTime = t;
+        video.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
+    });
+  });
+}
+
+load();
+</script>
+</body>
+</html>
