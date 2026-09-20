@@ -17,7 +17,7 @@ from datetime import datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, UploadFile
+from fastapi import FastAPI, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -177,6 +177,31 @@ async def events(job_id: str) -> StreamingResponse:
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# ---------------------------------------------------------------------------
+# 스마트 청킹 임계값 — 본 파이프라인과 공유하는 설정
+# ---------------------------------------------------------------------------
+
+@app.get("/api/motion-thresholds")
+def api_motion_thresholds() -> dict:
+    """현재 임계값 + 슬라이더 메타데이터. 항목이 늘어도 UI 코드는 그대로."""
+    from app.pipeline import motion_config
+    return {"values": motion_config.load(), "spec": motion_config.ui_spec(),
+            "defaults": motion_config.DEFAULTS}
+
+
+@app.post("/api/motion-thresholds")
+async def api_save_motion_thresholds(values: str = Form(...)) -> dict:
+    """슬라이더로 맞춘 값을 저장 — 이후 /analyze/motion 본 파이프라인에도 적용됨."""
+    from app.pipeline import motion_config
+    return {"values": motion_config.save(json.loads(values))}
+
+
+@app.post("/api/motion-thresholds/reset")
+def api_reset_motion_thresholds() -> dict:
+    from app.pipeline import motion_config
+    return {"values": motion_config.reset()}
 
 
 @app.get("/api/history")

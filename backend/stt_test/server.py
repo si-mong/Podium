@@ -22,17 +22,24 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
+import httpx
 from fastapi import FastAPI, Form, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from stt_test.audio import TARGET_SR
+from app.pipeline.voice.audio import TARGET_SR
 from stt_test.report import write_clips
 
 BASE_DIR = Path(__file__).parent
 STATIC_DIR = BASE_DIR / "static"
 WORK_DIR = BASE_DIR / "work"
 WORK_DIR.mkdir(exist_ok=True)
+
+# STEP 5 는 음성+영상+구간분리가 전부 끝난 **실제 세션**이 있어야 의미가 있어서
+# (다른 STEP 테스트 페이지와 달리 job 파일이 아니라) 예외적으로 DB 를 쓰는
+# 본 API 서버(:8000)를 그대로 중계한다. 직접 DB 를 붙잡지 않는 이유는 이미 검증된
+# /sessions/{id}/segments/trend 로직을 중복 구현하지 않기 위함.
+MAIN_API_BASE = "http://localhost:8000"
 
 # 서버가 목록에 띄워줄 기존 녹음 위치 (backend/uploads/<session>/full_audio.wav)
 UPLOADS_DIR = BASE_DIR.parent / "uploads"
@@ -58,6 +65,9 @@ app = FastAPI(title="Podium STEP 3 Test")
 
 # 후보 클립 재생용
 app.mount("/media", StaticFiles(directory=str(WORK_DIR)), name="media")
+
+# 정적 자산 (base.js 등). 마운트 prefix 보정 shim 이 여기서 로드됨.
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 # job_id -> {"queue": asyncio.Queue, "loop": asyncio.AbstractEventLoop}
 _jobs: dict[str, dict] = {}
@@ -101,7 +111,7 @@ def _run_job(job_id: str, job_dir: Path, wav: Path, mode: str,
              model: str, verbatim: bool, models: list[str] | None = None,
              keywords: str = "") -> None:
     """실제 분석 (별도 스레드에서 실행 — STT 가 블로킹이라)."""
-    from stt_test.analyze import (  # 무거우므로 lazy
+    from app.pipeline.voice.analyze import (  # 무거우므로 lazy
         analyze, analyze_compare, analyze_keywords, analyze_models,
     )
 
@@ -281,6 +291,165 @@ def _vocab_warning(model_dir: Path) -> str | None:
     return (f"추가 토큰 {extra}개가 타임스탬프 영역과 겹칩니다. 모델이 이 토큰을 "
             f"실제로 생성하면 토큰 소실·전사 잘림이 발생할 수 있습니다. "
             f"(실측 전 · 결과를 확인하세요)")
+
+
+@app.get("/segments")
+def segments_page() -> FileResponse:
+    """STEP 4 구간 분리 테스트 페이지."""
+    return FileResponse(STATIC_DIR / "segments.html")
+
+
+@app.get("/step5")
+def step5_page() -> FileResponse:
+    """STEP 5 종합 피드백 — 구간별 지표 꺾은선 그래프 테스트 페이지."""
+    return FileResponse(STATIC_DIR / "step5.html")
+
+
+@app.get("/run")
+def run_page() -> FileResponse:
+    """실제 세션(DB) 전체(STEP1~4) 실행 테스트 페이지.
+
+    다른 devtools 페이지와 달리 로컬 job 파일이 아니라 **본 API 서버를 직접 호출해서
+    DB 에 저장**한다 — STEP5 가 읽는 seed 데이터를 만드는 용도. 브라우저가 본 API(:8000)를
+    바로 호출하므로(파일 업로드 때문에 서버사이드 중계 대신 직접 호출) CORS 허용 필요
+    (app/main.py 의 allow_origins 에 :8001 추가돼 있음).
+    """
+    return FileResponse(STATIC_DIR / "run.html")
+
+
+@app.get("/api/step5/trend")
+async def api_step5_trend(session_id: int) -> dict:
+    """본 API 서버의 /sessions/{id}/segments/trend 를 그대로 중계."""
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(f"{MAIN_API_BASE}/sessions/{session_id}/segments/trend")
+    except httpx.ConnectError:
+        raise HTTPException(
+            502, f"본 API 서버({MAIN_API_BASE})에 연결할 수 없습니다. "
+                 "uvicorn app.main:app --port 8000 을 먼저 실행하세요.")
+    if r.status_code == 404:
+        raise HTTPException(404, "세션을 찾을 수 없습니다 (session_id 확인).")
+    r.raise_for_status()
+    return r.json()
+
+
+@app.get("/api/step5/segment-feedback")
+async def api_step5_segment_feedback_get(session_id: int) -> dict:
+    """본 API 서버의 GET /sessions/{id}/segment-feedback 를 그대로 중계 (저장된 구간별 결과)."""
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(f"{MAIN_API_BASE}/sessions/{session_id}/segment-feedback")
+    except httpx.ConnectError:
+        raise HTTPException(502, f"본 API 서버({MAIN_API_BASE})에 연결할 수 없습니다.")
+    if r.status_code == 404:
+        raise HTTPException(404, "세션을 찾을 수 없습니다 (session_id 확인).")
+    r.raise_for_status()
+    return r.json()
+
+
+@app.post("/api/step5/segment-feedback")
+async def api_step5_segment_feedback_run(session_id: int) -> dict:
+    """본 API 서버의 POST /sessions/{id}/analyze/segment-feedback 를 그대로 중계.
+
+    구간 수만큼 Gemini 를 호출(동시 4개)하므로 타임아웃을 넉넉히 둔다.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=600) as client:
+            r = await client.post(f"{MAIN_API_BASE}/sessions/{session_id}/analyze/segment-feedback")
+    except httpx.ConnectError:
+        raise HTTPException(502, f"본 API 서버({MAIN_API_BASE})에 연결할 수 없습니다.")
+    if r.status_code >= 400:
+        detail = r.json().get("detail", r.text) if r.headers.get("content-type", "").startswith("application/json") else r.text
+        raise HTTPException(r.status_code, detail)
+    return r.json()
+
+
+@app.get("/api/step4/labels")
+def api_step4_labels() -> dict:
+    from app.pipeline import step4_segmentation as s4
+    return {"labels": s4.LABELS,
+            "policy": {"min_segment_sec": s4.MIN_SEGMENT_SEC,
+                       "target_sec_per_segment": s4.TARGET_SEC_PER_SEGMENT,
+                       "min_segments": s4.MIN_SEGMENTS,
+                       "max_segments": s4.MAX_SEGMENTS}}
+
+
+@app.get("/api/step4/sources")
+def api_step4_sources() -> list[dict]:
+    """STEP 3 분석 기록 중 문장이 있는 것 — 그대로 구간 분리 입력으로 쓸 수 있음."""
+    out = []
+    for job_dir in WORK_DIR.iterdir():
+        res = job_dir / "result.json"
+        meta = job_dir / "meta.json"
+        if not (res.exists() and meta.exists()):
+            continue
+        try:
+            d = json.loads(res.read_text(encoding="utf-8"))
+            m = json.loads(meta.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+        # 단일 분석 결과만 (모델 비교 결과는 어느 모델 것인지 모호)
+        sents = (d.get("result") or {}).get("stt_sentences")
+        if not sents:
+            continue
+        out.append({"job_id": m["job_id"], "source": m.get("source", ""),
+                    "model": m.get("model", ""), "started_at": m.get("started_at", ""),
+                    "sentence_count": len(sents)})
+    return sorted(out, key=lambda x: x["started_at"], reverse=True)
+
+
+@app.post("/api/step4/run")
+async def api_step4_run(job_id: str = Form(""), text: str = Form("")) -> dict:
+    """구간 분리 실행.
+
+    job_id 가 있으면 그 STEP 3 결과의 문장을 쓰고, 없으면 text 를 줄 단위로 읽는다.
+    직접 입력은 시각 정보가 없으므로 **줄당 3초**로 가정한다 — 라벨·경계 판정만
+    보기 위한 용도이며 실제 시각은 STEP 3 결과를 써야 한다.
+    """
+    from app.pipeline import step4_segmentation as s4
+
+    if job_id:
+        path = WORK_DIR / job_id / "result.json"
+        if not path.exists():
+            raise HTTPException(404, "기록 없음")
+        d = json.loads(path.read_text(encoding="utf-8"))
+        sentences = (d.get("result") or {}).get("stt_sentences") or []
+        if not sentences:
+            raise HTTPException(400, "이 기록에는 문장이 없음 (무음만 모드였을 수 있음)")
+    else:
+        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+        if not lines:
+            raise HTTPException(400, "문장을 입력하세요")
+        sentences = [{"text": ln, "t_start": i * 3.0, "t_end": (i + 1) * 3.0}
+                     for i, ln in enumerate(lines)]
+
+    total = sentences[-1]["t_end"]
+    result = s4.run(sentences, total_duration=total)
+    return {"segments": [x.to_dict() for x in result.segments],
+            "warnings": result.warnings,
+            "sentences": sentences,
+            "synthetic_time": not job_id}
+
+
+@app.get("/api/thresholds")
+def api_thresholds() -> dict:
+    """현재 임계값 + UI 슬라이더 메타데이터."""
+    from app.pipeline.voice import config
+    return {"values": config.load(), "spec": config.ui_spec(),
+            "defaults": config.DEFAULTS}
+
+
+@app.post("/api/thresholds")
+async def api_save_thresholds(values: str = Form(...)) -> dict:
+    """UI 에서 맞춘 임계값을 저장 — 이후 모든 분석에 적용된다."""
+    from app.pipeline.voice import config
+    return {"values": config.save(json.loads(values))}
+
+
+@app.post("/api/thresholds/reset")
+def api_reset_thresholds() -> dict:
+    from app.pipeline.voice import config
+    return {"values": config.reset()}
 
 
 @app.get("/api/models")

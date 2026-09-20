@@ -88,14 +88,14 @@ _PROMPT = """\
 def _upload_and_wait(client, video_path):
     """청크 영상을 Gemini File API에 업로드하고 처리 완료까지 대기."""
     logger.info("업로드 중: %s", video_path.name)
-    video_file = client.files.upload(file=str(video_path))
+    video_file = client.files.upload(path=str(video_path))
 
-    while video_file.state.name == "PROCESSING":
+    while video_file.state == "PROCESSING":
         time.sleep(3)
         video_file = client.files.get(name=video_file.name)
 
-    if video_file.state.name != "ACTIVE":
-        raise RuntimeError("파일 업로드 실패 (state={}): {}".format(video_file.state.name, video_path.name))
+    if video_file.state != "ACTIVE":
+        raise RuntimeError("파일 업로드 실패 (state={}): {}".format(video_file.state, video_path.name))
 
     return video_file
 
@@ -104,9 +104,12 @@ def _upload_and_wait(client, video_path):
 
 def _analyze_chunk(client, uploaded_file):
     """업로드된 Gemini 파일을 분석하고 결과 dict를 반환."""
+    # google-genai 0.3.0 은 File 객체를 contents 에 그대로 넣으면 빈 part 로 바뀌어
+    # 영상이 모델에 전달되지 않는다 ("영상을 볼 수 없다"는 답이 옴) → Part.from_uri 로 감싼다.
+    video_part = types.Part.from_uri(file_uri=uploaded_file.uri, mime_type=uploaded_file.mime_type)
     response = client.models.generate_content(
         model="gemini-2.5-flash",
-        contents=[uploaded_file, _PROMPT],
+        contents=[video_part, _PROMPT],
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
         ),

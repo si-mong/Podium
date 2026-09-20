@@ -2,12 +2,15 @@
 <html lang="ko">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<script>window.APP_BASE="/voice";</script>
+<script src="/shared/base.js"></script>
+<script defer src="/shared/nav.js"></script>
 <title>Podium STEP 3 — 음성분석 테스트</title>
 <style>
   :root { color-scheme: light dark; --line:#8883; }
   * { box-sizing: border-box; }
   body { font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", sans-serif;
-         margin: 0; padding: 24px; max-width: 1500px; }
+         margin: 0; padding: 24px; max-width: 1400px; margin-inline: auto; }
   h1 { font-size: 19px; margin: 0 0 2px; }
   h2 { font-size: 15px; margin: 26px 0 10px; }
   .sub { opacity: .6; font-size: 13px; margin-bottom: 20px; }
@@ -83,8 +86,29 @@
   audio.full { width: 100%; height: 34px; margin-top: 6px; }
 </style>
 
+<div id="nav-mount"></div>
+
 <h1>STEP 3 — 음성분석 테스트</h1>
 <div class="sub">음성/영상 파일 → 무음 구간 · 필러 · 발화 속도. DB 연결 안 함.</div>
+
+<div class="panel" id="thpanel" style="padding:12px 16px">
+  <div class="row">
+    <b style="font-size:13px">현재 임계값</b>
+    <span id="thsummary" style="font-size:12px;opacity:.75">불러오는 중…</span>
+    <span style="margin-left:auto"></span>
+    <button id="thtoggle">임계값 변경</button>
+  </div>
+  <div id="thedit" style="display:none;margin-top:12px">
+    <div id="thsliders"></div>
+    <div class="row" style="margin-top:8px">
+      <button class="primary" id="thsave">저장</button>
+      <button id="thdefault">기본값으로</button>
+      <span id="thmsg" style="font-size:12px;opacity:.75"></span>
+      <span style="margin-left:auto;font-size:12px;opacity:.55">
+        저장하면 이후 모든 분석과 본 파이프라인에 적용됩니다</span>
+    </div>
+  </div>
+</div>
 
 <div class="panel">
   <div class="row" style="margin-bottom:12px">
@@ -401,7 +425,7 @@ function timelineHtml(R) {
     </div>
     <div class="tl" id="tl">${blocks}${marks}<div class="head" id="head" style="left:0"></div></div>
     <div class="axis">${ticks}</div>
-    <audio class="full" id="fullaudio" controls preload="metadata" src="/audio/${jobId}"></audio>`;
+    <audio class="full" id="fullaudio" controls preload="metadata" src="${APP_BASE}/audio/${jobId}"></audio>`;
 }
 
 function silenceTableHtml(R) {
@@ -508,7 +532,7 @@ function markTags(t) {
 /** 모델별 전사문 토글. 한 번에 한 모델의 전문을 보여준다. */
 function transcriptToggleHtml(models, results) {
   if (txtPane === null || !models.includes(txtPane)) txtPane = models[0];
-  const t = results[txtPane].diagnostics.full_text;
+  const t = (results[txtPane].diagnostics.tagged_text || results[txtPane].diagnostics.full_text);
   const syl = results[txtPane].metrics.syllable_count;
   return `
     <div class="row" style="margin-bottom:8px">
@@ -625,7 +649,7 @@ function renderCompare(out) {
          허위 검출이 대부분이면 폐기, 어휘 경로가 놓친 걸 잡아주면 유지.`}</div>
     <h2>지표</h2>${metricsHtml(L.metrics)}
     <h2>무음 구간</h2>${timelineHtml(L)}${silenceTableHtml(L)}
-    <h2>전사문</h2><div class="panel" style="font-size:13px">${markTags(L.diagnostics.full_text)||"(없음)"}</div>
+    <h2>전사문</h2><div class="panel" style="font-size:13px">${markTags((L.diagnostics.tagged_text || L.diagnostics.full_text))||"(없음)"}</div>
     <h2>반복 (말더듬)</h2>${repetitionHtml(L)}
     <h2>필러 후보</h2>
     <div class="row" style="margin-bottom:10px">
@@ -644,7 +668,7 @@ function renderSingle(out) {
     <h2>무음 구간</h2>${timelineHtml(R)}${silenceTableHtml(R)}
     ${data.mode === "silence" ? "" : `
       <h2>전사문</h2>
-      <div class="panel" style="font-size:13px">${markTags(R.diagnostics.full_text)||"(없음)"}</div>
+      <div class="panel" style="font-size:13px">${markTags((R.diagnostics.tagged_text || R.diagnostics.full_text))||"(없음)"}</div>
       <h2>반복 (말더듬)</h2>${repetitionHtml(R)}
       <h2>필러 후보</h2><div id="tablewrap"></div>`}`;
   if (data.mode !== "silence") renderTable(R, "lex");
@@ -719,6 +743,12 @@ function thresholdHtml(R) {
           (STT 재실행 없음). 어휘 후보는 영향받지 않습니다.</span>
         <span style="margin-left:auto;font-size:12px;opacity:.85" id="fthstat">채택 ${n}건</span>
       </div>
+      <div class="row" style="margin:2px 0 10px">
+        <button id="fthsave" class="primary" style="padding:4px 12px;font-size:12px">
+          서버에 저장 (이후 분석에 적용)</button>
+        <button id="fthreset" style="padding:4px 12px;font-size:12px">기본값으로</button>
+        <span id="fthsaved" style="font-size:12px;opacity:.7"></span>
+      </div>
       ${FTH_UI.map(([k, label, min, max, step, unit]) => `
         <div class="row" style="gap:8px;margin-bottom:2px">
           <label style="width:88px">${label}</label>
@@ -733,7 +763,42 @@ function thresholdHtml(R) {
     </div>`;
 }
 
+/** 현재 슬라이더 값들을 서버 저장 형식으로 모은다. */
+function collectThresholds() {
+  return {
+    min_silence_sec:     silMin,
+    min_candidate_sec:   fth.min_duration,
+    max_candidate_sec:   fth.max_duration,
+    min_relative_db:     fth.min_relative_db,
+    min_voiced_ratio:    fth.min_voiced_ratio,
+    max_f0_std_semitone: fth.max_f0_std_semitone,
+  };
+}
+
 function wireThresholds(root, R) {
+  const saved = root.querySelector("#fthsaved");
+  const btn = root.querySelector("#fthsave");
+  if (btn) btn.onclick = async () => {
+    const fd = new FormData();
+    fd.append("values", JSON.stringify(collectThresholds()));
+    const r = await (await fetch("/api/thresholds", {method:"POST", body:fd})).json();
+    saved.textContent = "저장됨 — 다음 분석부터 적용";
+    saved.style.color = "#16a34a";
+    setTimeout(() => { saved.textContent = ""; saved.style.color = ""; }, 4000);
+  };
+  const rst = root.querySelector("#fthreset");
+  if (rst) rst.onclick = async () => {
+    const r = await (await fetch("/api/thresholds/reset", {method:"POST"})).json();
+    silMin = r.values.min_silence_sec;
+    fth = {
+      min_duration: r.values.min_candidate_sec,
+      max_duration: r.values.max_candidate_sec,
+      min_relative_db: r.values.min_relative_db,
+      min_voiced_ratio: r.values.min_voiced_ratio,
+      max_f0_std_semitone: r.values.max_f0_std_semitone,
+    };
+    render();
+  };
   root.querySelectorAll(".fth").forEach(sl => {
     sl.oninput = () => {
       const k = sl.dataset.k;
@@ -786,7 +851,7 @@ function renderTable(R, keyPrefix) {
     ${cands.filter(vis).map(c => { const l = labels[key(c)]; return `<tr>
       <td class="num">${c.index}</td><td class="num">${fmt(c.t_start)}</td>
       <td class="num">${c.duration.toFixed(2)}s</td>
-      <td><audio controls preload="none" src="/media/${jobId}/${c.clip}"></audio></td>
+      <td><audio controls preload="none" src="${APP_BASE}/media/${jobId}/${c.clip}"></audio></td>
       <td class="lb">
         <button class="y ${l==="y"?"on":""}" data-k="${key(c)}" data-v="y">필러</button>
         <button class="n ${l==="n"?"on":""}" data-k="${key(c)}" data-v="n">아님</button>

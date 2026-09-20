@@ -25,9 +25,9 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from stt_test.audio import PitchStats, pitch_stats, rms_db, slice_samples
-from stt_test.stt import Word
-from stt_test.vad import Region
+from app.pipeline.voice.audio import PitchStats, pitch_stats, rms_db, slice_samples
+from app.pipeline.voice.stt import Word
+from app.pipeline.voice.vad import Region
 
 # --- 임계값 (튜닝 대상) ---------------------------------------------------
 
@@ -207,22 +207,33 @@ def _context_text(words: list[Word], t_start: float, t_end: float, window: float
     return f"{' '.join(before[-6:])} ⟨…⟩ {' '.join(after[:6])}".strip()
 
 
-def _classify_acoustic(cand: FillerCandidate) -> None:
-    """음향 특징으로 필러/기각 판정. cand 를 제자리 수정."""
-    if cand.duration < MIN_CANDIDATE_SEC:
+def _classify_acoustic(cand: FillerCandidate, th: dict | None = None) -> None:
+    """음향 특징으로 필러/기각 판정. cand 를 제자리 수정.
+
+    th 가 주어지면 그 값을, 없으면 모듈 기본 상수를 쓴다.
+    (UI 에서 저장한 값이 config.load() 를 통해 여기로 들어온다)
+    """
+    th = th or {}
+    min_dur = th.get("min_candidate_sec", MIN_CANDIDATE_SEC)
+    max_dur = th.get("max_candidate_sec", MAX_CANDIDATE_SEC)
+    min_db = th.get("min_relative_db", MIN_RELATIVE_DB)
+    min_voiced = th.get("min_voiced_ratio", MIN_VOICED_RATIO)
+    max_f0 = th.get("max_f0_std_semitone", MAX_F0_STD_SEMITONE)
+
+    if cand.duration < min_dur:
         cand.is_filler, cand.reject_reason = False, "too_short"
         return
-    if cand.duration > MAX_CANDIDATE_SEC:
+    if cand.duration > max_dur:
         cand.is_filler, cand.reject_reason = False, "too_long"
         return
-    if cand.relative_db < MIN_RELATIVE_DB:
+    if cand.relative_db < min_db:
         cand.is_filler, cand.reject_reason = False, "too_quiet"
         return
     assert cand.pitch is not None
-    if cand.pitch.voiced_ratio < MIN_VOICED_RATIO:
+    if cand.pitch.voiced_ratio < min_voiced:
         cand.is_filler, cand.reject_reason = False, "unvoiced"
         return
-    if cand.pitch.f0_std_semitone > MAX_F0_STD_SEMITONE:
+    if cand.pitch.f0_std_semitone > max_f0:
         cand.is_filler, cand.reject_reason = False, "pitch_moves"
         return
     cand.is_filler, cand.reject_reason = True, None
@@ -260,6 +271,7 @@ def detect_fillers(
     speech: list[Region],
     words: list[Word],
     use_lexical: bool = True,
+    thresholds: dict | None = None,
 ) -> FillerResult:
     """음향 후보(VAD∧¬STT) + 어휘 후보(STT 필러 단어) 를 합쳐 반환."""
     reference_db = _speech_reference_db(samples, sr, words)
@@ -282,7 +294,7 @@ def detect_fillers(
             pitch=pitch_stats(seg, sr),
             context_text=_context_text(words, gap.t_start, gap.t_end),
         )
-        _classify_acoustic(cand)
+        _classify_acoustic(cand, thresholds)
         result.candidates.append(cand)
 
     # --- 2) 어휘 후보: STT 가 실제로 뱉은 필러 단어 -------------------------

@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from stt_test.audio import load_wav, slice_samples, write_wav
+from app.pipeline.voice.audio import load_wav, slice_samples, write_wav
 
 # 클립 앞뒤로 붙이는 문맥(초). 필러는 앞뒤 발화가 있어야 필러인지 판단됨.
 CLIP_CONTEXT_SEC = 0.8

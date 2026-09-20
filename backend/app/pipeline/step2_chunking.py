@@ -23,6 +23,8 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.pipeline import motion_config
+
 logger = logging.getLogger(__name__)
 
 # 튜닝 기본값 — vlm_test/smart-analyze 실험에서 확정된 값.
@@ -346,9 +348,9 @@ def plan_and_extract(
     video_path: Path,
     out_dir: Path,
     duration_fallback: float | None = None,
-    motion_thresh: float = MOTION_THRESH,
-    hysteresis_frames: int = HYSTERESIS_FRAMES,
-    chunk_duration: float = CHUNK_DURATION,
+    motion_thresh: float | None = None,
+    hysteresis_frames: int | None = None,
+    chunk_duration: float | None = None,
 ) -> tuple[list[SmartChunk], list[Path]]:
     """영상 → motion 시계열 → 청크 계획 → 실제 청크 파일 추출까지 한 번에.
 
@@ -360,6 +362,14 @@ def plan_and_extract(
     Returns:
         (청크 계획, 생성된 청크 파일 경로). 두 리스트는 인덱스가 대응한다.
     """
+    # 인자를 안 주면 저장된 설정을 따른다. 개발 도구(/vlm/smart-preview/history)에서
+    # 맞춘 값이 본 파이프라인에 그대로 적용되도록 하기 위함.
+    cfg = motion_config.load()
+    motion_thresh = cfg["motion_thresh"] if motion_thresh is None else motion_thresh
+    hysteresis_frames = (cfg["hysteresis_frames"] if hysteresis_frames is None
+                         else hysteresis_frames)
+    chunk_duration = cfg["chunk_duration"] if chunk_duration is None else chunk_duration
+
     duration = probe_video_duration(video_path, fallback=duration_fallback)
     timeline = video_motion_timeline(video_path)
     plan = smart_chunk_plan(

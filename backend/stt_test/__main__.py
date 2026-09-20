@@ -16,7 +16,7 @@ import argparse
 import json
 from pathlib import Path
 
-from stt_test.analyze import analyze
+from app.pipeline.voice.analyze import analyze
 from stt_test.evaluate import check_fixture, evaluate
 from stt_test.report import build_report
 

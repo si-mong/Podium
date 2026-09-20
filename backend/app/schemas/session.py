@@ -42,6 +42,65 @@ class PreprocessResult(BaseModel):
     chunk_count: int
 
 
+class SegmentItem(BaseModel):
+    segment_id: int
+    label: str | None
+    title: str
+    t_start: float
+    t_end: float
+    duration: float
+    silence_count: int | None
+    filler_count: int | None
+    repetition_count: int | None
+    speaking_rate_spm: float | None
+    articulation_rate_spm: float | None
+
+
+class SegmentationResult(BaseModel):
+    """STEP 4 구간 분리 + 구간별 집계 결과."""
+    session_id: int
+    status: str
+    segment_count: int
+    sentence_count: int
+    segments: list[SegmentItem]
+    warnings: list[str]      # LLM 출력 검증·보정 내역
+
+
+class SegmentTrendPoint(BaseModel):
+    """STEP 5 꺾은선 그래프 한 점 — 세션 하나 안의 구간(segment) 하나."""
+    segment_id: int
+    label: str | None
+    title: str
+    t_start: float
+    t_end: float
+    filler_count: int | None
+    repetition_count: int | None
+    speaking_rate_spm: float | None
+    silence_ratio: float | None
+    positive_gesture_count: int | None
+    negative_gesture_count: int | None
+
+
+class SegmentTrendResult(BaseModel):
+    session_id: int
+    points: list[SegmentTrendPoint]   # t_start 오름차순 (구간 순서)
+
+
+class VoiceAnalysisResult(BaseModel):
+    """STEP 3 음성분석 결과 요약. 상세 수치는 voice_raws / stt_sentences 에 저장됨."""
+    session_id: int
+    status: str
+    model: str                      # 실제 사용한 STT 모델 (설정으로 교체 가능)
+    total_duration: float
+    sentence_count: int
+    silence_count: int
+    filler_count: int
+    repetition_count: int
+    speaking_rate_spm: float        # 무음 포함 — 전체 템포
+    articulation_rate_spm: float    # 무음 제외 — 조음 속도
+    elapsed_sec: float
+
+
 class MotionAnalysisResult(BaseModel):
     session_id: int
     status: str

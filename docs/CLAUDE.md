@@ -209,7 +209,7 @@ alembic current                               # 현재 적용된 버전
 | 타임스탬프 | `created_at`만 (`server_default=now()`) | 필요한 곳에 `updated_at` 추가 |
 | 외래키 | `ondelete="CASCADE"` (DB) + ORM `cascade="all, delete-orphan"` | 양방향 |
 | 예외: `session_summaries.best/worst_segment_id` | `SET NULL` | segment 지워져도 summary 살아남게 |
-| JSON 컬럼 | PostgreSQL `JSONB` | `silence_segments`, `filler_words`, `overall_scores` |
+| JSON 컬럼 | PostgreSQL `JSONB` | `silence_segments`, `filler_words`, `llm_feedback` |
 | 시간 | `Float` (초) | t_start, t_end |
 | status | `String(32)` 기본값 `"processing"` | Enum 정리는 추후 |
 | 1:1 관계 | 부모 ID를 PK로 (별도 PK 없음) | `voice_raws`, `segment_analyses`, `feedbacks`, `session_summaries` |
@@ -312,15 +312,18 @@ alembic current                               # 현재 적용된 버전
 
 ## VLM 정적 테스트 도구 (`backend/vlm_test/`) ★ test/vlm 브랜치
 
-본 흐름(시스템 촬영 → sessions API)과 **완전히 분리된** 검증용 단독 서버. 포트 **8001**, DB 연결 없음. 이미 촬영된 영상 파일을 업로드해 VLM(Gemini) 동작 분석과 **청킹 정책 실험**을 빠르게 반복하기 위한 도구. STEP 2 본격 통합 전 PoC 단계.
+본 흐름(시스템 촬영 → sessions API)과 **완전히 분리된** 검증용 도구. DB 연결 없음. 2026-09-16 부터 STEP 3 음성 테스트 도구와 **한 서버로 통합**되어 `http://localhost:8001/vlm/` 에서 접속. 이미 촬영된 영상 파일을 업로드해 VLM(Gemini) 동작 분석과 **청킹 정책 실험**을 빠르게 반복하기 위한 도구. STEP 2 본격 통합 전 PoC 단계.
 
 ### 실행
 ```bash
 # cwd = backend/
 pip install -r requirements-vlm.txt        # google-genai, python-dotenv, opencv-python-headless
 # .env 에 GEMINI_API_KEY 필요 (https://aistudio.google.com/apikey)
-uvicorn vlm_test.server:app --reload --port 8001
+# 통합 개발 테스트 서버 (STEP 2 /vlm, STEP 3 /voice)
+uvicorn devtools.server:app --reload --port 8001
 ```
+
+> 포트 8000 은 본 API 서버(`app.main:app`)라 겹치면 안 됨.
 
 ### 모듈 구성
 | 파일 | 책임 |

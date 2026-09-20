@@ -33,6 +33,9 @@ class VoiceRaw(Base):
     total_duration: Mapped[float] = mapped_column(Float, nullable=False)
     silence_segments: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     filler_words: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    # 반복(말더듬). silence_segments / filler_words 와 같은 구조의 배열:
+    # [{t_start, t_end, duration, kind("exact"|"stem"), count, text}, ...]
+    repetitions: Mapped[list | None] = mapped_column(JSONB, nullable=True)
 
     session: Mapped["Session"] = relationship(back_populates="voice_raw")  # noqa: F821
 
@@ -47,6 +50,10 @@ class Segment(Base):
         nullable=False,
         index=True,
     )
+    # label = 분류용 semi-enum (도입/문제제시/…). 회차 비교·집계에 씀.
+    #   목록은 step4_segmentation.LABELS. 순서 강제 없고 반복 가능.
+    # title = 사용자에게 보여줄 한 줄 요약. 둘은 역할이 다르므로 분리한다.
+    label: Mapped[str | None] = mapped_column(String(32), nullable=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     t_start: Mapped[float] = mapped_column(Float, nullable=False)
     t_end: Mapped[float] = mapped_column(Float, nullable=False)
@@ -78,13 +85,24 @@ class SegmentAnalysis(Base):
         primary_key=True,
     )
     stt_text: Mapped[str | None] = mapped_column(Text, nullable=True)
-    wpm: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # 한국어는 어절(WPM)이 아니라 **음절(SPM)** 기준. 띄어쓰기 정책에 따라 어절 수가
+    # 크게 흔들리기 때문. 두 값을 나누면 "말은 빠른데 자주 멈춘다" 같은 진단이 가능:
+    speaking_rate_spm: Mapped[float | None] = mapped_column(Float, nullable=True)      # 무음 포함
+    articulation_rate_spm: Mapped[float | None] = mapped_column(Float, nullable=True)  # 무음 제외
     silence_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # 구간 길이 대비 무음 시간 비율 (silence_count 는 "몇 번"만 셀 뿐 길이는 안 담음)
+    silence_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
     filler_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    repetition_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # VLM 동작 분석 (구간 집계): 카테고리별 카운트 dict.
     # 키셋은 step2_video_analysis.py 의 카테고리 enum과 일치.
     gesture_counts: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # gesture_counts 를 STEP 5 꺾은선 그래프용으로 긍정/부정 둘로 미리 합산해둔 값
+    #   긍정 = explanatory_gesture + pointing + body_movement
+    #   부정 = distracting_gesture + touching_face_or_hair + fidgeting_with_objects + closed_posture
+    positive_gesture_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    negative_gesture_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     posture_counts: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     eye_contact_counts: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     motion_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -144,6 +162,10 @@ class Feedback(Base):
     fb_fluency: Mapped[str | None] = mapped_column(Text, nullable=True)
     fb_motion: Mapped[str | None] = mapped_column(Text, nullable=True)
     fb_overall: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # STEP 5 LLM 구간별 분석 결과 — 근거 시각(M:SS)을 포함한 문장 목록 (["...", "..."]).
+    # 위 fb_* 텍스트 칸은 목록을 담기에 맞지 않아 별도 JSONB 칸으로 추가함.
+    strengths: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    improvements: Mapped[list | None] = mapped_column(JSONB, nullable=True)
 
     segment: Mapped["Segment"] = relationship(back_populates="feedback")
 
@@ -158,9 +180,13 @@ class SessionSummary(Base):
     )
     total_duration: Mapped[float | None] = mapped_column(Float, nullable=True)
     segment_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    overall_scores: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # STEP 5 종합분석 (LLM) 결과 — overall_summary/strengths/improvements/... 키를 가진 JSON.
+    # app/pipeline/step5_feedback.py 참고.
+    llm_feedback: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     total_filler_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    avg_wpm: Mapped[float | None] = mapped_column(Float, nullable=True)
+    total_repetition_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    avg_speaking_rate_spm: Mapped[float | None] = mapped_column(Float, nullable=True)
+    avg_articulation_rate_spm: Mapped[float | None] = mapped_column(Float, nullable=True)
     best_segment_id: Mapped[int | None] = mapped_column(
         BigInteger,
         ForeignKey("segments.segment_id", ondelete="SET NULL"),
