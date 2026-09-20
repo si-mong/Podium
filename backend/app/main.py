@@ -21,7 +21,9 @@ app = FastAPI(title=settings.app_name, lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    # :3000 은 본 프론트엔드. :8001 은 devtools(STEP 실행/조회 테스트 페이지)가
+    # 브라우저에서 직접 이 서버를 호출하기 위함 — devtools 자체는 DB 를 안 만짐.
+    allow_origins=["http://localhost:3000", "http://localhost:8001"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>window.APP_BASE="/voice";</script>
+<script src="/shared/base.js"></script>
+<script defer src="/shared/nav.js"></script>
+<title>STEP1~4 통합 실행</title>
+<style>
+  :root { color-scheme: light dark; --line:#8883; }
+  * { box-sizing: border-box; }
+  body { font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", sans-serif;
+         margin: 0; padding: 24px; max-width: 900px; margin-inline: auto; }
+  h1 { font-size: 19px; margin: 0 0 2px; }
+  h2 { font-size: 14px; margin: 0 0 10px; }
+  .sub { opacity: .6; font-size: 13px; margin-bottom: 18px; }
+  .panel { border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 14px; }
+  .panel.dim { opacity: .45; pointer-events: none; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  button { font: inherit; padding: 6px 14px; border-radius: 7px; border: 1px solid var(--line);
+           background: transparent; cursor: pointer; }
+  button:hover:not(:disabled) { border-color: #4a7dff; }
+  button:disabled { opacity: .4; cursor: default; }
+  button.primary { background: #4a7dff; color: #fff; border-color: #4a7dff; }
+  button.big { padding: 10px 20px; font-weight: 600; }
+  input[type=number], input[type=text], select {
+    font: inherit; padding: 6px 9px; border-radius: 7px; border: 1px solid var(--line);
+    background: transparent; color: inherit; }
+  input[type=number] { width: 100px; }
+  input[type=text] { min-width: 260px; }
+  label.f { display: flex; flex-direction: column; gap: 4px; font-size: 12px; opacity: .8; }
+  .hint { font-size: 12px; opacity: .6; }
+  .warn { color: #ca8a04; }
+  .err { color: #dc2626; }
+  .ok { color: #16a34a; }
+  .step { display: flex; align-items: center; gap: 10px; padding: 10px 0;
+          border-top: 1px solid var(--line); }
+  .step:first-child { border-top: none; }
+  .step .n { flex: 0 0 22px; text-align: center; font-size: 12px; opacity: .5; }
+  .step .body { flex: 1; }
+  .step .name { font-weight: 600; font-size: 13px; }
+  .step .status { font-size: 12px; opacity: .65; margin-top: 2px; }
+  .badge { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 8px;
+           border-radius: 20px; margin-right: 6px; }
+  .badge.wait { background: #8882; }
+  .badge.run { background: #4a7dff22; color: #4a7dff; }
+  .badge.done { background: #16a34a22; color: #16a34a; }
+  .badge.fail { background: #dc262622; color: #dc2626; }
+  #log { font: 12px/1.6 ui-monospace, Menlo, monospace; white-space: pre-wrap;
+         background: #8881; border-radius: 8px; padding: 10px; max-height: 260px; overflow: auto; }
+  #sessionBadge { font: 12px/1.6 ui-monospace, Menlo, monospace; padding: 3px 10px;
+         border-radius: 20px; border: 1px solid var(--line); }
+</style>
+
+<div id="nav-mount"></div>
+
+<h1>STEP1~4 통합 실행</h1>
+<div class="sub">devtools 의 다른 페이지(STEP3/4 테스트)와 달리 <b>본 API 서버(:8000)를 직접 호출해서
+  실제 DB에 저장</b>합니다. STEP5 화면이 읽을 세션을 여기서 만드세요.</div>
+
+<div class="panel">
+  <h2>1. 세션</h2>
+  <div class="row" style="margin-bottom:8px">
+    <label class="f">프로젝트 ID<input type="number" id="projectId" value="1" min="1"></label>
+    <button id="createSession">새 세션 생성</button>
+    <span class="hint">또는</span>
+    <label class="f">기존 세션 번호<input type="number" id="existingSession" min="1" placeholder="예: 18"></label>
+    <button id="useSession">이 번호로 이어서</button>
+  </div>
+  <div class="row">
+    <span class="hint">현재 세션:</span>
+    <span id="sessionBadge">없음</span>
+  </div>
+</div>
+
+<div class="panel dim" id="uploadPanel">
+  <h2>2. 영상 파일 업로드</h2>
+  <div class="row">
+    <input type="file" id="videoFile" accept="video/*">
+    <button class="primary" id="uploadBtn">업로드</button>
+    <span id="uploadStatus" class="hint"></span>
+  </div>
+  <div class="hint" style="margin-top:6px">같은 파일을 <code>/video</code>(영상분석용)와
+    <code>/chunks?chunk_index=0</code>(음성 추출용) 두 곳에 자동으로 올립니다.
+    이미 업로드된 기존 세션을 골랐다면 다시 안 올려도 됩니다.</div>
+</div>
+
+<div class="panel dim" id="runPanel">
+  <h2>3. 실행</h2>
+
+  <div class="row" style="margin-bottom:10px">
+    <label class="f">STT 모델 (STEP3)
+      <select id="model"></select>
+    </label>
+    <label class="f">hotwords (선택, 쉼표구분)
+      <input type="text" id="keywords" placeholder="예: ETRI, 포항공대">
+    </label>
+  </div>
+
+  <div class="row" style="margin-bottom:14px">
+    <button class="primary big" id="runAll">전체 실행 (STEP1→4)</button>
+    <span id="runAllStatus" class="hint"></span>
+  </div>
+
+  <div id="steps">
+    <div class="step" data-step="end">
+      <span class="n">1</span>
+      <div class="body">
+        <div class="name">전처리 <span class="hint">(청크 → full_audio.wav)</span></div>
+        <div class="status"><span class="badge wait">대기</span></div>
+      </div>
+      <button data-run="end">실행</button>
+    </div>
+    <div class="step" data-step="motion">
+      <span class="n">2</span>
+      <div class="body">
+        <div class="name">영상분석 <span class="hint">(STEP2, Gemini)</span></div>
+        <div class="status"><span class="badge wait">대기</span></div>
+      </div>
+      <button data-run="motion">실행</button>
+    </div>
+    <div class="step" data-step="voice">
+      <span class="n">3</span>
+      <div class="body">
+        <div class="name">음성분석 <span class="hint">(STEP3, 선택한 모델로 STT)</span></div>
+        <div class="status"><span class="badge wait">대기</span></div>
+      </div>
+      <button data-run="voice">실행</button>
+    </div>
+    <div class="step" data-step="segments">
+      <span class="n">4</span>
+      <div class="body">
+        <div class="name">구간분리 <span class="hint">(STEP4, Gemini LLM)</span></div>
+        <div class="status"><span class="badge wait">대기</span></div>
+      </div>
+      <button data-run="segments">실행</button>
+    </div>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>로그</h2>
+  <div id="log">(아직 없음)</div>
+</div>
+
+<div class="panel" id="donePanel" style="display:none">
+  <h2>완료</h2>
+  <div id="doneLink"></div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const MAIN_API = "http://localhost:8000";
+
+let sessionId = null;
+
+function log(line, cls) {
+  const el = $("#log");
+  if (el.textContent === "(아직 없음)") el.textContent = "";
+  const ts = new Date().toLocaleTimeString("ko-KR", {hour12:false});
+  const span = document.createElement("div");
+  if (cls) span.className = cls;
+  span.textContent = `[${ts}] ${line}`;
+  el.appendChild(span);
+  el.scrollTop = el.scrollHeight;
+}
+
+function setStep(step, state, extra) {
+  const row = document.querySelector(`.step[data-step="${step}"] .status`);
+  const label = {wait:"대기", run:"실행중…", done:"완료", fail:"실패"}[state];
+  row.innerHTML = `<span class="badge ${state}">${label}</span>${extra ? esc(extra) : ""}`;
+}
+
+function esc(t) { return (t ?? "").toString().replace(/&/g,"&amp;").replace(/</g,"&lt;"); }
+
+function setSession(id) {
+  sessionId = id;
+  $("#sessionBadge").textContent = `세션 #${id}`;
+  $("#uploadPanel").classList.remove("dim");
+  $("#runPanel").classList.remove("dim");
+  history.replaceState(null, "", `?session=${id}`);
+}
+
+// ── 세션 준비 ──────────────────────────────────────────────────────────────
+
+$("#createSession").onclick = async () => {
+  const projectId = $("#projectId").value;
+  if (!projectId) return alert("프로젝트 ID를 입력하세요.");
+  try {
+    const r = await fetch(`${MAIN_API}/projects/${projectId}/sessions/start`, {method: "POST"});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || `실패 (${r.status})`);
+    log(`세션 생성 완료 → #${d.session_id}`, "ok");
+    setSession(d.session_id);
+  } catch (e) {
+    log(`세션 생성 실패: ${e.message}`, "err");
+  }
+};
+
+$("#useSession").onclick = () => {
+  const id = $("#existingSession").value;
+  if (!id) return alert("세션 번호를 입력하세요.");
+  log(`기존 세션 #${id} 사용`, "ok");
+  setSession(id);
+};
+
+// URL의 ?session= 으로 복귀 시 자동 채움
+const params = new URLSearchParams(location.search);
+if (params.get("session")) setSession(params.get("session"));
+
+// ── 업로드 ────────────────────────────────────────────────────────────────
+
+$("#uploadBtn").onclick = async () => {
+  const file = $("#videoFile").files[0];
+  if (!file) return alert("파일을 선택하세요.");
+  if (!sessionId) return alert("세션을 먼저 준비하세요.");
+
+  $("#uploadBtn").disabled = true;
+  try {
+    $("#uploadStatus").textContent = "/video 업로드 중…";
+    const fd1 = new FormData();
+    fd1.append("file", file);
+    let r = await fetch(`${MAIN_API}/sessions/${sessionId}/video`, {method: "POST", body: fd1});
+    let d = await r.json();
+    if (!r.ok) throw new Error(`/video 실패: ${d.detail || r.status}`);
+    log(`/video 업로드 완료 (${(d.size_bytes/1e6).toFixed(1)}MB)`, "ok");
+
+    $("#uploadStatus").textContent = "/chunks 업로드 중…";
+    const fd2 = new FormData();
+    fd2.append("file", file);
+    r = await fetch(`${MAIN_API}/sessions/${sessionId}/chunks?chunk_index=0`, {method: "POST", body: fd2});
+    d = await r.json();
+    if (!r.ok) throw new Error(`/chunks 실패: ${d.detail || r.status}`);
+    log(`/chunks 업로드 완료 (${(d.size_bytes/1e6).toFixed(1)}MB)`, "ok");
+    $("#uploadStatus").textContent = "업로드 완료";
+  } catch (e) {
+    log(`업로드 실패: ${e.message}`, "err");
+    $("#uploadStatus").textContent = "실패: " + e.message;
+  }
+  $("#uploadBtn").disabled = false;
+};
+
+// ── 모델 목록 (devtools 자체 API — STEP3 테스트 페이지와 동일 목록 재사용) ──
+
+fetch("/api/models").then(r => r.json()).then(list => {
+  const sel = $("#model");
+  list.forEach(m => {
+    const label = m.kind === "local" ? `${m.label} (로컬, ${m.size_mb}MB)`
+                : m.kind === "hf" ? `${m.label}` : m.id;
+    sel.add(new Option(label, m.id));
+  });
+  // .env 기본값(WHISPER_MODEL)과 이름이 같은 항목을 기본 선택
+  const pref = list.find(m => m.id.includes("SeloWhisper"));
+  if (pref) sel.value = pref.id;
+}).catch(() => {
+  $("#model").add(new Option("모델 목록 로딩 실패 — 기본값 사용", ""));
+});
+
+// ── 개별 단계 실행 ────────────────────────────────────────────────────────
+
+async function runStep(step) {
+  if (!sessionId) { alert("세션을 먼저 준비하세요."); return false; }
+  setStep(step, "run");
+  const t0 = performance.now();
+  try {
+    let url, opts = {method: "POST"};
+    if (step === "end") {
+      url = `${MAIN_API}/sessions/${sessionId}/end`;
+    } else if (step === "motion") {
+      url = `${MAIN_API}/sessions/${sessionId}/analyze/motion`;
+    } else if (step === "voice") {
+      const model = $("#model").value;
+      const kw = $("#keywords").value;
+      const qs = new URLSearchParams();
+      if (model) qs.set("model", model);
+      if (kw) qs.set("keywords", kw);
+      url = `${MAIN_API}/sessions/${sessionId}/analyze/voice?${qs}`;
+    } else if (step === "segments") {
+      url = `${MAIN_API}/sessions/${sessionId}/analyze/segments`;
+    }
+    log(`${step} 시작…`);
+    const r = await fetch(url, opts);
+    const d = await r.json();
+    const sec = ((performance.now() - t0) / 1000).toFixed(1);
+    if (!r.ok) throw new Error(d.detail || `HTTP ${r.status}`);
+    setStep(step, "done", ` (${sec}초)`);
+    log(`${step} 완료 (${sec}초): ${JSON.stringify(d)}`, "ok");
+    return true;
+  } catch (e) {
+    const sec = ((performance.now() - t0) / 1000).toFixed(1);
+    setStep(step, "fail", ` — ${e.message}`);
+    log(`${step} 실패 (${sec}초): ${e.message}`, "err");
+    return false;
+  }
+}
+
+document.querySelectorAll("[data-run]").forEach(btn => {
+  btn.onclick = () => runStep(btn.dataset.run);
+});
+
+// ── 전체 실행 ─────────────────────────────────────────────────────────────
+
+$("#runAll").onclick = async () => {
+  if (!sessionId) return alert("세션을 먼저 준비하세요.");
+  $("#runAll").disabled = true;
+  $("#donePanel").style.display = "none";
+
+  $("#runAllStatus").textContent = "1/4 전처리 중…";
+  if (!(await runStep("end"))) { $("#runAll").disabled = false; return; }
+
+  // STEP2(영상)·STEP3(음성)는 서로 의존하지 않으므로 동시 실행 — 대기 시간 단축.
+  $("#runAllStatus").textContent = "2~3/4 영상분석 + 음성분석 동시 실행 중… (수 분 소요)";
+  const [motionOk, voiceOk] = await Promise.all([runStep("motion"), runStep("voice")]);
+  if (!voiceOk) {
+    $("#runAllStatus").textContent = "실패 — 음성분석 없이는 구간분리 불가";
+    $("#runAll").disabled = false;
+    return;
+  }
+  if (!motionOk) log("영상분석은 실패했지만 음성분석은 성공 — 구간분리는 계속 진행(제스처 값만 빔)", "warn");
+
+  $("#runAllStatus").textContent = "4/4 구간분리 중…";
+  if (!(await runStep("segments"))) { $("#runAll").disabled = false; return; }
+
+  $("#runAllStatus").textContent = "전체 완료";
+  $("#donePanel").style.display = "";
+  $("#doneLink").innerHTML =
+    `<a href="/voice/step5?session=${sessionId}">STEP5 종합피드백에서 세션 #${sessionId} 보기 →</a>`;
+  $("#runAll").disabled = false;
+};
+</script>

@@ -22,6 +22,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
+import httpx
 from fastapi import FastAPI, Form, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -33,6 +34,12 @@ BASE_DIR = Path(__file__).parent
 STATIC_DIR = BASE_DIR / "static"
 WORK_DIR = BASE_DIR / "work"
 WORK_DIR.mkdir(exist_ok=True)
+
+# STEP 5 는 음성+영상+구간분리가 전부 끝난 **실제 세션**이 있어야 의미가 있어서
+# (다른 STEP 테스트 페이지와 달리 job 파일이 아니라) 예외적으로 DB 를 쓰는
+# 본 API 서버(:8000)를 그대로 중계한다. 직접 DB 를 붙잡지 않는 이유는 이미 검증된
+# /sessions/{id}/segments/trend 로직을 중복 구현하지 않기 위함.
+MAIN_API_BASE = "http://localhost:8000"
 
 # 서버가 목록에 띄워줄 기존 녹음 위치 (backend/uploads/<session>/full_audio.wav)
 UPLOADS_DIR = BASE_DIR.parent / "uploads"
@@ -290,6 +297,71 @@ def _vocab_warning(model_dir: Path) -> str | None:
 def segments_page() -> FileResponse:
     """STEP 4 구간 분리 테스트 페이지."""
     return FileResponse(STATIC_DIR / "segments.html")
+
+
+@app.get("/step5")
+def step5_page() -> FileResponse:
+    """STEP 5 종합 피드백 — 구간별 지표 꺾은선 그래프 테스트 페이지."""
+    return FileResponse(STATIC_DIR / "step5.html")
+
+
+@app.get("/run")
+def run_page() -> FileResponse:
+    """실제 세션(DB) 전체(STEP1~4) 실행 테스트 페이지.
+
+    다른 devtools 페이지와 달리 로컬 job 파일이 아니라 **본 API 서버를 직접 호출해서
+    DB 에 저장**한다 — STEP5 가 읽는 seed 데이터를 만드는 용도. 브라우저가 본 API(:8000)를
+    바로 호출하므로(파일 업로드 때문에 서버사이드 중계 대신 직접 호출) CORS 허용 필요
+    (app/main.py 의 allow_origins 에 :8001 추가돼 있음).
+    """
+    return FileResponse(STATIC_DIR / "run.html")
+
+
+@app.get("/api/step5/trend")
+async def api_step5_trend(session_id: int) -> dict:
+    """본 API 서버의 /sessions/{id}/segments/trend 를 그대로 중계."""
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(f"{MAIN_API_BASE}/sessions/{session_id}/segments/trend")
+    except httpx.ConnectError:
+        raise HTTPException(
+            502, f"본 API 서버({MAIN_API_BASE})에 연결할 수 없습니다. "
+                 "uvicorn app.main:app --port 8000 을 먼저 실행하세요.")
+    if r.status_code == 404:
+        raise HTTPException(404, "세션을 찾을 수 없습니다 (session_id 확인).")
+    r.raise_for_status()
+    return r.json()
+
+
+@app.get("/api/step5/segment-feedback")
+async def api_step5_segment_feedback_get(session_id: int) -> dict:
+    """본 API 서버의 GET /sessions/{id}/segment-feedback 를 그대로 중계 (저장된 구간별 결과)."""
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(f"{MAIN_API_BASE}/sessions/{session_id}/segment-feedback")
+    except httpx.ConnectError:
+        raise HTTPException(502, f"본 API 서버({MAIN_API_BASE})에 연결할 수 없습니다.")
+    if r.status_code == 404:
+        raise HTTPException(404, "세션을 찾을 수 없습니다 (session_id 확인).")
+    r.raise_for_status()
+    return r.json()
+
+
+@app.post("/api/step5/segment-feedback")
+async def api_step5_segment_feedback_run(session_id: int) -> dict:
+    """본 API 서버의 POST /sessions/{id}/analyze/segment-feedback 를 그대로 중계.
+
+    구간 수만큼 Gemini 를 호출(동시 4개)하므로 타임아웃을 넉넉히 둔다.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=600) as client:
+            r = await client.post(f"{MAIN_API_BASE}/sessions/{session_id}/analyze/segment-feedback")
+    except httpx.ConnectError:
+        raise HTTPException(502, f"본 API 서버({MAIN_API_BASE})에 연결할 수 없습니다.")
+    if r.status_code >= 400:
+        detail = r.json().get("detail", r.text) if r.headers.get("content-type", "").startswith("application/json") else r.text
+        raise HTTPException(r.status_code, detail)
+    return r.json()
 
 
 @app.get("/api/step4/labels")

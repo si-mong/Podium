@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>window.APP_BASE="/voice";</script>
+<script src="/shared/base.js"></script>
+<script defer src="/shared/nav.js"></script>
+<title>STEP 5 — 종합 피드백 테스트</title>
+<style>
+  :root { color-scheme: light dark; --line:#8883; }
+  * { box-sizing: border-box; }
+  body { font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", sans-serif;
+         margin: 0; padding: 24px; max-width: 1400px; margin-inline: auto; }
+  h1 { font-size: 19px; margin: 0 0 2px; }
+  h2 { font-size: 15px; margin: 24px 0 10px; }
+  .sub { opacity: .6; font-size: 13px; margin-bottom: 18px; }
+  .panel { border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  button { font: inherit; padding: 6px 14px; border-radius: 7px; border: 1px solid var(--line);
+           background: transparent; cursor: pointer; }
+  button:hover:not(:disabled) { border-color: #4a7dff; }
+  button:disabled { opacity: .4; cursor: default; }
+  button.primary { background: #4a7dff; color: #fff; border-color: #4a7dff; }
+  input[type=number] { font: inherit; padding: 6px 9px; border-radius: 7px; width: 120px;
+         border: 1px solid var(--line); background: transparent; color: inherit; }
+  .hint { font-size: 12px; opacity: .6; }
+  .warn { color: #ca8a04; font-size: 12px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 16px; }
+  .chart-title { font-size: 13px; font-weight: 600; margin-bottom: 2px; }
+  .chart-unit { font-size: 11px; opacity: .55; font-weight: 400; }
+  svg text { font-size: 10px; fill: currentColor; opacity: .65; }
+  .pt { cursor: default; }
+  .pt:hover { opacity: .7; }
+  .tick { stroke: currentColor; opacity: .12; }
+  .fb h3 { font-size: 13px; margin: 16px 0 6px; }
+  .fb h3:first-child { margin-top: 0; }
+  .fb p { margin: 0; white-space: pre-wrap; }
+  .fb ul { margin: 4px 0 0; padding-left: 20px; }
+  .fb li { margin-bottom: 4px; }
+</style>
+
+<div id="nav-mount"></div>
+
+<h1>STEP 5 — 종합 피드백 테스트</h1>
+<div class="sub">실제로 STEP2(영상)·STEP3(음성)·STEP4(구간분리)까지 끝난 <b>DB 세션</b>을 대상으로
+  구간별 지표 변화를 꺾은선 그래프로 확인합니다. 이 페이지는 본 API 서버(<code>:8000</code>)의
+  <code>/sessions/&#123;id&#125;/segments/trend</code> 를 그대로 가져옵니다.</div>
+
+<div class="panel">
+  <div class="row">
+    <label>세션 ID</label>
+    <input type="number" id="sessionId" placeholder="예: 12" min="1">
+    <button class="primary" id="load">불러오기</button>
+    <span id="status" class="hint"></span>
+  </div>
+</div>
+
+<div id="out"></div>
+
+<h2>LLM 구간별 분석</h2>
+<div class="sub">STEP2 영상·STEP3 음성 타임라인·STEP4 구간을 이용해 <b>구간마다 Gemini 를 따로 호출</b>합니다
+  (<code>POST /sessions/&#123;id&#125;/analyze/segment-feedback</code>). 구간 하나에 발표 전체 목차 +
+  그 구간의 전사문·지표 + 그 구간과 겹치는 영상 + 그 구간의 무음·필러·반복만 보냅니다.
+  <b>호출 횟수 = 구간 수</b>(동시 4개)라 시간이 더 걸립니다.</div>
+
+<div class="panel">
+  <div class="row">
+    <button class="primary" id="runSegFeedback">구간별 분석 실행</button>
+    <span class="hint">(위 세션 ID 사용)</span>
+    <span id="sfStatus" class="hint"></span>
+  </div>
+</div>
+
+<div id="sfOut"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = t => (t ?? "").toString().replace(/&/g,"&amp;").replace(/</g,"&lt;");
+
+const METRICS = [
+  { key: "filler_count",           title: "필러 단어 횟수",     color: "#2563eb", integer: true },
+  { key: "repetition_count",       title: "반복(말더듬) 횟수",  color: "#dc2626", integer: true },
+  { key: "speaking_rate_spm",      title: "발화 속도",          color: "#059669", unit: "음절/분" },
+  { key: "silence_ratio",          title: "무음구간 비율",      color: "#7c3aed", unit: "%",
+    transform: v => v * 100 },
+  { key: "positive_gesture_count", title: "일반 제스처 횟수",   color: "#0891b2", integer: true },
+  { key: "negative_gesture_count", title: "부정적 제스처 횟수", color: "#ea580c", integer: true },
+];
+
+// 세션 ID는 새로고침해도 남아있게 (테스트 편의)
+const params = new URLSearchParams(location.search);
+if (params.get("session")) $("#sessionId").value = params.get("session");
+
+$("#load").onclick = load;
+$("#sessionId").addEventListener("keydown", e => { if (e.key === "Enter") load(); });
+
+async function load() {
+  const id = $("#sessionId").value.trim();
+  if (!id) return alert("세션 ID를 입력하세요.");
+
+  history.replaceState(null, "", `?session=${encodeURIComponent(id)}`);
+  $("#load").disabled = true;
+  $("#status").textContent = "불러오는 중…";
+  $("#out").innerHTML = "";
+
+  try {
+    const r = await fetch(`/api/step5/trend?session_id=${encodeURIComponent(id)}`);
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || `요청 실패 (${r.status})`);
+    render(d);
+    $("#status").textContent = "";
+  } catch (e) {
+    $("#status").textContent = "";
+    $("#out").innerHTML = `<div class="panel warn">⚠ ${esc(e.message)}</div>`;
+  }
+  $("#load").disabled = false;
+}
+
+function render(d) {
+  if (!d.points.length) {
+    $("#out").innerHTML = `<div class="panel hint">
+      이 세션엔 구간 분석 결과가 없습니다. STEP 4(구간 분리, POST /sessions/${d.session_id}/analyze/segments)를
+      먼저 돌리세요.</div>`;
+    return;
+  }
+
+  const labels = d.points.map((p, i) => `${i + 1}. ${p.label ?? p.title}`);
+  $("#out").innerHTML = `
+    <h2>세션 #${d.session_id} · 구간 ${d.points.length}개</h2>
+    <div class="grid">${METRICS.map(m => chartHtml(m, d.points, labels)).join("")}</div>`;
+}
+
+// 축·격자 없이 값만 정직하게 보여주는 최소 SVG 꺾은선 그래프.
+// (devtools 페이지라 외부 차트 라이브러리를 안 불러오는 기존 관례를 따름)
+function chartHtml(metric, points, labels) {
+  const W = 560, H = 200, PAD_L = 34, PAD_R = 14, PAD_T = 14, PAD_B = 36;
+  const plotW = W - PAD_L - PAD_R, plotH = H - PAD_T - PAD_B;
+
+  const values = points.map(p => {
+    const raw = p[metric.key];
+    if (raw == null) return null;
+    return metric.transform ? metric.transform(raw) : raw;
+  });
+  const known = values.filter(v => v != null);
+  let min = known.length ? Math.min(0, ...known) : 0;
+  let max = known.length ? Math.max(1, ...known) : 1;
+
+  // 눈금 값. 횟수 지표(integer)는 소수 눈금(0.5 등)이 나올 수 없으므로 정수만 쓴다:
+  //   최댓값이 5 이하면 1 간격, 그보다 크면 눈금이 4~5개가 되도록 정수 간격으로 나눈다.
+  let tickVals;
+  if (metric.integer) {
+    min = 0;
+    const top = Math.max(1, Math.ceil(max));
+    const step = top <= 5 ? 1 : Math.ceil(top / 4);
+    tickVals = [];
+    for (let v = 0; v < top + step; v += step) {
+      tickVals.push(v);
+      if (v >= top) break;
+    }
+    max = tickVals[tickVals.length - 1];
+  } else {
+    tickVals = [min, (min + max) / 2, max];
+  }
+  const range = (max - min) || 1;
+
+  const n = points.length;
+  const x = i => n === 1 ? PAD_L + plotW / 2 : PAD_L + (plotW * i) / (n - 1);
+  const y = v => PAD_T + plotH - ((v - min) / range) * plotH;
+
+  const coords = values.map((v, i) => v == null ? null : [x(i), y(v)]);
+  const line = coords.filter(Boolean).map(c => c.join(",")).join(" ");
+
+  const dots = coords.map((c, i) => c == null ? "" : `
+    <circle class="pt" cx="${c[0].toFixed(1)}" cy="${c[1].toFixed(1)}" r="3.5" fill="${metric.color}">
+      <title>${esc(labels[i])}: ${esc(values[i])}${metric.unit ? " " + metric.unit : ""}</title>
+    </circle>`).join("");
+
+  const ticks = tickVals.map(v => `
+    <line class="tick" x1="${PAD_L}" x2="${W - PAD_R}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}"/>
+    <text x="${PAD_L - 6}" y="${(y(v) + 3).toFixed(1)}" text-anchor="end">${Math.round(v * 10) / 10}</text>`
+  ).join("");
+
+  const xlabels = labels.map((lab, i) => `
+    <text x="${x(i).toFixed(1)}" y="${H - PAD_B + 14}" text-anchor="middle"
+      transform="rotate(20 ${x(i).toFixed(1)} ${H - PAD_B + 14})">${esc(lab.slice(0, 8))}</text>`
+  ).join("");
+
+  return `
+    <div class="panel">
+      <div class="chart-title">${esc(metric.title)}
+        ${metric.unit ? `<span class="chart-unit">(${esc(metric.unit)})</span>` : ""}</div>
+      <svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}">
+        ${ticks}
+        <polyline points="${line}" fill="none" stroke="${metric.color}" stroke-width="2"/>
+        ${dots}
+        ${xlabels}
+      </svg>
+    </div>`;
+}
+
+// ── LLM 구간별 분석 ───────────────────────────────────────────────────
+
+$("#runSegFeedback").onclick = runSegFeedback;
+
+// 페이지 진입 시 저장된 구간별 피드백이 있으면 조용히 표시
+if ($("#sessionId").value) loadSavedSegFeedback($("#sessionId").value);
+
+async function loadSavedSegFeedback(id) {
+  try {
+    const r = await fetch(`/api/step5/segment-feedback?session_id=${encodeURIComponent(id)}`);
+    const d = await r.json();
+    if (!r.ok) return;
+    if (d.segments.some(s => s.feedback)) {
+      renderSegFeedback(d.segments);
+      $("#sfStatus").textContent = "저장된 분석 결과 표시 중 (다시 실행하면 갱신됩니다)";
+    }
+  } catch (e) { /* 저장된 게 없으면 조용히 넘어간다 */ }
+}
+
+async function runSegFeedback() {
+  const id = $("#sessionId").value.trim();
+  if (!id) return alert("세션 ID를 입력하세요.");
+
+  $("#runSegFeedback").disabled = true;
+  const t0 = performance.now();
+  const timer = setInterval(() => {
+    $("#sfStatus").textContent = `Gemini 분석 중… ${Math.round((performance.now() - t0) / 1000)}초 (구간 수만큼 호출, 오래 걸립니다)`;
+  }, 1000);
+  $("#sfOut").innerHTML = "";
+
+  try {
+    const r = await fetch(`/api/step5/segment-feedback?session_id=${encodeURIComponent(id)}`, {method: "POST"});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || `요청 실패 (${r.status})`);
+    renderSegFeedback(d.segments);
+    const failed = d.segments.filter(s => s.error).length;
+    $("#sfStatus").textContent = failed
+      ? `완료 (${Math.round((performance.now() - t0) / 1000)}초) — ${failed}개 구간 실패`
+      : `완료 (${Math.round((performance.now() - t0) / 1000)}초)`;
+  } catch (e) {
+    $("#sfStatus").textContent = "";
+    $("#sfOut").innerHTML = `<div class="panel warn">⚠ ${esc(e.message)}</div>`;
+  }
+  clearInterval(timer);
+  $("#runSegFeedback").disabled = false;
+}
+
+function bullets(arr) {
+  return Array.isArray(arr) && arr.length
+    ? `<ul>${arr.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : '<p class="hint">(없음)</p>';
+}
+
+function renderSegFeedback(segments) {
+  const fmt = t => Math.floor(t / 60) + ":" + String(Math.floor(t % 60)).padStart(2, "0");
+  $("#sfOut").innerHTML = segments.map((s, i) => {
+    const head = `<h3>${i + 1}. ${esc(s.label)} — ${esc(s.title)}
+      <span class="hint">${fmt(s.t_start)}–${fmt(s.t_end)}</span></h3>`;
+    if (s.error) return `<div class="panel fb">${head}<p class="warn">⚠ ${esc(s.error)}</p></div>`;
+    if (!s.feedback) return `<div class="panel fb">${head}<p class="hint">(아직 분석 안 됨)</p></div>`;
+    const f = s.feedback;
+    return `<div class="panel fb">${head}
+      <h3>잘한 점</h3>${bullets(f.strengths)}
+      <h3>개선점</h3>${bullets(f.improvements)}
+    </div>`;
+  }).join("");
+}
+</script>

@@ -66,6 +66,26 @@ class SegmentationResult(BaseModel):
     warnings: list[str]      # LLM 출력 검증·보정 내역
 
 
+class SegmentTrendPoint(BaseModel):
+    """STEP 5 꺾은선 그래프 한 점 — 세션 하나 안의 구간(segment) 하나."""
+    segment_id: int
+    label: str | None
+    title: str
+    t_start: float
+    t_end: float
+    filler_count: int | None
+    repetition_count: int | None
+    speaking_rate_spm: float | None
+    silence_ratio: float | None
+    positive_gesture_count: int | None
+    negative_gesture_count: int | None
+
+
+class SegmentTrendResult(BaseModel):
+    session_id: int
+    points: list[SegmentTrendPoint]   # t_start 오름차순 (구간 순서)
+
+
 class VoiceAnalysisResult(BaseModel):
     """STEP 3 음성분석 결과 요약. 상세 수치는 voice_raws / stt_sentences 에 저장됨."""
     session_id: int

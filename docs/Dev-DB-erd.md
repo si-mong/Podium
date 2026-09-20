@@ -94,9 +94,12 @@ erDiagram
         float speaking_rate_spm "음절/분, 무음 포함"
         float articulation_rate_spm "음절/분, 무음 제외"
         int silence_count
+        float silence_ratio "구간길이 대비 무음비율"
         int filler_count
         int repetition_count "반복(말더듬)"
         jsonb gesture_counts "category->count, enum=step2_motion.py"
+        int positive_gesture_count "explanatory+pointing+body_movement"
+        int negative_gesture_count "distracting+touching+fidgeting+closed"
         jsonb posture_counts "category->count"
         jsonb eye_contact_counts "category->count"
         text motion_notes "enum밖 동작 fallback"
@@ -111,13 +114,15 @@ erDiagram
         text fb_fluency
         text fb_motion
         text fb_overall
+        jsonb strengths "STEP5 구간별 LLM: 잘한 점 목록(근거 시각 포함)"
+        jsonb improvements "STEP5 구간별 LLM: 개선점 목록(근거 시각 포함)"
     }
 
     SESSION_SUMMARIES {
         bigint session_id PK_FK
         float total_duration
         int segment_count
-        jsonb overall_scores
+        jsonb llm_feedback "종합분석 제거로 현재 미사용"
         int total_filler_count
         int total_repetition_count
         float avg_speaking_rate_spm

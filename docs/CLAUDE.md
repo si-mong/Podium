@@ -209,7 +209,7 @@ alembic current                               # 현재 적용된 버전
 | 타임스탬프 | `created_at`만 (`server_default=now()`) | 필요한 곳에 `updated_at` 추가 |
 | 외래키 | `ondelete="CASCADE"` (DB) + ORM `cascade="all, delete-orphan"` | 양방향 |
 | 예외: `session_summaries.best/worst_segment_id` | `SET NULL` | segment 지워져도 summary 살아남게 |
-| JSON 컬럼 | PostgreSQL `JSONB` | `silence_segments`, `filler_words`, `overall_scores` |
+| JSON 컬럼 | PostgreSQL `JSONB` | `silence_segments`, `filler_words`, `llm_feedback` |
 | 시간 | `Float` (초) | t_start, t_end |
 | status | `String(32)` 기본값 `"processing"` | Enum 정리는 추후 |
 | 1:1 관계 | 부모 ID를 PK로 (별도 PK 없음) | `voice_raws`, `segment_analyses`, `feedbacks`, `session_summaries` |

@@ -41,6 +41,11 @@ def _overlap(a0: float, a1: float, b0: float, b1: float) -> float:
     return max(0.0, min(a1, b1) - max(a0, b0))
 
 
+_POSITIVE_GESTURE_KEYS = ("explanatory_gesture", "pointing", "body_movement")
+_NEGATIVE_GESTURE_KEYS = ("distracting_gesture", "touching_face_or_hair",
+                          "fidgeting_with_objects", "closed_posture")
+
+
 def aggregate(segment: dict, sentences: list[dict], voice_raw: dict,
               video_analyses=None) -> dict:
     """구간 하나의 집계값. 반환 키는 `segment_analyses` 컬럼과 1:1."""
@@ -82,9 +87,12 @@ def aggregate(segment: dict, sentences: list[dict], voice_raw: dict,
         "speaking_rate_spm": round(syllables / (dur / 60.0), 1),             # 무음 포함
         "articulation_rate_spm": round(syllables / (speech_sec / 60.0), 1),  # 무음 제외
         "silence_count": len(silences),
+        "silence_ratio": round(silence_sec / dur, 3),
         "filler_count": len(fillers),
         "repetition_count": len(reps),
         "gesture_counts": gesture or None,
+        "positive_gesture_count": sum(gesture.get(k, 0) for k in _POSITIVE_GESTURE_KEYS),
+        "negative_gesture_count": sum(gesture.get(k, 0) for k in _NEGATIVE_GESTURE_KEYS),
         "posture_counts": posture or None,
         "eye_contact_counts": eye or None,
         "motion_notes": " / ".join(notes) or None,

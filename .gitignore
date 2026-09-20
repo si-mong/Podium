@@ -249,6 +249,7 @@ backend/stt_test/work/*
 # 로컬 작업 노트 (GitHub 제외)
 backend/vlm_test/DEV_NOTES.md
 backend/vlm_test/voice_analyzer_설명.py
+docs/STEP5-팀원전달사항.md
 
 # 음성 테스트 업로드/결과물 (용량 큼, GitHub 제외)
 backend/vlm_test/voice_uploads/

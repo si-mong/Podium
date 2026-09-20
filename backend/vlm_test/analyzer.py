@@ -123,19 +123,21 @@ def split_video(video_path: Path, out_dir: Path) -> list[Path]:
 
 
 def _upload_and_wait(client: genai.Client, video_path: Path):
-    f = client.files.upload(file=str(video_path))
-    while f.state.name == "PROCESSING":
+    f = client.files.upload(path=str(video_path))
+    while f.state == "PROCESSING":
         time.sleep(3)
         f = client.files.get(name=f.name)
-    if f.state.name != "ACTIVE":
-        raise RuntimeError(f"Gemini upload state={f.state.name}: {video_path.name}")
+    if f.state != "ACTIVE":
+        raise RuntimeError(f"Gemini upload state={f.state}: {video_path.name}")
     return f
 
 
 def _analyze_chunk(client: genai.Client, uploaded_file) -> dict:
+    # google-genai 0.3.0: File 객체를 그대로 넣으면 빈 part 가 돼 영상이 전달되지 않음
+    video_part = types.Part.from_uri(file_uri=uploaded_file.uri, mime_type=uploaded_file.mime_type)
     response = client.models.generate_content(
         model="gemini-2.5-flash",
-        contents=[uploaded_file, _PROMPT],
+        contents=[video_part, _PROMPT],
         config=types.GenerateContentConfig(response_mime_type="application/json"),
     )
     return json.loads(response.text)

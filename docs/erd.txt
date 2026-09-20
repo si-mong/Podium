@@ -127,13 +127,15 @@ Table feedbacks {
   fb_fluency     text
   fb_motion      text
   fb_overall     text
+  strengths      jsonb
+  improvements   jsonb
 }
 
 Table session_summaries {
   session_id         bigint [pk, ref: - sessions.session_id]
   total_duration     float
   segment_count      integer
-  overall_scores     jsonb
+  llm_feedback       jsonb
   total_filler_count integer
   total_repetition_count    int
   avg_speaking_rate_spm     float

@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session as DbSession, selectinload
 from app.api._dev_auth import get_current_user_id
 from app.core.database import get_db
 from app.models import (
-    Chunk, Project, Segment, SegmentAnalysis, Session, SessionSummary,
+    Chunk, Feedback, Project, Segment, SegmentAnalysis, Session, SessionSummary,
     SttSentence, VideoAnalysis, VoiceRaw,
 )
 from app.pipeline.step1_preprocess import concat_audio, extract_chunk_audio, probe_duration
@@ -31,6 +31,8 @@ from app.schemas.session import (
     SessionRead,
     SegmentationResult,
     SegmentItem,
+    SegmentTrendPoint,
+    SegmentTrendResult,
     UploadResult,
     VoiceAnalysisResult,
 )
@@ -335,6 +337,7 @@ def _settings_upload_dir():
 def analyze_voice(
     session_id: int,
     keywords: str = "",
+    model: str | None = None,
     db: DbSession = Depends(get_db),
 ):
     """full_audio 로 STT + 무음 + 필러 + 반복 + 발화속도 → voice_raws / stt_sentences 저장.
@@ -344,6 +347,8 @@ def analyze_voice(
 
     keywords: 발표 주제·고유명사를 쉼표로. hotwords 로 전달돼 해당 어휘 인식률이 오른다.
       **발표에 실제로 나오는 고유명사만** 넣을 것 — 무관한 단어는 디코딩을 흔든다.
+    model: STT 모델 지정 (생략 시 `.env` 의 WHISPER_MODEL). devtools 테스트 실행 페이지에서
+      모델 비교용으로 씀 — 운영 클라이언트는 안 넘기는 게 기본.
 
     재호출 시 이 세션의 기존 voice_raws / stt_sentences 는 지우고 새로 넣는다.
     """
@@ -361,7 +366,7 @@ def analyze_voice(
     # lazy import — torch/transformers 미설치 환경에서도 API 서버는 정상 기동.
     from app.pipeline import step3_voice_analysis
 
-    result = step3_voice_analysis.run(full_audio, keywords=keywords)
+    result = step3_voice_analysis.run(full_audio, model_size=model, keywords=keywords)
     rows = step3_voice_analysis.to_db_rows(session_id, result)
 
     # 재분석 시 이전 회차 행이 남지 않도록 통째로 교체.
@@ -484,4 +489,158 @@ def analyze_segments(session_id: int, db: DbSession = Depends(get_db)):
         session_id=session_id, status=session.status,
         segment_count=len(items), sentence_count=len(sent_dicts),
         segments=items, warnings=result.warnings,
+    )
+
+
+# ---------------------------------------------------------------------------
+# STEP 5 — 구간별 LLM 분석
+# ---------------------------------------------------------------------------
+
+def _load_feedback_inputs(db: DbSession, session_id: int):
+    """구간별 LLM 분석에 보낼 세 데이터를 DB 에서 모은다.
+
+    반환: (video_analysis, voice_timeline, segments_payload)
+      segments_payload 는 구간 순서대로이며 segment_id 를 포함한다.
+    """
+    voice_raw = db.get(VoiceRaw, session_id)
+    if not voice_raw:
+        raise HTTPException(
+            400, "voice_raws 가 없습니다. 먼저 POST /sessions/{id}/analyze/voice 를 호출하세요.")
+
+    seg_rows = db.execute(
+        select(Segment, SegmentAnalysis)
+        .join(SegmentAnalysis, SegmentAnalysis.segment_id == Segment.segment_id)
+        .where(Segment.session_id == session_id)
+        .order_by(Segment.t_start)
+    ).all()
+    if not seg_rows:
+        raise HTTPException(
+            400, "segments 가 없습니다. 먼저 POST /sessions/{id}/analyze/segments 를 호출하세요.")
+
+    video_analysis = [
+        {"t_start": v.t_start, "t_end": v.t_end, "kind": v.kind,
+         "posture": v.posture, "eye_contact": v.eye_contact, "gesture": v.gesture,
+         "gesture_counts": v.gesture_counts, "notes": v.notes}
+        for v in db.scalars(
+            select(VideoAnalysis).where(VideoAnalysis.session_id == session_id)
+            .order_by(VideoAnalysis.t_start)
+        ).all()
+    ]
+
+    voice_timeline = {
+        "total_duration": voice_raw.total_duration,
+        "silence_segments": voice_raw.silence_segments,
+        "filler_words": voice_raw.filler_words,
+        "repetitions": voice_raw.repetitions,
+    }
+
+    segments_payload = [
+        {"segment_id": seg.segment_id, "label": seg.label, "title": seg.title,
+         "t_start": seg.t_start, "t_end": seg.t_end,
+         "stt_text": sa.stt_text, "filler_count": sa.filler_count,
+         "repetition_count": sa.repetition_count, "speaking_rate_spm": sa.speaking_rate_spm,
+         "silence_ratio": sa.silence_ratio, "positive_gesture_count": sa.positive_gesture_count,
+         "negative_gesture_count": sa.negative_gesture_count}
+        for seg, sa in seg_rows
+    ]
+    return video_analysis, voice_timeline, segments_payload
+
+
+def _feedback_to_dict(fb: Feedback | None) -> dict | None:
+    # 예전 방식(fb_* 텍스트)으로만 저장된 행은 새 형식이 없으므로 "없음"으로 본다
+    if fb is None or (fb.strengths is None and fb.improvements is None):
+        return None
+    return {"strengths": fb.strengths or [], "improvements": fb.improvements or []}
+
+
+@router.post("/sessions/{session_id}/analyze/segment-feedback")
+def analyze_segment_feedback(session_id: int, db: DbSession = Depends(get_db)):
+    """구간마다 Gemini 를 따로 호출해 구간별 피드백을 받아 feedbacks 테이블에 저장한다.
+
+    호출 수 = 구간 수 (동시에 최대 4개). 구간 하나에 발표 전체 목차 + 그 구간의 전사문·지표 +
+    그 구간과 겹치는 영상 조각 + 그 구간에서 시작한 무음·필러·반복만 보낸다.
+    일부 구간이 실패해도 성공한 구간은 저장하고, 실패한 구간은 응답의 error 에 적는다.
+    재호출하면 성공한 구간의 기존 피드백은 새 결과로 바뀐다.
+    """
+    _get_owned_session(db, session_id)
+    video_analysis, voice_timeline, segments_payload = _load_feedback_inputs(db, session_id)
+
+    # lazy import — google-genai 미설치 환경에서도 API 서버는 정상 기동.
+    from app.pipeline import step5_feedback
+
+    results = step5_feedback.run_segments(segments_payload, video_analysis, voice_timeline)
+
+    by_id = {s["segment_id"]: s for s in segments_payload}
+    out = []
+    for r in results:
+        seg = by_id[r["segment_id"]]
+        item = {"segment_id": seg["segment_id"], "label": seg["label"], "title": seg["title"],
+                "t_start": seg["t_start"], "t_end": seg["t_end"]}
+        if "feedback" in r:
+            f = r["feedback"]
+            row = db.get(Feedback, seg["segment_id"]) or Feedback(segment_id=seg["segment_id"])
+            row.strengths = f.get("strengths") or []
+            row.improvements = f.get("improvements") or []
+            db.add(row)
+            item["feedback"] = _feedback_to_dict(row)
+        else:
+            item["error"] = r["error"]
+        out.append(item)
+    db.commit()
+
+    return {"session_id": session_id, "segments": out}
+
+
+@router.get("/sessions/{session_id}/segment-feedback")
+def get_segment_feedback(session_id: int, db: DbSession = Depends(get_db)):
+    """저장된 구간별 피드백 조회 (재실행 없이). 아직 없는 구간은 feedback: null."""
+    _get_owned_session(db, session_id)
+
+    rows = db.execute(
+        select(Segment, Feedback)
+        .outerjoin(Feedback, Feedback.segment_id == Segment.segment_id)
+        .where(Segment.session_id == session_id)
+        .order_by(Segment.t_start)
+    ).all()
+
+    return {
+        "session_id": session_id,
+        "segments": [
+            {"segment_id": seg.segment_id, "label": seg.label, "title": seg.title,
+             "t_start": seg.t_start, "t_end": seg.t_end, "feedback": _feedback_to_dict(fb)}
+            for seg, fb in rows
+        ],
+    }
+
+
+@router.get("/sessions/{session_id}/segments/trend", response_model=SegmentTrendResult)
+def get_segment_trend(session_id: int, db: DbSession = Depends(get_db)):
+    """STEP 5 꺾은선 그래프용 — 세션 하나의 구간별 지표를 t_start 순으로 반환.
+
+    STEP 4(POST /sessions/{id}/analyze/segments)가 먼저 끝나 있어야 한다.
+    """
+    _get_owned_session(db, session_id)
+
+    rows = db.execute(
+        select(Segment, SegmentAnalysis)
+        .join(SegmentAnalysis, SegmentAnalysis.segment_id == Segment.segment_id)
+        .where(Segment.session_id == session_id)
+        .order_by(Segment.t_start)
+    ).all()
+
+    return SegmentTrendResult(
+        session_id=session_id,
+        points=[
+            SegmentTrendPoint(
+                segment_id=seg.segment_id, label=seg.label, title=seg.title,
+                t_start=seg.t_start, t_end=seg.t_end,
+                filler_count=sa.filler_count,
+                repetition_count=sa.repetition_count,
+                speaking_rate_spm=sa.speaking_rate_spm,
+                silence_ratio=sa.silence_ratio,
+                positive_gesture_count=sa.positive_gesture_count,
+                negative_gesture_count=sa.negative_gesture_count,
+            )
+            for seg, sa in rows
+        ],
     )
