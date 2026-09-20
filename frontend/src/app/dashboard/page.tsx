@@ -13,6 +13,7 @@ import {
   CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   ComposedChart
 } from 'recharts';
+import InteractiveScript, { TimestampText, fmtTime, ScriptData, VideoChunk } from './InteractiveScript';
 
 const videoThumbnail = "/dashboard-video-thumbnail.png";
 
@@ -22,6 +23,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 interface ApiSession {
   session_id: number;
   project_id: number;
+  session_no: number; // 프로젝트 안에서의 회차 번호 — 앞 회차를 지워도 안 바뀐다
   status: string;
   full_video_path: string | null;
   pdf_path: string | null;
@@ -52,16 +54,46 @@ function toTopic(p: ApiProject): Topic {
   return {
     id: String(p.project_id),
     name: p.title,
-    sessions: sortedSessions.map((s, idx) => ({
+    sessions: sortedSessions.map((s) => ({
       id: String(s.session_id),
-      name: `${idx + 1}회차 연습`,
+      name: `${s.session_no}회차 연습`, // 목록 순서(idx)로 매기면 앞 회차를 지울 때 이름이 당겨진다
       date: s.created_at.slice(0, 10).replace(/-/g, '.'),
     })),
   };
 }
 
+// 구간(STEP 4)과 구간별 피드백(STEP 5) — GET /sessions/{id}/segment-feedback
+interface ApiSegment {
+  segment_id: number;
+  label: string | null;
+  title: string;
+  t_start: number;
+  t_end: number;
+  feedback: { strengths: string[]; improvements: string[] } | null; // 아직 없으면 null
+}
+
+// 구간별 지표 — GET /sessions/{id}/segments/trend 의 points
+interface TrendPoint {
+  segment_id: number;
+  label: string | null;
+  title: string;
+  filler_count: number | null;
+  repetition_count: number | null;
+  speaking_rate_spm: number | null;
+  silence_ratio: number | null; // 0~1
+}
+
+// 구간 색 (구간 개수가 세션마다 달라서 순서대로 돌려 쓴다)
+const SEGMENT_COLORS = [
+  "bg-blue-500", "bg-indigo-500", "bg-purple-500", "bg-pink-500", "bg-orange-500",
+  "bg-teal-500", "bg-lime-500", "bg-rose-500", "bg-cyan-500",
+];
+
+// 구간 이름으로 보여줄 글자 — 분류 라벨(도입 등)이 있으면 그걸, 없으면 한 줄 요약 제목.
+const segmentName = (seg: { label: string | null; title: string }) => seg.label || seg.title;
+
 // --- Mock Data ---
-// (단일/비교/성장 분석 화면은 STEP 3~5 백엔드가 아직 없어 당분간 Mock 유지)
+// (비교/성장 분석 화면은 아직 Mock. 단일 분석 화면은 실제 데이터로 바꿨다.)
 
 // gesture_counts 7종(app/pipeline/step2_video_analysis.py) 중 일반/부정적 제스처로 묶는 기준.
 const GENERAL_GESTURE_KEYS = ["explanatory_gesture", "pointing", "body_movement"] as const;
@@ -72,15 +104,47 @@ interface GestureTotals {
   negative: number;
 }
 
-// 필러/WPM/무음/발화습관은 STEP3(STT)가 아직 DB에 연결 안 돼 Mock 유지, 제스처만 실제 데이터.
-function buildSummaryStats(gestureTotals: GestureTotals | null) {
+// 구간마다 일반/부정적 제스처 횟수를 센다 (그래프용).
+// 동작 분석 조각(약 20초)은 "시작 시각"이 속한 구간 한 곳에만 넣는다 — 마지막 구간만 끝 시각도 포함.
+// (STEP 4 집계 API 는 경계에 걸친 조각을 겹치는 구간마다 넣어서 구간별 합이 실제 총합보다 커진다.
+//  여기서 직접 세면 구간별 합이 상단 카드의 총합과 정확히 같다.)
+function countGesturesBySegment(segments: ApiSegment[], chunks: VideoChunk[]): GestureTotals[] {
+  return segments.map((seg, i) => {
+    const isLast = i === segments.length - 1;
+    let general = 0;
+    let negative = 0;
+    for (const chunk of chunks) {
+      if (chunk.t_start < seg.t_start || (chunk.t_start >= seg.t_end && !isLast)) continue;
+      const counts = chunk.gesture_counts || {};
+      for (const key of GENERAL_GESTURE_KEYS) general += counts[key] || 0;
+      for (const key of NEGATIVE_GESTURE_KEYS) negative += counts[key] || 0;
+    }
+    return { general, negative };
+  });
+}
+
+// GET /sessions/{id}/voice-summary 응답. 아직 없는 값은 null.
+interface VoiceSummary {
+  filler_count: number | null;
+  repetition_count: number | null;
+  silence_ratio: number | null;          // 0~1
+  avg_speaking_rate_spm: number | null;  // 음절/분
+}
+
+// 값이 없으면 "-", 있으면 단위를 붙여서 문자열로.
+function formatStat(value: number | null | undefined, format: (v: number) => string) {
+  return value == null ? "-" : format(value);
+}
+
+// 제스처/음성 카드는 실제 데이터. (말 더듬 횟수 = 반복 횟수)
+function buildSummaryStats(gestureTotals: GestureTotals | null, voice: VoiceSummary | null) {
   return [
-    { title: "필러 단어 빈도", value: "15회", badge: "주의", badgeColor: "text-rose-600 bg-rose-50 border-rose-100", icon: MessageSquare, color: "text-rose-600", bg: "bg-rose-50" },
-    { title: "평균 말하기 속도", value: "126 WPM", badge: "적정", badgeColor: "text-green-600 bg-green-50 border-green-100", icon: Activity, color: "text-green-600", bg: "bg-green-50" },
-    { title: "전체 무음 비율", value: "8%", badge: "양호", badgeColor: "text-purple-600 bg-purple-50 border-purple-100", icon: Mic, color: "text-purple-600", bg: "bg-purple-50" },
-    { title: "발견된 발화 습관", value: "16건", badge: "개선 필요", badgeColor: "text-orange-600 bg-orange-50 border-orange-100", icon: BarChart2, color: "text-orange-600", bg: "bg-orange-50" },
-    { title: "일반 제스처", value: gestureTotals ? `${gestureTotals.general}회` : "-", badge: "양호", badgeColor: "text-blue-600 bg-blue-50 border-blue-100", icon: ThumbsUp, color: "text-blue-600", bg: "bg-blue-50" },
-    { title: "부정적 제스처", value: gestureTotals ? `${gestureTotals.negative}회` : "-", badge: "주의", badgeColor: "text-rose-600 bg-rose-50 border-rose-100", icon: AlertCircle, color: "text-rose-600", bg: "bg-rose-50" },
+    { title: "필러 단어 빈도", value: formatStat(voice?.filler_count, v => `${v}회`), icon: MessageSquare, color: "text-rose-600", bg: "bg-rose-50" },
+    { title: "평균 말하기 속도", value: formatStat(voice?.avg_speaking_rate_spm, v => `${Math.round(v)} 음절/분`), icon: Activity, color: "text-green-600", bg: "bg-green-50" },
+    { title: "전체 무음 비율", value: formatStat(voice?.silence_ratio, v => `${Math.round(v * 100)}%`), icon: Mic, color: "text-purple-600", bg: "bg-purple-50" },
+    { title: "말 더듬 횟수", value: formatStat(voice?.repetition_count, v => `${v}회`), icon: BarChart2, color: "text-orange-600", bg: "bg-orange-50" },
+    { title: "일반 제스처", value: gestureTotals ? `${gestureTotals.general}회` : "-", icon: ThumbsUp, color: "text-blue-600", bg: "bg-blue-50" },
+    { title: "부정적 제스처", value: gestureTotals ? `${gestureTotals.negative}회` : "-", icon: AlertCircle, color: "text-rose-600", bg: "bg-rose-50" },
   ];
 }
 
@@ -127,48 +191,6 @@ const STT_DATA = [
   { time: "03:00", text: "VLM 결과 후처리 하기 위해 JSON 형태로 결과값을 받을 생각입니다.", segment: "결론", type: "normal" }
 ];
 
-const ANALYSIS_METRICS = [
-  { id: 'am-1', segment: '도입', wpm: 120, fillerTotal: 5, silenceRatio: 12, habits: 2 },
-  { id: 'am-2', segment: '문제 제기', wpm: 145, fillerTotal: 2, silenceRatio: 5, habits: 1 },
-  { id: 'am-3', segment: '해결 방안', wpm: 135, fillerTotal: 8, silenceRatio: 15, habits: 4 },
-  { id: 'am-4', segment: '결론', wpm: 110, fillerTotal: 1, silenceRatio: 4, habits: 0 },
-];
-
-const FEEDBACK_DATA = [
-  {
-    id: "fb-1",
-    segment: "도입",
-    delivery: "명확한 목소리로 시작하여 청중의 이목을 끄는 데 성공했습니다. 말하기 속도(120 WPM)도 듣기 편안한 수준이었습니다.",
-    habits: "'어...', '그...' 와 같은 필러 단어가 5회 발생했으며, 다음 문장을 생각할 때 발생하는 3초 이상의 긴 무음이 감지되었습니다.",
-    gesture: "안정적인 자세를 유지했으나, 스크립트를 상기하느라 시선이 다소 아래를 향하는 경향이 있었습니다.",
-    improvements: "시선을 스크린이나 허공이 아닌 청중에게 향하도록 의식적인 노력이 필요합니다. 다음 내용을 넘어가기 전에 가볍게 심호흡을 하면 필러 단어를 줄일 수 있습니다."
-  },
-  {
-    id: "fb-2",
-    segment: "문제 제기",
-    delivery: "데이터를 설명할 때 말하기 속도가 145 WPM으로 다소 빨라졌습니다. 핵심 수치(30%)를 강조할 때 잠시 쉬어가는 것이 좋습니다.",
-    habits: "필러 단어 사용이 2회로 줄어들어 이전 구간 대비 개선된 모습을 보였습니다.",
-    gesture: "손짓을 활용하여 문제의 심각성을 잘 어필했습니다. 표정도 상황에 맞게 진지했습니다.",
-    improvements: "빠른 템포로 정보를 쏟아내기보다는, 중요 포인트 직후에 1~2초간 멈춤(Pause) 기법을 활용해보세요."
-  },
-  {
-    id: "fb-3",
-    segment: "해결 방안",
-    delivery: "솔루션을 제시할 때 자신감 있는 어조가 돋보였습니다.",
-    habits: "설명이 복잡해지면서 필러 단어(8회)와 무음 구간이 다시 증가했습니다.",
-    gesture: "화면을 가리키는 동작이 자연스러웠으나, 때때로 등을 보이는 자세가 연출되었습니다.",
-    improvements: "스크린을 가리킬 때는 청중을 향해 열린 자세(45도 각도)를 유지하는 것이 좋습니다."
-  },
-  {
-    id: "fb-4",
-    segment: "결론",
-    delivery: "핵심 요약을 천천히(110 WPM) 전달하여 마무리 효과가 좋았습니다.",
-    habits: "발화 습관이 가장 안정적인 구간입니다. 필러 단어와 무음이 거의 없습니다.",
-    gesture: "청중과 부드럽게 시선을 맞추며 마무리 인사를 한 점이 훌륭합니다.",
-    improvements: "현재의 안정감 있는 결론 전달 방식을 계속 유지하세요."
-  }
-];
-
 const COMPARE_FEEDBACK = {
   strengths: [
     "1회차에 비해 2회차에서 무음 비율이 12%에서 8%로 감소하여 훨씬 매끄러운 진행을 보여주었습니다.",
@@ -191,7 +213,7 @@ const COMPARE_METRICS = [
   { id: 'filler', title: '필러 단어 빈도', s1: '25회', s2: '15회', icon: MessageSquare, color: "text-rose-600", bg: "bg-rose-50" },
   { id: 'wpm', title: '평균 말하기 속도', s1: '115 WPM', s2: '126 WPM', icon: Activity, color: "text-green-600", bg: "bg-green-50" },
   { id: 'silence', title: '전체 무음 비율', s1: '12%', s2: '8%', icon: Mic, color: "text-purple-600", bg: "bg-purple-50" },
-  { id: 'habits', title: '발견된 발화 습관', s1: '24건', s2: '16건', icon: BarChart2, color: "text-orange-600", bg: "bg-orange-50" },
+  { id: 'habits', title: '말 더듬 횟수', s1: '24회', s2: '16회', icon: BarChart2, color: "text-orange-600", bg: "bg-orange-50" },
   { id: 'pos_gesture', title: '긍정적 제스처', s1: '8회', s2: '12회', icon: ThumbsUp, color: "text-blue-600", bg: "bg-blue-50" },
   { id: 'neg_gesture', title: '부정적 제스처', s1: '15회', s2: '5회', icon: AlertCircle, color: "text-rose-600", bg: "bg-rose-50" },
 ];
@@ -201,7 +223,7 @@ const COMPARE_SEGMENT_METRICS = [
     { id: 'filler', title: '필러 단어 빈도', s1: '8회', s2: '5회', icon: MessageSquare, color: "text-rose-600", bg: "bg-rose-50" },
     { id: 'wpm', title: '평균 말하기 속도', s1: '110 WPM', s2: '120 WPM', icon: Activity, color: "text-green-600", bg: "bg-green-50" },
     { id: 'silence', title: '전체 무음 비율', s1: '15%', s2: '12%', icon: Mic, color: "text-purple-600", bg: "bg-purple-50" },
-    { id: 'habits', title: '발견된 발화 습관', s1: '6건', s2: '2건', icon: BarChart2, color: "text-orange-600", bg: "bg-orange-50" },
+    { id: 'habits', title: '말 더듬 횟수', s1: '6회', s2: '2회', icon: BarChart2, color: "text-orange-600", bg: "bg-orange-50" },
     { id: 'pos_gesture', title: '긍정적 제스처', s1: '1회', s2: '3회', icon: ThumbsUp, color: "text-blue-600", bg: "bg-blue-50" },
     { id: 'neg_gesture', title: '부정적 제스처', s1: '5회', s2: '1회', icon: AlertCircle, color: "text-rose-600", bg: "bg-rose-50" },
   ],
@@ -209,7 +231,7 @@ const COMPARE_SEGMENT_METRICS = [
     { id: 'filler', title: '필러 단어 빈도', s1: '5회', s2: '2회', icon: MessageSquare, color: "text-rose-600", bg: "bg-rose-50" },
     { id: 'wpm', title: '평균 말하기 속도', s1: '130 WPM', s2: '145 WPM', icon: Activity, color: "text-green-600", bg: "bg-green-50" },
     { id: 'silence', title: '전체 무음 비율', s1: '8%', s2: '5%', icon: Mic, color: "text-purple-600", bg: "bg-purple-50" },
-    { id: 'habits', title: '발견된 발화 습관', s1: '4건', s2: '1건', icon: BarChart2, color: "text-orange-600", bg: "bg-orange-50" },
+    { id: 'habits', title: '말 더듬 횟수', s1: '4회', s2: '1회', icon: BarChart2, color: "text-orange-600", bg: "bg-orange-50" },
     { id: 'pos_gesture', title: '긍정적 제스처', s1: '2회', s2: '4회', icon: ThumbsUp, color: "text-blue-600", bg: "bg-blue-50" },
     { id: 'neg_gesture', title: '부정적 제스처', s1: '4회', s2: '2회', icon: AlertCircle, color: "text-rose-600", bg: "bg-rose-50" },
   ],
@@ -217,7 +239,7 @@ const COMPARE_SEGMENT_METRICS = [
     { id: 'filler', title: '필러 단어 빈도', s1: '10회', s2: '8회', icon: MessageSquare, color: "text-rose-600", bg: "bg-rose-50" },
     { id: 'wpm', title: '평균 말하기 속도', s1: '120 WPM', s2: '135 WPM', icon: Activity, color: "text-green-600", bg: "bg-green-50" },
     { id: 'silence', title: '전체 무음 비율', s1: '18%', s2: '15%', icon: Mic, color: "text-purple-600", bg: "bg-purple-50" },
-    { id: 'habits', title: '발견된 발화 습관', s1: '10건', s2: '4건', icon: BarChart2, color: "text-orange-600", bg: "bg-orange-50" },
+    { id: 'habits', title: '말 더듬 횟수', s1: '10회', s2: '4회', icon: BarChart2, color: "text-orange-600", bg: "bg-orange-50" },
     { id: 'pos_gesture', title: '긍정적 제스처', s1: '3회', s2: '2회', icon: ThumbsUp, color: "text-blue-600", bg: "bg-blue-50" },
     { id: 'neg_gesture', title: '부정적 제스처', s1: '4회', s2: '1회', icon: AlertCircle, color: "text-rose-600", bg: "bg-rose-50" },
   ],
@@ -225,7 +247,7 @@ const COMPARE_SEGMENT_METRICS = [
     { id: 'filler', title: '필러 단어 빈도', s1: '2회', s2: '0회', icon: MessageSquare, color: "text-rose-600", bg: "bg-rose-50" },
     { id: 'wpm', title: '평균 말하기 속도', s1: '100 WPM', s2: '110 WPM', icon: Activity, color: "text-green-600", bg: "bg-green-50" },
     { id: 'silence', title: '전체 무음 비율', s1: '6%', s2: '4%', icon: Mic, color: "text-purple-600", bg: "bg-purple-50" },
-    { id: 'habits', title: '발견된 발화 습관', s1: '4건', s2: '0건', icon: BarChart2, color: "text-orange-600", bg: "bg-orange-50" },
+    { id: 'habits', title: '말 더듬 횟수', s1: '4회', s2: '0회', icon: BarChart2, color: "text-orange-600", bg: "bg-orange-50" },
     { id: 'pos_gesture', title: '긍정적 제스처', s1: '2회', s2: '3회', icon: ThumbsUp, color: "text-blue-600", bg: "bg-blue-50" },
     { id: 'neg_gesture', title: '부정적 제스처', s1: '2회', s2: '1회', icon: AlertCircle, color: "text-rose-600", bg: "bg-rose-50" },
   ]
@@ -235,8 +257,29 @@ const GROWTH_METRICS_CONFIG = [
   { id: 'fillerTotal', label: '필러 단어 빈도', unit: '회', color: '#f43f5e', type: 'line' },
   { id: 'wpm', label: '평균 말하기 속도', unit: 'WPM', color: '#3b82f6', type: 'line' },
   { id: 'silenceRatio', label: '전체 무음 비율', unit: '%', color: '#c084fc', type: 'bar' },
-  { id: 'habits', label: '발견된 발화 습관', unit: '건', color: '#fb923c', type: 'bar' }
+  { id: 'habits', label: '말 더듬 횟수', unit: '회', color: '#fb923c', type: 'bar' }
 ];
+
+// 단일 분석 그래프용 — 위 성장 분석 설정과 같은 모양인데 속도 단위만 STEP 3 기준(음절/분)이다.
+// 값은 구간별 지표(/segments/trend)에서 온다. 말 더듬 횟수 = 반복 횟수 (상단 카드와 같은 기준).
+// 일반/부정적 제스처는 구간별 지표 API 대신 동작 분석 조각에서 직접 센다 (countGesturesBySegment 참고).
+const SINGLE_METRICS_CONFIG = [
+  ...GROWTH_METRICS_CONFIG.map(m => (m.id === 'wpm' ? { ...m, unit: '음절/분' } : m)),
+  { id: 'generalGesture', label: '일반 제스처', unit: '회', color: '#0ea5e9', type: 'line' },
+  { id: 'negativeGesture', label: '부정적 제스처', unit: '회', color: '#ef4444', type: 'line' },
+];
+
+// 백엔드 GET 요청 → JSON. 실패하면 null (화면에서 그 부분만 비어 보이게 한다).
+async function getJson<T>(path: string): Promise<T | null> {
+  try {
+    const res = await fetch(`${API_BASE}${path}`);
+    if (!res.ok) throw new Error(`${path} -> HTTP ${res.status}`);
+    return (await res.json()) as T;
+  } catch (err) {
+    console.error(err);
+    return null;
+  }
+}
 
 export default function PresentationAnalysisDashboard() {
   const router = useRouter();
@@ -276,51 +319,133 @@ export default function PresentationAnalysisDashboard() {
     }
   }, [searchParams]);
 
-  // 선택된 세션의 실제 영상 경로 + VLM 제스처 집계 (STEP2 결과, /sessions/{id}/analysis)
+  // 선택된 세션의 실제 데이터 — 영상 경로, 동작 분석(STEP2), 음성 요약·스크립트(STEP3), 구간·피드백(STEP4·5)
   const [sessionVideoPath, setSessionVideoPath] = useState<string | null>(null);
   const [gestureTotals, setGestureTotals] = useState<GestureTotals | null>(null);
+  const [voiceSummary, setVoiceSummary] = useState<VoiceSummary | null>(null);
+  const [videoChunks, setVideoChunks] = useState<VideoChunk[]>([]);
+  const [script, setScript] = useState<ScriptData | null>(null);
+  const [segments, setSegments] = useState<ApiSegment[]>([]);
+  const [trend, setTrend] = useState<TrendPoint[]>([]);
+  const [currentTime, setCurrentTime] = useState(0); // 영상의 현재 재생 위치(초)
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
+    // 세션을 빠르게 바꿔 누를 때 이전 세션의 늦은 응답이 화면을 덮어쓰지 않게 한다.
+    let cancelled = false;
+
+    setCurrentTime(0);
+    setActiveSegmentIndex(0);
     if (!activeSessionId) {
       setSessionVideoPath(null);
       setGestureTotals(null);
+      setVoiceSummary(null);
+      setVideoChunks([]);
+      setScript(null);
+      setSegments([]);
+      setTrend([]);
       return;
     }
-    (async () => {
-      try {
-        const sessionRes = await fetch(`${API_BASE}/sessions/${activeSessionId}`);
-        if (sessionRes.ok) {
-          const detail: ApiSession = await sessionRes.json();
-          setSessionVideoPath(detail.full_video_path);
-        } else {
-          setSessionVideoPath(null);
-        }
-      } catch (err) {
-        console.error(err);
-        setSessionVideoPath(null);
-      }
 
-      try {
-        const analysisRes = await fetch(`${API_BASE}/sessions/${activeSessionId}/analysis`);
-        if (!analysisRes.ok) throw new Error('failed to load analysis');
-        const data: { analyses: { gesture_counts: Record<string, number> | null }[] } = await analysisRes.json();
+    (async () => {
+      const base = `/sessions/${activeSessionId}`;
+      // 서로 상관없는 요청이라 한꺼번에 보낸다. 실패한 것은 null 로 오고, 그 부분만 비어 보인다.
+      const [detail, analysis, voice, scriptData, segmentData, trendData] = await Promise.all([
+        getJson<ApiSession>(base),
+        getJson<{ analyses: VideoChunk[] }>(`${base}/analysis`),
+        getJson<VoiceSummary>(`${base}/voice-summary`),
+        getJson<ScriptData>(`${base}/script`),
+        getJson<{ segments: ApiSegment[] }>(`${base}/segment-feedback`),
+        getJson<{ points: TrendPoint[] }>(`${base}/segments/trend`),
+      ]);
+      if (cancelled) return;
+
+      setSessionVideoPath(detail ? detail.full_video_path : null);
+      setVoiceSummary(voice);
+      setScript(scriptData);
+      setSegments(segmentData ? segmentData.segments : []);
+      setTrend(trendData ? trendData.points : []);
+
+      // 동작 분석: 제스처 합계(상단 카드)와 조각 목록(스크립트에 표시)
+      setVideoChunks(analysis ? analysis.analyses : []);
+      if (analysis) {
         let general = 0;
         let negative = 0;
-        for (const a of data.analyses) {
+        for (const a of analysis.analyses) {
           const counts = a.gesture_counts || {};
           for (const key of GENERAL_GESTURE_KEYS) general += counts[key] || 0;
           for (const key of NEGATIVE_GESTURE_KEYS) negative += counts[key] || 0;
         }
         setGestureTotals({ general, negative });
-      } catch (err) {
-        console.error(err);
+      } else {
         setGestureTotals(null);
       }
     })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [activeSessionId]);
 
   const videoSrc = sessionVideoPath ? `${API_BASE}/media/${activeSessionId}/full_video.webm` : null;
+
+  // 영상을 sec 초로 옮긴다 (play=true 면 바로 재생).
+  // 영상 정보(길이 등)가 아직 안 왔으면 오는 즉시 옮긴다 — 안 그러면 이동이 무시돼 0초부터 재생된다.
+  const seekVideo = (sec: number, play = true) => {
+    const v = videoRef.current;
+    if (!v) return;
+    const go = () => {
+      v.currentTime = Math.max(0, sec);
+      if (play) v.play().catch(() => {});
+    };
+    if (v.readyState >= 1) go();
+    else v.addEventListener('loadedmetadata', go, { once: true });
+  };
+
+  // 브라우저 카메라로 찍은 webm 은 파일에 길이 정보가 없어 duration 이 Infinity 로 나오고 이동이 안 될 수 있다.
+  // 맨 끝으로 한 번 이동시켜 브라우저가 길이를 계산하게 한 뒤 처음으로 되돌린다.
+  const fixUnknownDuration = (v: HTMLVideoElement) => {
+    if (Number.isFinite(v.duration)) return;
+    const back = () => {
+      v.removeEventListener('timeupdate', back);
+      v.currentTime = 0;
+    };
+    v.addEventListener('timeupdate', back);
+    v.currentTime = 1e7;
+  };
+
+  // 구간 버튼/카드를 누르면 그 구간의 스크립트만 보여준다. 영상은 움직이지 않는다.
+  // (영상이 움직이는 건 인터랙티브 스크립트의 문장·표시를 눌렀을 때뿐이다.)
+  const selectSegment = (idx: number) => setActiveSegmentIndex(idx);
+
+  // 영상이 지금 재생되고 있는 위치가 속한 구간 번호 (없으면 -1)
+  const playingSegmentIndex = segments.findIndex(
+    (s, i) => currentTime >= s.t_start && (currentTime < s.t_end || i === segments.length - 1)
+  );
+
+  // 재생이 다음 구간으로 넘어가거나 영상 재생바를 직접 옮겨서 "재생 구간 번호가 바뀔 때만" 스크립트가 따라간다.
+  // (currentTime 이 바뀔 때마다 하면, 재생 중에 다른 구간 버튼을 눌러도 곧바로 되돌아가 버린다.)
+  useEffect(() => {
+    if (playingSegmentIndex >= 0) setActiveSegmentIndex(playingSegmentIndex);
+  }, [playingSegmentIndex]);
+
+  const activeSegment = segments[activeSegmentIndex] ?? null;       // 스크립트로 보고 있는 구간
+  const playingSegment = segments[playingSegmentIndex] ?? null;     // 영상이 재생 중인 구간
+
+  // 단일 분석 그래프 데이터 — 구간마다 한 점. x축 이름이 겹치면(같은 라벨의 구간) 한 점으로 합쳐 보이므로 번호를 붙인다.
+  const gesturesBySegment = countGesturesBySegment(segments, videoChunks);
+  const trendData = trend.map((p, i) => {
+    const gestures = gesturesBySegment[segments.findIndex(s => s.segment_id === p.segment_id)];
+    return {
+      segment: `${i + 1}. ${segmentName(p)}`,
+      fillerTotal: p.filler_count ?? 0,
+      wpm: Math.round(p.speaking_rate_spm ?? 0),
+      silenceRatio: Math.round((p.silence_ratio ?? 0) * 1000) / 10, // 0~1 → % (소수 첫째 자리)
+      habits: p.repetition_count ?? 0,
+      generalGesture: gestures ? gestures.general : 0,
+      negativeGesture: gestures ? gestures.negative : 0,
+    };
+  });
 
   // Growth Chart State
   const [selectedGrowthTopicId, setSelectedGrowthTopicId] = useState('t1');
@@ -344,12 +469,14 @@ export default function PresentationAnalysisDashboard() {
   const [editingTopicId, setEditingTopicId] = useState<string | null>(null);
   const [editingTopicName, setEditingTopicName] = useState('');
   const [isSessionModalOpen, setIsSessionModalOpen] = useState(false);
+
+  // 삭제 확인창 (네/아니요). onConfirm 은 "네"를 눌렀을 때 실행할 삭제 함수.
+  const [confirmDialog, setConfirmDialog] = useState<{ message: string; detail: string; onConfirm: () => void } | null>(null);
   const [targetTopicId, setTargetTopicId] = useState<string | null>(null);
 
   // PDF는 아직 대응 API가 없어 Mock 유지. 영상은 /record 페이지에서 실시간 촬영으로 처리.
   const [uploadedPdf, setUploadedPdf] = useState<string | null>(null);
 
-  const activeFeedback = FEEDBACK_DATA[activeSegmentIndex];
 
   // Helper to find currently selected topic and session names
   let activeTopicName = "";
@@ -414,8 +541,7 @@ export default function PresentationAnalysisDashboard() {
     }
   };
 
-  const deleteTopic = async (e: React.MouseEvent, id: string) => {
-    e.stopPropagation();
+  const deleteTopic = async (id: string) => {
     try {
       const res = await fetch(`${API_BASE}/projects/${id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('failed to delete project');
@@ -438,8 +564,7 @@ export default function PresentationAnalysisDashboard() {
     router.push(`/record?project=${projectId}`);
   };
 
-  const deleteSession = async (e: React.MouseEvent, topicId: string, sessionId: string) => {
-    e.stopPropagation();
+  const deleteSession = async (sessionId: string) => {
     try {
       const res = await fetch(`${API_BASE}/sessions/${sessionId}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('failed to delete session');
@@ -451,8 +576,38 @@ export default function PresentationAnalysisDashboard() {
     } catch (err) {
       console.error(err);
       alert('세션 삭제에 실패했습니다.');
+      await fetchTopics(); // 실제 상태와 목록이 어긋나지 않게 다시 불러온다
     }
   };
+
+  // 삭제 버튼을 누르면 바로 지우지 않고 확인창부터 띄운다.
+  const askDeleteTopic = (e: React.MouseEvent, topic: Topic) => {
+    e.stopPropagation();
+    setConfirmDialog({
+      message: `'${topic.name}' 폴더를 삭제하시겠습니까?`,
+      detail: `폴더 안의 연습 ${topic.sessions.length}개와 촬영 영상, 분석 결과가 모두 삭제되며 되돌릴 수 없습니다.`,
+      onConfirm: () => deleteTopic(topic.id),
+    });
+  };
+
+  const askDeleteSession = (e: React.MouseEvent, session: TopicSession) => {
+    e.stopPropagation();
+    setConfirmDialog({
+      message: `'${session.name}'을 삭제하시겠습니까?`,
+      detail: '촬영 영상과 분석 결과가 함께 삭제되며 되돌릴 수 없습니다.',
+      onConfirm: () => deleteSession(session.id),
+    });
+  };
+
+  // 확인창이 떠 있을 때 Esc 를 누르면 "아니요"와 같다.
+  useEffect(() => {
+    if (!confirmDialog) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setConfirmDialog(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [confirmDialog]);
 
   const openSessionModal = (e: React.MouseEvent, topicId: string) => {
     e.stopPropagation();
@@ -551,7 +706,7 @@ export default function PresentationAnalysisDashboard() {
               <div className="flex justify-between items-end mb-8">
                 <div>
                   <h3 className="text-2xl font-extrabold text-slate-800">프로젝트 및 세션 관리</h3>
-                  <p className="text-[15px] text-slate-500 mt-2 font-medium">주제별 폴더를 생성하고 발표 연습 영상을 업로드하여 분석을 시작하세요.</p>
+                  <p className="text-[15px] text-slate-500 mt-2 font-medium">주제별 폴더를 생성하고 발표 연습을 촬영하세요.</p>
                 </div>
                 <button 
                   onClick={() => setIsTopicModalOpen(true)}
@@ -596,7 +751,7 @@ export default function PresentationAnalysisDashboard() {
                           <Pencil className="w-4 h-4" />
                         </button>
                         <button
-                          onClick={(e) => deleteTopic(e, topic.id)}
+                          onClick={(e) => askDeleteTopic(e, topic)}
                           className="text-slate-400 hover:text-red-500 p-1.5 hover:bg-red-50 rounded-lg transition-colors"
                           title="폴더 삭제"
                         >
@@ -607,8 +762,18 @@ export default function PresentationAnalysisDashboard() {
 
                     {/* Sessions List */}
                     <div className="p-5 flex-1 flex flex-col gap-3">
+                      {/* Add Session Button inside folder */}
+                      <button
+                        onClick={(e) => openSessionModal(e, topic.id)}
+                        className="w-full flex items-center justify-center gap-2 p-3.5 rounded-xl border-2 border-dashed border-slate-200 text-slate-500 hover:text-blue-600 hover:border-blue-300 hover:bg-blue-50 transition-all font-semibold text-[14px]"
+                      >
+                        <Plus className="w-4 h-4" />
+                        발표 추가
+                      </button>
+
                       {topic.sessions.length > 0 ? (
-                        <div className="space-y-3">
+                        // 세션이 5개(한 줄 75px + 간격 12px)까지만 보이고, 그 이상은 이 안에서 스크롤한다.
+                        <div className={`space-y-3 max-h-[423px] overflow-y-auto custom-scrollbar ${topic.sessions.length > 5 ? 'pr-2' : ''}`}>
                           {topic.sessions.map(session => (
                             <div 
                               key={session.id}
@@ -628,7 +793,7 @@ export default function PresentationAnalysisDashboard() {
                                 </div>
                               </div>
                               <button 
-                                onClick={(e) => deleteSession(e, topic.id, session.id)} 
+                                onClick={(e) => askDeleteSession(e, session)} 
                                 className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-red-500 p-2 hover:bg-red-50 rounded-lg transition-all"
                                 title="연습 삭제"
                               >
@@ -643,15 +808,6 @@ export default function PresentationAnalysisDashboard() {
                           <p className="text-[13px] font-medium">등록된 세션이 없습니다</p>
                         </div>
                       )}
-                      
-                      {/* Add Session Button inside folder */}
-                      <button 
-                        onClick={(e) => openSessionModal(e, topic.id)} 
-                        className="mt-auto w-full flex items-center justify-center gap-2 p-3.5 rounded-xl border-2 border-dashed border-slate-200 text-slate-500 hover:text-blue-600 hover:border-blue-300 hover:bg-blue-50 transition-all font-semibold text-[14px]"
-                      >
-                        <Plus className="w-4 h-4" />
-                        발표 추가
-                      </button>
                     </div>
                   </div>
                 ))}
@@ -668,7 +824,7 @@ export default function PresentationAnalysisDashboard() {
                 <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 space-y-6">
                   {/* Top: Summary Cards */}
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {buildSummaryStats(gestureTotals).map((stat, idx) => {
+                    {buildSummaryStats(gestureTotals, voiceSummary).map((stat, idx) => {
                       const Icon = stat.icon;
                       return (
                         <div key={idx} className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 flex flex-col justify-between h-[110px]">
@@ -680,7 +836,6 @@ export default function PresentationAnalysisDashboard() {
                           </div>
                           <div className="flex items-center gap-2 mt-auto">
                             <h2 className="text-2xl font-extrabold text-slate-800 whitespace-nowrap">{stat.value}</h2>
-                            {stat.badge && <span className={`text-xs font-bold whitespace-nowrap px-1.5 py-0.5 rounded-md border ${stat.badgeColor}`}>{stat.badge}</span>}
                           </div>
                         </div>
                       );
@@ -704,6 +859,8 @@ export default function PresentationAnalysisDashboard() {
                           controls
                           onPlay={() => setIsPlaying(true)}
                           onPause={() => setIsPlaying(false)}
+                          onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
+                          onLoadedMetadata={(e) => fixUnknownDuration(e.currentTarget)}
                           className="absolute inset-0 w-full h-full object-contain bg-black"
                         />
                       ) : (
@@ -717,74 +874,59 @@ export default function PresentationAnalysisDashboard() {
                         </>
                       )}
                       {/* Current Segment indicator */}
-                      <div className="absolute top-4 left-4 bg-black/60 backdrop-blur-md text-white px-3 py-1.5 rounded-lg text-sm font-bold border border-white/10 shadow-lg">
-                        현재 구간: <span className="text-blue-300">{SEGMENTS[activeSegmentIndex].name}</span>
+                      {playingSegment && (
+                        <div className="absolute top-4 left-4 bg-black/60 backdrop-blur-md text-white px-3 py-1.5 rounded-lg text-sm font-bold border border-white/10 shadow-lg pointer-events-none">
+                          현재 구간: <span className="text-blue-300">{segmentName(playingSegment)}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {segments.length > 0 ? (
+                      <>
+                        {/* Timeline Buttons */}
+                        <div className="flex flex-wrap items-center gap-2">
+                          {segments.map((seg, idx) => (
+                            <button
+                              key={seg.segment_id}
+                              onClick={() => selectSegment(idx)}
+                              title={`${seg.title} (${fmtTime(seg.t_start)}~${fmtTime(seg.t_end)})`}
+                              className={`flex-1 min-w-[110px] py-3 px-4 rounded-xl text-[15px] font-extrabold border transition-all ${activeSegmentIndex === idx ? 'bg-slate-800 text-white border-slate-800 shadow-md shadow-slate-300' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 hover:text-slate-800'}`}
+                            >
+                              <div className="flex items-center justify-center gap-2.5">
+                                <div className={`w-3 h-3 rounded-full shadow-sm shrink-0 ${SEGMENT_COLORS[idx % SEGMENT_COLORS.length]}`}></div>
+                                {segmentName(seg)}
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* Segment Script (인터랙티브: 문장/표시를 누르면 영상이 그 시점으로 이동) */}
+                        <div className="mt-5 bg-slate-50 rounded-xl p-5 border border-slate-100">
+                          <h4 className="font-extrabold text-slate-800 mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[15px]">
+                            <FileText className="w-4 h-4 text-blue-500" />
+                            {activeSegment ? `${segmentName(activeSegment)} 구간 스크립트` : '구간 스크립트'}
+                            {activeSegment && (
+                              <span className="text-xs font-medium text-slate-400">
+                                {fmtTime(activeSegment.t_start)}~{fmtTime(activeSegment.t_end)} · {activeSegment.title}
+                              </span>
+                            )}
+                            <span className="ml-auto text-xs font-medium text-slate-400">문장이나 표시를 누르면 그 장면부터 재생됩니다</span>
+                          </h4>
+                          <InteractiveScript
+                            segment={activeSegment ? { t_start: activeSegment.t_start, t_end: activeSegment.t_end, isLast: activeSegmentIndex === segments.length - 1 } : null}
+                            script={script}
+                            videoChunks={videoChunks}
+                            currentTime={currentTime}
+                            isPlaying={isPlaying}
+                            onSeek={(sec) => seekVideo(sec)}
+                          />
+                        </div>
+                      </>
+                    ) : (
+                      <div className="mt-2 rounded-xl bg-slate-50 border border-dashed border-slate-200 py-8 px-4 text-center text-sm text-slate-400 font-medium">
+                        구간 분석 결과가 없습니다. 음성 분석과 구간 분리까지 끝난 세션에서 구간 타임라인과 스크립트가 표시됩니다.
                       </div>
-                    </div>
-
-                    {/* Timeline Buttons */}
-                    <div className="flex items-center gap-2">
-                      {SEGMENTS.map((seg, idx) => (
-                        <button 
-                          key={seg.id}
-                          onClick={() => setActiveSegmentIndex(idx)}
-                          className={`flex-1 py-3 px-4 rounded-xl text-[15px] font-extrabold border transition-all ${activeSegmentIndex === idx ? 'bg-slate-800 text-white border-slate-800 shadow-md shadow-slate-300' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 hover:text-slate-800'}`}
-                        >
-                          <div className="flex items-center justify-center gap-2.5">
-                            <div className={`w-3 h-3 rounded-full shadow-sm ${seg.color}`}></div>
-                            {seg.name}
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-
-                    {/* Segment Script */}
-                    <div className="mt-5 bg-slate-50 rounded-xl p-5 border border-slate-100">
-                      <h4 className="font-extrabold text-slate-800 mb-3 flex items-center gap-2 text-[15px]">
-                        <FileText className="w-4 h-4 text-blue-500" />
-                        {SEGMENTS[activeSegmentIndex].name} 구간 스크립트
-                      </h4>
-                      <div className="space-y-3 max-h-[160px] overflow-y-auto custom-scrollbar pr-2">
-                        {STT_DATA.filter(item => item.segment === SEGMENTS[activeSegmentIndex].name).map((item, i) => (
-                          <div key={`script-part-${i}`} className="flex gap-3 text-[14px]">
-                            <span className="text-slate-400 font-bold shrink-0 w-12 pt-1">{item.time}</span>
-                            <div className="text-slate-700 leading-relaxed font-medium flex-1">
-                              {item.type === 'normal' && item.text}
-                              
-                              {item.type === 'gesture' && (
-                                <button className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border shadow-sm transition-all hover:-translate-y-0.5 ${item.gestureType === 'normal' ? 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100' : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'}`}>
-                                  {item.gestureType === 'normal' ? <ThumbsUp className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
-                                  {item.gestureType === 'negative' ? '부정적 제스처' : '제스처'}: {item.gesture}
-                                </button>
-                              )}
-
-                              {item.type === 'filler' && (
-                                <>
-                                  {item.text.split(item.highlight!).map((part, idx, arr) => (
-                                    <React.Fragment key={`filler-${idx}`}>
-                                      {part}
-                                      {idx < arr.length - 1 && (
-                                        <button className="bg-orange-100 text-orange-700 px-2.5 py-1 rounded-lg text-xs font-bold border border-orange-200 mx-1 shadow-sm transition-all hover:-translate-y-0.5 inline-flex items-center gap-1">
-                                          <MessageSquare className="w-3.5 h-3.5" />
-                                          발화습관: {item.highlight}
-                                        </button>
-                                      )}
-                                    </React.Fragment>
-                                  ))}
-                                </>
-                              )}
-                              
-                              {item.type === 'silence' && (
-                                <button className="bg-slate-200 text-slate-600 px-2.5 py-1 rounded-lg text-xs font-bold border border-slate-300 inline-flex items-center gap-1.5 shadow-sm transition-all hover:-translate-y-0.5">
-                                  <Clock className="w-3.5 h-3.5" />
-                                  발화습관: {item.highlight}
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
+                    )}
                   </div>
 
                   {/* Middle-Bottom: Graphs by Segment */}
@@ -796,60 +938,70 @@ export default function PresentationAnalysisDashboard() {
                       </h3>
                     </div>
 
-                    {/* Metric Selection Buttons */}
-                    <div className="flex flex-wrap gap-3 mb-8">
-                      {GROWTH_METRICS_CONFIG.map(metric => (
-                        <button
-                          key={metric.id}
-                          onClick={() => setActiveSingleMetric(metric.id)}
-                          className={`px-5 py-2.5 rounded-xl text-[14px] font-bold transition-all border ${
-                            activeSingleMetric === metric.id
-                              ? 'bg-slate-800 text-white border-slate-800 shadow-md shadow-slate-300'
-                              : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50 hover:text-slate-800'
-                          }`}
-                        >
-                          {metric.label}
-                        </button>
-                      ))}
-                    </div>
+                    {trendData.length > 0 ? (
+                      <>
+                        {/* Metric Selection Buttons */}
+                        <div className="flex flex-wrap gap-3 mb-8">
+                          {SINGLE_METRICS_CONFIG.map(metric => (
+                            <button
+                              key={metric.id}
+                              onClick={() => setActiveSingleMetric(metric.id)}
+                              className={`px-5 py-2.5 rounded-xl text-[14px] font-bold transition-all border ${
+                                activeSingleMetric === metric.id
+                                  ? 'bg-slate-800 text-white border-slate-800 shadow-md shadow-slate-300'
+                                  : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50 hover:text-slate-800'
+                              }`}
+                            >
+                              {metric.label}
+                            </button>
+                          ))}
+                        </div>
 
-                    <div className="h-[300px] w-full pr-4">
-                      {(() => {
-                         const activeMetricConfig = GROWTH_METRICS_CONFIG.find(m => m.id === activeSingleMetric)!;
-                         return (
-                           <ResponsiveContainer width="100%" height="100%">
-                             <ComposedChart data={ANALYSIS_METRICS} margin={{ top: 20, right: 20, bottom: 20, left: 0 }}>
-                               <CartesianGrid key="grid-single" strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                               <XAxis key="xaxis-single" dataKey="segment" axisLine={false} tickLine={false} tick={{fill: '#64748B', fontSize: 14, fontWeight: 600}} dy={15} />
-                               <YAxis 
-                                 key={`yaxis-single-${activeMetricConfig.id}`}
-                                 axisLine={false} tickLine={false} 
-                                 tick={{fill: activeMetricConfig.color, fontSize: 13, fontWeight: 700}} 
-                                 domain={['auto', 'auto']} dx={-10} unit={activeMetricConfig.unit} 
-                               />
-                               <Tooltip 
-                                 key={`tooltip-single-${activeMetricConfig.id}`}
-                                 cursor={{fill: '#f8fafc', stroke: activeMetricConfig.type === 'line' ? '#e2e8f0' : 'none', strokeWidth: 1, strokeDasharray: '4 4'}}
-                                 contentStyle={{ borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 10px 25px -5px rgb(0 0 0 / 0.1)', padding: '16px 20px', fontWeight: 600 }}
-                                 formatter={(value: number) => [`${value}${activeMetricConfig.unit}`, activeMetricConfig.label]}
-                               />
-                               {activeMetricConfig.type === 'line' ? (
-                                 <Line 
-                                   key={`line-single-${activeMetricConfig.id}`}
-                                   type="monotone" dataKey={activeMetricConfig.id} name={activeMetricConfig.label} stroke={activeMetricConfig.color} strokeWidth={4} 
-                                   dot={{r: 6, fill: activeMetricConfig.color, strokeWidth: 3, stroke: '#fff'}} activeDot={{r: 8}} 
-                                 />
-                               ) : (
-                                 <Bar 
-                                   key={`bar-single-${activeMetricConfig.id}`}
-                                   dataKey={activeMetricConfig.id} name={activeMetricConfig.label} fill={activeMetricConfig.color} radius={[6, 6, 0, 0]} barSize={40} 
-                                 />
-                               )}
-                             </ComposedChart>
-                           </ResponsiveContainer>
-                         );
-                      })()}
-                    </div>
+                        <div className="h-[300px] w-full pr-4">
+                          {(() => {
+                             const activeMetricConfig = SINGLE_METRICS_CONFIG.find(m => m.id === activeSingleMetric)!;
+                             return (
+                               <ResponsiveContainer width="100%" height="100%">
+                                 <ComposedChart data={trendData} margin={{ top: 20, right: 20, bottom: 20, left: 0 }}>
+                                   <CartesianGrid key="grid-single" strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                                   {/* scale="band": 막대그래프처럼 구간마다 같은 폭의 칸을 주고 그 칸 가운데에 점을 찍는다.
+                                       (기본값은 첫·끝 점이 양쪽 끝에 붙어서 꺾은선만 간격이 넓고 끝 글자가 잘렸다.) */}
+                                   <XAxis key="xaxis-single" dataKey="segment" scale="band" interval={0} axisLine={false} tickLine={false} tick={{fill: '#64748B', fontSize: 14, fontWeight: 600}} dy={15} />
+                                   <YAxis
+                                     key={`yaxis-single-${activeMetricConfig.id}`}
+                                     axisLine={false} tickLine={false}
+                                     tick={{fill: activeMetricConfig.color, fontSize: 13, fontWeight: 700}}
+                                     domain={[0, 'auto']} allowDecimals={false} dx={-10} unit={activeMetricConfig.unit} width={activeMetricConfig.unit.length > 2 ? 110 : 50}
+                                   />
+                                   <Tooltip
+                                     key={`tooltip-single-${activeMetricConfig.id}`}
+                                     cursor={{fill: '#f8fafc', stroke: activeMetricConfig.type === 'line' ? '#e2e8f0' : 'none', strokeWidth: 1, strokeDasharray: '4 4'}}
+                                     contentStyle={{ borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 10px 25px -5px rgb(0 0 0 / 0.1)', padding: '16px 20px', fontWeight: 600 }}
+                                     formatter={(value) => [`${value}${activeMetricConfig.unit}`, activeMetricConfig.label] as [string, string]}
+                                   />
+                                   {activeMetricConfig.type === 'line' ? (
+                                     <Line
+                                       key={`line-single-${activeMetricConfig.id}`}
+                                       type="monotone" dataKey={activeMetricConfig.id} name={activeMetricConfig.label} stroke={activeMetricConfig.color} strokeWidth={4}
+                                       dot={{r: 6, fill: activeMetricConfig.color, strokeWidth: 3, stroke: '#fff'}} activeDot={{r: 8}}
+                                     />
+                                   ) : (
+                                     <Bar
+                                       key={`bar-single-${activeMetricConfig.id}`}
+                                       dataKey={activeMetricConfig.id} name={activeMetricConfig.label} fill={activeMetricConfig.color} radius={[6, 6, 0, 0]} barSize={40}
+                                     />
+                                   )}
+                                 </ComposedChart>
+                               </ResponsiveContainer>
+                             );
+                          })()}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="rounded-xl bg-slate-50 border border-dashed border-slate-200 py-8 px-4 text-center text-sm text-slate-400 font-medium">
+                        구간별 지표가 없습니다. 구간 분리까지 끝난 세션에서 그래프가 표시됩니다.
+                      </div>
+                    )}
                   </div>
 
                   {/* Bottom: Segment AI Feedback */}
@@ -858,44 +1010,66 @@ export default function PresentationAnalysisDashboard() {
                       <span className="bg-green-100 text-green-600 p-1.5 rounded-xl"><CheckCircle className="w-5 h-5"/></span>
                       구간별 AI 종합 피드백
                     </h3>
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                      {FEEDBACK_DATA.map((fb, idx) => (
-                        <div 
-                          key={fb.id} 
-                          onClick={() => setActiveSegmentIndex(idx)}
-                          className={`p-6 rounded-2xl border transition-all cursor-pointer ${activeSegmentIndex === idx ? 'bg-blue-50/50 border-blue-300 shadow-sm ring-2 ring-blue-500/20' : 'bg-slate-50 border-slate-200 hover:bg-slate-100 hover:border-slate-300'}`}
-                        >
-                          <div className="flex items-center gap-2 mb-4">
-                            <div className={`w-3.5 h-3.5 rounded-full shadow-sm ${SEGMENTS[idx].color}`}></div>
-                            <h4 className="font-extrabold text-slate-800 text-[16px]">{fb.segment}</h4>
-                            {activeSegmentIndex === idx && <span className="ml-auto text-xs font-bold text-blue-600 bg-blue-100 px-2.5 py-1 rounded-md">현재 선택됨</span>}
-                          </div>
-                          
-                          <div className="space-y-3.5 text-[14px]">
-                            <div className="flex gap-2.5 items-start">
-                              <span className="font-extrabold text-slate-500 whitespace-nowrap pt-0.5">전달력:</span>
-                              <span className="text-slate-700 font-medium leading-relaxed">{fb.delivery}</span>
-                            </div>
-                            <div className="flex gap-2.5 items-start">
-                              <span className="font-extrabold text-slate-500 whitespace-nowrap pt-0.5">발화습관:</span>
-                              <span className="text-slate-700 font-medium leading-relaxed">{fb.habits}</span>
-                            </div>
-                            <div className="flex gap-2.5 items-start">
-                              <span className="font-extrabold text-slate-500 whitespace-nowrap pt-0.5">자세/시선:</span>
-                              <span className="text-slate-700 font-medium leading-relaxed">{fb.gesture}</span>
-                            </div>
-                            
-                            <div className="bg-white p-4 rounded-xl border border-slate-200 mt-4 flex gap-2.5 items-start shadow-sm">
-                              <span className="bg-green-100 text-green-700 p-1.5 rounded-lg shrink-0 mt-0.5"><Award className="w-4 h-4"/></span>
-                              <div>
-                                <h5 className="font-extrabold text-green-800 mb-1 text-[13px]">개선 제안</h5>
-                                <p className="text-slate-700 font-semibold leading-relaxed">{fb.improvements}</p>
+                    {segments.length > 0 ? (
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        {segments.map((seg, idx) => (
+                          <div
+                            key={seg.segment_id}
+                            onClick={() => selectSegment(idx)}
+                            className={`p-6 rounded-2xl border transition-all cursor-pointer ${activeSegmentIndex === idx ? 'bg-blue-50/50 border-blue-300 shadow-sm ring-2 ring-blue-500/20' : 'bg-slate-50 border-slate-200 hover:bg-slate-100 hover:border-slate-300'}`}
+                          >
+                            <div className="flex items-start gap-2 mb-4">
+                              <div className={`w-3.5 h-3.5 mt-1.5 rounded-full shadow-sm shrink-0 ${SEGMENT_COLORS[idx % SEGMENT_COLORS.length]}`}></div>
+                              {/* 구간 이름과 시간·제목을 한 묶음으로 — 카드가 좁아서 줄이 바뀌어도 둘의 시작 위치가 맞는다 */}
+                              <div className="flex-1 min-w-0 flex flex-wrap items-baseline gap-x-4 gap-y-0.5">
+                                <h4 className="font-extrabold text-slate-800 text-[16px]">{segmentName(seg)}</h4>
+                                <span className="font-extrabold text-slate-800 text-[16px]">{fmtTime(seg.t_start)}~{fmtTime(seg.t_end)} · {seg.title}</span>
                               </div>
+                              {activeSegmentIndex === idx && <span className="shrink-0 text-xs font-bold text-blue-600 bg-blue-100 px-2.5 py-1 rounded-md">현재 선택됨</span>}
                             </div>
+
+                            {seg.feedback ? (
+                              <div className="space-y-4 text-[14px]">
+                                <div>
+                                  <h5 className="font-extrabold text-green-800 mb-2 text-[13px] flex items-center gap-1.5">
+                                    <span className="bg-green-100 text-green-700 p-1 rounded-lg"><Award className="w-3.5 h-3.5"/></span>
+                                    잘한 점
+                                  </h5>
+                                  <ul className="space-y-2">
+                                    {seg.feedback.strengths.map((item, i) => (
+                                      <li key={i} className="text-slate-700 font-medium leading-relaxed flex gap-2">
+                                        <span className="text-green-500 shrink-0">•</span>
+                                        <span><TimestampText text={item} onSeek={(sec) => seekVideo(sec)} /></span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                                  <h5 className="font-extrabold text-amber-800 mb-2 text-[13px] flex items-center gap-1.5">
+                                    <span className="bg-amber-100 text-amber-700 p-1 rounded-lg"><Lightbulb className="w-3.5 h-3.5"/></span>
+                                    개선점
+                                  </h5>
+                                  <ul className="space-y-2">
+                                    {seg.feedback.improvements.map((item, i) => (
+                                      <li key={i} className="text-slate-700 font-semibold leading-relaxed flex gap-2">
+                                        <span className="text-amber-500 shrink-0">•</span>
+                                        <span><TimestampText text={item} onSeek={(sec) => seekVideo(sec)} /></span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              </div>
+                            ) : (
+                              <p className="text-sm text-slate-400 font-medium">이 구간의 AI 피드백이 아직 없습니다.</p>
+                            )}
                           </div>
-                        </div>
-                      ))}
-                    </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="rounded-xl bg-slate-50 border border-dashed border-slate-200 py-8 px-4 text-center text-sm text-slate-400 font-medium">
+                        구간별 피드백이 없습니다. 구간 분리와 구간별 분석이 끝난 세션에서 표시됩니다.
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -1238,7 +1412,7 @@ export default function PresentationAnalysisDashboard() {
                             fillerTotal: 10 + maxImprovementFactor * 5, // 필러 단어 빈도
                             wpm: 120 + maxImprovementFactor * 10,        // 평균 말하기 속도
                             silenceRatio: 5 + maxImprovementFactor * 2,  // 전체 무음 비율 (%)
-                            habits: 4 + maxImprovementFactor * 3,        // 발견된 발화 습관 (건수)
+                            habits: 4 + maxImprovementFactor * 3,        // 말 더듬 횟수
                           };
                         });
 
@@ -1309,6 +1483,47 @@ export default function PresentationAnalysisDashboard() {
       </main>
 
       {/* --- MODALS --- */}
+
+      {/* 0. Delete Confirm Modal (폴더/세션 삭제 전 네·아니요 확인) */}
+      {confirmDialog && (
+        <div
+          className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4 animate-in fade-in duration-200"
+          onClick={() => setConfirmDialog(null)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            // w-fit: 안내 문장이 두 줄로 꺾이지 않도록 확인창 폭을 글 길이에 맞춘다 (화면보다 넓어지진 않게 max-w-full)
+            className="bg-white rounded-2xl shadow-xl w-fit min-w-[24rem] max-w-full overflow-hidden animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-6">
+              <h3 className="font-extrabold text-slate-800 text-lg mb-2">{confirmDialog.message}</h3>
+              <p className="text-sm text-slate-500 font-medium leading-relaxed">{confirmDialog.detail}</p>
+            </div>
+            <div className="px-6 py-4 bg-slate-50 flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  const run = confirmDialog.onConfirm;
+                  setConfirmDialog(null);
+                  run();
+                }}
+                className="px-5 py-2 text-sm font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
+              >
+                네
+              </button>
+              {/* 실수로 Enter 를 눌러도 지워지지 않게, 오른쪽에 있어도 "아니요"에 먼저 포커스 */}
+              <button
+                autoFocus
+                onClick={() => setConfirmDialog(null)}
+                className="px-5 py-2 text-sm font-bold text-slate-600 hover:bg-slate-200 rounded-lg transition-colors"
+              >
+                아니요
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 1. Add Topic Modal */}
       {isTopicModalOpen && (
