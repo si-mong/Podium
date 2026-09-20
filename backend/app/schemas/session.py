@@ -19,6 +19,7 @@ class SessionRead(BaseModel):
 
     session_id: int
     project_id: int
+    session_no: int          # 프로젝트 안에서의 회차 번호 ("N회차 연습"의 N). 앞 회차를 지워도 안 바뀐다.
     status: str
     full_video_path: Optional[str]
     pdf_path: Optional[str]
@@ -99,6 +100,51 @@ class VoiceAnalysisResult(BaseModel):
     speaking_rate_spm: float        # 무음 포함 — 전체 템포
     articulation_rate_spm: float    # 무음 제외 — 조음 속도
     elapsed_sec: float
+
+
+class ScriptSentence(BaseModel):
+    t_start: float
+    t_end: float
+    text: str                        # 비유창성 태그가 제거된 평문
+
+
+class ScriptSilence(BaseModel):
+    t_start: float
+    t_end: float
+    duration: float
+
+
+class ScriptFiller(BaseModel):
+    t_start: float
+    t_end: float
+    text: str | None = None          # 인식된 어휘. 모델 태그면 "<um>" 꼴, 음향 검출이면 None
+    source: str | None = None        # "lexical"(모델 태그/사전) | "acoustic"(음향 검출)
+
+
+class ScriptRepetition(BaseModel):
+    t_start: float
+    t_end: float
+    text: str | None = None          # 예: "제 제 제가"
+    count: int | None = None         # 반복 횟수 (3 = 세 번)
+    kind: str | None = None          # "exact"(같은 말) | "stem"(앞부분만, 신뢰도 낮음)
+
+
+class ScriptResult(BaseModel):
+    """인터랙티브 스크립트용 — 문장과, 그 위에 얹을 무음/필러/반복을 시각과 함께 반환."""
+    session_id: int
+    sentences: list[ScriptSentence]
+    silences: list[ScriptSilence]
+    fillers: list[ScriptFiller]
+    repetitions: list[ScriptRepetition]
+
+
+class VoiceSummary(BaseModel):
+    """단일 분석 화면 상단 카드용 — 세션 전체 음성 지표. 아직 없는 값은 None."""
+    session_id: int
+    filler_count: int | None                # 필러 단어 횟수 (STEP 3)
+    repetition_count: int | None            # 반복(말더듬) 횟수 (STEP 3)
+    silence_ratio: float | None             # 전체 무음 비율 0~1 (STEP 3)
+    avg_speaking_rate_spm: float | None     # 평균 말하기 속도, 음절/분 (STEP 4 후에 채워짐)
 
 
 class MotionAnalysisResult(BaseModel):

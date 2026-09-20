@@ -8,13 +8,15 @@
   POST /sessions/{id}/analyze/motion            -> STEP 2 VLM 동작 분석 (별도 호출)
   POST /sessions/{id}/analyze/voice             -> STEP 3 음성 분석 (별도 호출)
   POST /sessions/{id}/analyze/segments          -> STEP 4 구간 분리 + 집계
+  GET    /sessions/{id}/voice-summary           -> 세션 전체 음성 지표 (필러/반복/무음/말속도)
+  GET    /sessions/{id}/script                  -> 인터랙티브 스크립트용 문장 + 무음/필러/반복 (시각 포함)
   GET    /sessions/{id}                         -> 메타 + 청크 목록
   DELETE /sessions/{id}                         -> 세션 (DB + 파일) 삭제
 """
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session as DbSession, selectinload
 
 from app.api._dev_auth import get_current_user_id
@@ -32,9 +34,11 @@ from app.schemas.session import (
     SegmentationResult,
     SegmentItem,
     SegmentTrendPoint,
+    ScriptResult,
     SegmentTrendResult,
     UploadResult,
     VoiceAnalysisResult,
+    VoiceSummary,
 )
 from app.services import storage
 
@@ -61,7 +65,11 @@ def start_session(project_id: int, db: DbSession = Depends(get_db)):
     if project is None or project.user_id != user_id:
         raise HTTPException(404, "project not found")
 
-    session = Session(project_id=project_id, status="recording")
+    # 회차 번호 = 이 프로젝트에서 가장 큰 번호 + 1. (중간 회차를 지워도 다른 회차 번호는 그대로 유지된다.)
+    next_no = db.scalar(
+        select(func.coalesce(func.max(Session.session_no), 0) + 1).where(Session.project_id == project_id)
+    )
+    session = Session(project_id=project_id, session_no=next_no, status="recording")
     db.add(session)
     db.commit()
     db.refresh(session)
@@ -283,6 +291,61 @@ def get_session_analysis(session_id: int, db: DbSession = Depends(get_db)):
 
 
 # ---------------------------------------------------------------------------
+# 음성 분석 요약 조회
+# ---------------------------------------------------------------------------
+
+@router.get("/sessions/{session_id}/voice-summary", response_model=VoiceSummary)
+def get_voice_summary(session_id: int, db: DbSession = Depends(get_db)):
+    """세션 전체 음성 지표를 한 번에 반환 (단일 분석 화면 상단 카드용).
+
+    필러/반복/무음은 STEP 3 결과(voice_raws), 말하기 속도는 STEP 4 결과(session_summaries)에서
+    가져온다. 해당 단계가 아직 안 끝났으면 그 값만 None 으로 나간다.
+    """
+    _get_owned_session(db, session_id)
+
+    voice_raw = db.get(VoiceRaw, session_id)
+    summary = db.get(SessionSummary, session_id)
+
+    filler_count = repetition_count = silence_ratio = None
+    if voice_raw is not None:
+        filler_count = len(voice_raw.filler_words or [])
+        repetition_count = len(voice_raw.repetitions or [])
+        if voice_raw.total_duration > 0:
+            silence_sec = sum(s["duration"] for s in (voice_raw.silence_segments or []))
+            silence_ratio = round(silence_sec / voice_raw.total_duration, 3)
+
+    return VoiceSummary(
+        session_id=session_id,
+        filler_count=filler_count,
+        repetition_count=repetition_count,
+        silence_ratio=silence_ratio,
+        avg_speaking_rate_spm=summary.avg_speaking_rate_spm if summary else None,
+    )
+
+
+@router.get("/sessions/{session_id}/script", response_model=ScriptResult)
+def get_script(session_id: int, db: DbSession = Depends(get_db)):
+    """인터랙티브 스크립트용 데이터 — 문장(stt_sentences)과 그 위에 얹을 무음/필러/반복(voice_raws).
+
+    STEP 3 가 안 끝난 세션은 전부 빈 배열로 나간다.
+    """
+    _get_owned_session(db, session_id)
+
+    sentences = db.scalars(
+        select(SttSentence).where(SttSentence.session_id == session_id).order_by(SttSentence.t_start)
+    ).all()
+    voice_raw = db.get(VoiceRaw, session_id)
+
+    return ScriptResult(
+        session_id=session_id,
+        sentences=[{"t_start": s.t_start, "t_end": s.t_end, "text": s.text} for s in sentences],
+        silences=(voice_raw.silence_segments or []) if voice_raw else [],
+        fillers=(voice_raw.filler_words or []) if voice_raw else [],
+        repetitions=(voice_raw.repetitions or []) if voice_raw else [],
+    )
+
+
+# ---------------------------------------------------------------------------
 # 조회 / 삭제
 # ---------------------------------------------------------------------------
 
@@ -337,7 +400,6 @@ def _settings_upload_dir():
 def analyze_voice(
     session_id: int,
     keywords: str = "",
-    model: str | None = None,
     db: DbSession = Depends(get_db),
 ):
     """full_audio 로 STT + 무음 + 필러 + 반복 + 발화속도 → voice_raws / stt_sentences 저장.
@@ -347,8 +409,8 @@ def analyze_voice(
 
     keywords: 발표 주제·고유명사를 쉼표로. hotwords 로 전달돼 해당 어휘 인식률이 오른다.
       **발표에 실제로 나오는 고유명사만** 넣을 것 — 무관한 단어는 디코딩을 흔든다.
-    model: STT 모델 지정 (생략 시 `.env` 의 WHISPER_MODEL). devtools 테스트 실행 페이지에서
-      모델 비교용으로 씀 — 운영 클라이언트는 안 넘기는 게 기본.
+
+    STT 모델은 고르지 못하고 항상 설정값(`settings.whisper_model`, 기본 SeloWhisper)을 쓴다.
 
     재호출 시 이 세션의 기존 voice_raws / stt_sentences 는 지우고 새로 넣는다.
     """
@@ -366,7 +428,7 @@ def analyze_voice(
     # lazy import — torch/transformers 미설치 환경에서도 API 서버는 정상 기동.
     from app.pipeline import step3_voice_analysis
 
-    result = step3_voice_analysis.run(full_audio, model_size=model, keywords=keywords)
+    result = step3_voice_analysis.run(full_audio, keywords=keywords)
     rows = step3_voice_analysis.to_db_rows(session_id, result)
 
     # 재분석 시 이전 회차 행이 남지 않도록 통째로 교체.

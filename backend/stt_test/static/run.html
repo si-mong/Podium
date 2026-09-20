@@ -89,9 +89,6 @@
   <h2>3. 실행</h2>
 
   <div class="row" style="margin-bottom:10px">
-    <label class="f">STT 모델 (STEP3)
-      <select id="model"></select>
-    </label>
     <label class="f">hotwords (선택, 쉼표구분)
       <input type="text" id="keywords" placeholder="예: ETRI, 포항공대">
     </label>
@@ -240,22 +237,6 @@ $("#uploadBtn").onclick = async () => {
   $("#uploadBtn").disabled = false;
 };
 
-// ── 모델 목록 (devtools 자체 API — STEP3 테스트 페이지와 동일 목록 재사용) ──
-
-fetch("/api/models").then(r => r.json()).then(list => {
-  const sel = $("#model");
-  list.forEach(m => {
-    const label = m.kind === "local" ? `${m.label} (로컬, ${m.size_mb}MB)`
-                : m.kind === "hf" ? `${m.label}` : m.id;
-    sel.add(new Option(label, m.id));
-  });
-  // .env 기본값(WHISPER_MODEL)과 이름이 같은 항목을 기본 선택
-  const pref = list.find(m => m.id.includes("SeloWhisper"));
-  if (pref) sel.value = pref.id;
-}).catch(() => {
-  $("#model").add(new Option("모델 목록 로딩 실패 — 기본값 사용", ""));
-});
-
 // ── 개별 단계 실행 ────────────────────────────────────────────────────────
 
 async function runStep(step) {
@@ -269,10 +250,8 @@ async function runStep(step) {
     } else if (step === "motion") {
       url = `${MAIN_API}/sessions/${sessionId}/analyze/motion`;
     } else if (step === "voice") {
-      const model = $("#model").value;
       const kw = $("#keywords").value;
       const qs = new URLSearchParams();
-      if (model) qs.set("model", model);
       if (kw) qs.set("keywords", kw);
       url = `${MAIN_API}/sessions/${sessionId}/analyze/voice?${qs}`;
     } else if (step === "segments") {

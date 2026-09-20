@@ -13,10 +13,14 @@ uploads/<session_id>/
 """
 from __future__ import annotations
 
+import logging
 import shutil
+import time
 from pathlib import Path
 
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 def session_dir(session_id: int) -> Path:
@@ -53,6 +57,22 @@ def write_bytes(path: Path, data: bytes) -> int:
 
 
 def delete_session_files(session_id: int) -> None:
+    """세션 파일 폴더를 지운다. 실패해도 예외를 던지지 않는다.
+
+    호출 시점에는 DB 행이 이미 지워진 뒤다. Windows 는 다른 곳이 열어 둔 파일(예: 영상을 재생 중인
+    브라우저 요청)을 못 지워서, 예외를 그대로 던지면 "DB 는 지워졌는데 삭제 실패(500)"로 보인다.
+    그래서 잠깐 기다렸다 몇 번 다시 시도하고, 그래도 안 되면 경고만 남긴다. (세션이 이미 없어서
+    남은 파일은 화면에 나오지 않는다.)
+    """
     d = session_dir(session_id)
-    if d.exists():
-        shutil.rmtree(d)
+    error = None
+    for _ in range(3):
+        if not d.exists():
+            return
+        try:
+            shutil.rmtree(d)
+            return
+        except OSError as e:
+            error = e
+            time.sleep(0.5)
+    logger.warning("세션 %s 파일 폴더를 지우지 못했습니다: %s", session_id, error)

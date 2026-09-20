@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.api import projects, sessions
+from app.api import media, projects, sessions
 from app.api._dev_auth import ensure_dev_user
 from app.core.config import settings
 
@@ -32,8 +32,11 @@ app.add_middleware(
 app.include_router(projects.router)
 app.include_router(sessions.router)
 
-# 업로드된 영상/오디오 파일을 프론트엔드에서 직접 재생할 수 있도록 정적 서빙.
+# 업로드된 영상/오디오 파일을 프론트엔드에서 직접 재생할 수 있도록 서빙.
 # 예: uploads/1/full_video.webm -> http://localhost:8000/media/1/full_video.webm
+# media.router 는 Range 요청(영상 특정 시각으로 이동)을 지원하고, 아래 StaticFiles 보다 먼저 매칭된다.
+# StaticFiles 는 하위 폴더 파일(예: chunks/chunk_001.webm)을 위해 남겨둔다.
+app.include_router(media.router)
 settings.upload_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/media", StaticFiles(directory=str(settings.upload_dir)), name="media")
 

@@ -35,6 +35,7 @@ erDiagram
     SESSIONS {
         bigint session_id PK
         bigint project_id FK
+        int session_no "프로젝트 안의 회차 번호, (project_id, session_no) 유일"
         varchar status "processing/done/error"
         varchar full_video_path
         varchar pdf_path
