@@ -10,6 +10,8 @@ backend/vlm_test/work/*
 _refs/
 _legacy/
 .claude/
+docs/CLAUDE.md
+~$*.xlsx
 
 # Frontend (Next.js manages its own .gitignore inside frontend/, but cover the basics here too)
 node_modules/
@@ -241,7 +243,10 @@ __marimo__/
 .streamlit/secrets.toml
 
 # STEP 3 PoC — 생성물 (out/ 은 위에서 이미 무시됨)
-backend/stt_test/fixtures/*.wav
+# fixtures/ 에는 개인 음성 녹음이 들어감 — 폴더 구조만 추적하고 미디어는 제외
+backend/stt_test/fixtures/*
+!backend/stt_test/fixtures/.gitkeep
+!backend/stt_test/fixtures/synthetic_ko.truth.json
 backend/stt_test/models/*
 backend/stt_test/work/*
 !backend/stt_test/work/.gitkeep

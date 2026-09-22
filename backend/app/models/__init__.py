@@ -9,10 +9,11 @@ from app.models.analysis import (
 )
 from app.models.project import Project
 from app.models.session import Chunk, Session
-from app.models.user import User
+from app.models.user import RefreshToken, User
 
 __all__ = [
     "User",
+    "RefreshToken",
     "Project",
     "Session",
     "Chunk",
