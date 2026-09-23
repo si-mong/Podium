@@ -44,6 +44,7 @@ MIN_SEGMENT_SEC = 5.0      # 명백한 부스러기만 흡수 (정상 흐름은 
 #   중간의 개념설명은 그 한계를 설명하려고 곁들인 것이지 독립 구간이 아니다.
 # 다만 발표 앞뒤로 멀리 떨어진 동일 라벨까지 합치면 안 되므로 간격을 제한한다.
 MAX_SANDWICH_GAP = 1       # 사이에 **하나만** 낀 경우만 병합 (과병합 방지)
+MAX_MERGE_RATIO = 0.5      # 병합 결과가 전체 길이의 이 비율을 넘으면 보류 (거대 구간 방지)
 MAX_ATTEMPTS = 3
 RETRY_WAIT_SEC = 5
 
@@ -55,19 +56,16 @@ RETRY_WAIT_SEC = 5
 # 「선행사례」 같은 항목이 문제였다 — 이들은 대개 독립 구간이 아니라 **다른 구간을
 # 설명하려고 곁들이는 것**이라, 남겨두면 «한계 → 개념설명 → 한계 → 개념설명» 처럼
 # 하나의 논의가 잘게 쪼개진다. 그런 내용은 해당 맥락의 구간에 흡수시킨다.
+# 2026-09-23: 12종 → 6종 축소. 실측에서 「배경설명→배경설명→주제소개」,
+# 「결론→인사」처럼 **같은 이야기가 라벨만 달라 쪼개지는** 경우가 많았다.
+# 큰 틀의 구간만 남기고, 다른 라벨로 귀속 가능한 것은 흡수시킨다.
 LABELS = [
-    "인사",          # 자기소개, 발표 시작 인사
-    "주제소개",      # 무엇에 대한 발표인지
-    "배경설명",      # 맥락, 선행 사례, 왜 이 주제가 나왔는지
-    "문제제시",      # 해결하려는 문제
-    "해결방안",      # 제안하는 접근 (개념·원리 설명 포함)
-    "시스템구조",    # 아키텍처, 구성도
-    "구현",          # 개발 내용, 기술 스택
+    "도입",          # 인사, 자기소개, 주제 소개, 배경·맥락, 선행 사례
+    "문제제시",      # 해결하려는 문제, 동기
+    "해결방안",      # 제안하는 접근·방법 (개념·원리, 시스템구조, 구현 포함)
     "시연",          # 데모, 화면 설명
     "결과",          # 성과, 수치, 실험 결과, 해석
-    "한계",          # 부족한 점, 제약 (그에 관한 설명 포함)
-    "향후계획",      # 다음 단계
-    "결론",          # 요약, 정리, 마무리 인사
+    "마무리",        # 요약, 정리, 한계, 향후계획, 결론, 마무리 인사
 ]
 
 # ⚠️ "기타" 라벨은 두지 않는다. 주제가 잠시 곁길로 새는 일이 흔한데 그때마다
@@ -89,8 +87,8 @@ PROMPT = """당신은 발표 영상을 분석하는 도우미입니다.
    자르지 말고 직전 구간에 포함시키세요.
 4. 어떤 내용을 **설명하기 위해** 곁들인 이야기(용어 설명, 사례, 부연)는
    독립 구간으로 만들지 마세요. **설명 대상이 속한 구간에 포함**시킵니다.
-   예: 「한계」를 말하다가 그 한계와 관련된 기술을 설명했다면, 그 설명까지
-   전체가 하나의 「한계」입니다. 설명이 끝나고 다시 한계 이야기로 돌아와도
+   예: 「해결방안」을 말하다가 그와 관련된 기술·용어를 설명했다면, 그 설명까지
+   전체가 하나의 「해결방안」입니다. 설명이 끝나고 다시 원래 이야기로 돌아와도
    쪼개지 말고 하나로 두세요.
 5. 각 구간에 아래 라벨 중 **가장 가까운 것 하나**를 고르세요.
    순서는 정해져 있지 않고, 같은 라벨이 여러 번 나와도 됩니다.
@@ -226,25 +224,43 @@ def _merge_short(segs, sentences, min_sec):
     return segs, warns
 
 
-def _merge_sandwich(segs, sentences, max_gap: int):
-    """같은 라벨이 되돌아오면 사이에 낀 구간까지 하나로 합친다.
+def _merge_same_label(segs, sentences, max_gap: int, max_ratio: float):
+    """같은 라벨이 인접하거나 되돌아오면 하나로 합친다.
 
-    «한계 → 개념설명 → 한계» 처럼 중간에 낀 것은 앞뒤 논의를 설명하려고
-    곁들인 경우가 대부분이다. 라벨을 줄여도 LLM 이 이런 구조를 만들 수 있으므로
-    후처리로 한 번 더 막는다.
+    두 경우를 함께 다룬다:
+      - **인접**   «도입 → 도입»                 — 같은 이야기를 LLM 이 그냥 쪼갠 것
+      - **샌드위치** «해결방안 → 용어설명 → 해결방안» — 사이에 낀 것은 앞뒤를 설명하려고
+        곁들인 경우가 대부분
+
+    `while changed` 루프라 인접 병합이 샌드위치를 새로 만들면 그것까지 연쇄로 잡는다.
+    실측(521초 강연): 라벨 축소 전 «주제소개 → 배경설명 → 배경설명 → 주제소개» 4조각이
+    인접 병합 → 샌드위치 연쇄로 하나가 됨. 축소 후에는 넷 다 «도입» 이라 인접 병합만으로
+    정리된다.
+
+    ⚠️ `max_ratio` — 병합 결과가 전체 길이의 이 비율을 넘으면 **보류**한다.
+    같은 라벨이라도 «방법 1 / 방법 2» 처럼 병렬 구조인 경우가 있어, 무조건 합치면
+    발표의 대부분이 한 구간이 되어 구간별 피드백이 뭉개진다.
     """
     warns = []
+    total = sentences[-1]["t_end"] - sentences[0]["t_start"]
     changed = True
-    while changed and len(segs) > 2:
+    while changed and len(segs) > 1:
         changed = False
-        for i in range(len(segs) - 2):
-            for j in range(i + 2, min(i + 2 + max_gap, len(segs))):
+        for i in range(len(segs) - 1):
+            # j = i+1 이면 인접, i+2 이상이면 사이에 낀 것이 있는 샌드위치
+            for j in range(i + 1, min(i + 2 + max_gap, len(segs))):
                 if segs[i].label != segs[j].label:
                     continue
-                inner = [x.label for x in segs[i + 1:j]]
                 merged = Segment(label=segs[i].label, title=segs[i].title,
                                  start_idx=segs[i].start_idx, end_idx=segs[j].end_idx)
+                if total > 0 and _dur(merged, sentences) / total > max_ratio:
+                    warns.append(
+                        f"«{segs[i].label}» 병합 보류 — 결과가 전체의 "
+                        f"{_dur(merged, sentences) / total:.0%} (상한 {max_ratio:.0%})")
+                    continue
+                inner = [x.label for x in segs[i + 1:j]]
                 warns.append(
+                    f"인접한 «{merged.label}» 병합" if not inner else
                     f"«{segs[i].label}» 사이에 낀 {'·'.join(inner)} 흡수 → 하나의 «{merged.label}»")
                 segs = segs[:i] + [merged] + segs[j + 1:]
                 changed = True
@@ -313,8 +329,9 @@ def run(sentences: list[dict], total_duration: float | None = None,
             segs, warns = _repair(items, len(sentences))
             if not segs:
                 raise ValueError("유효 구간 0개")
-            # 순서 주의: 샌드위치를 먼저 합쳐야 짧은 구간 병합이 엉뚱한 이웃을 안 고른다
-            segs, swarns = _merge_sandwich(segs, sentences, MAX_SANDWICH_GAP)
+            # 순서 주의: 같은 라벨을 먼저 합쳐야 짧은 구간 병합이 엉뚱한 이웃을 안 고른다
+            segs, swarns = _merge_same_label(segs, sentences,
+                                             MAX_SANDWICH_GAP, MAX_MERGE_RATIO)
             segs, mwarns = _merge_short(segs, sentences, MIN_SEGMENT_SEC)
             warns += swarns + mwarns
 
