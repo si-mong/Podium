@@ -74,11 +74,10 @@
 ![Railway](https://img.shields.io/badge/Railway-0B0D0E?style=flat-square&logo=railway&logoColor=white)
 
 </div>
----
 
 ## 팀
 
-충북대학교 2026 캡스톤디자인 · 2인 팀
+충북대학교 2026 캡스톤디자인
 
 ### 최은재 &nbsp;`PM` `Backend` `DB`
 
