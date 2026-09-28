@@ -14,7 +14,7 @@ alembic upgrade head
 | `segments` | `label` | `VARCHAR(32)` nullable |
 
 ```
-label   분류용 semi-enum (인사/주제소개/문제제시/해결방안/한계/…)
+label   분류용 semi-enum (도입/문제제시/해결방안/시연/결과/마무리)
         → 회차 비교·집계에 사용. 목록은 step4_segmentation.LABELS (12종)
 title   사용자에게 보여줄 한 줄 요약
 ```

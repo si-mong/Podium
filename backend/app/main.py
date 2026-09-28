@@ -5,15 +5,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.api import media, projects, sessions
-from app.api._dev_auth import ensure_dev_user
+from app.api import auth, media, projects, sessions
 from app.core.config import settings
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
-    ensure_dev_user()
     yield
 
 
@@ -29,6 +27,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth.router)
 app.include_router(projects.router)
 app.include_router(sessions.router)
 
@@ -36,6 +35,8 @@ app.include_router(sessions.router)
 # 예: uploads/1/full_video.webm -> http://localhost:8000/media/1/full_video.webm
 # media.router 는 Range 요청(영상 특정 시각으로 이동)을 지원하고, 아래 StaticFiles 보다 먼저 매칭된다.
 # StaticFiles 는 하위 폴더 파일(예: chunks/chunk_001.webm)을 위해 남겨둔다.
+# ⚠️ TODO(로그인 연동 때): 여기는 로그인 확인이 없어서 세션 번호만 알면 누구나 영상을 볼 수 있다.
+#    대시보드를 GET /sessions/{id}/video + 재생 티켓(sessions.py)으로 바꾼 뒤 이 두 줄(media)을 지울 것.
 app.include_router(media.router)
 settings.upload_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/media", StaticFiles(directory=str(settings.upload_dir)), name="media")

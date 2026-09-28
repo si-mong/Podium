@@ -51,7 +51,8 @@ interface Topic {
 }
 
 function toTopic(p: ApiProject): Topic {
-  const sortedSessions = [...p.sessions].sort((a, b) => a.session_id - b.session_id);
+  // 프로젝트 "생성" 응답(POST /projects)에는 sessions 가 없다 (목록 조회에만 들어옴) → 없으면 빈 목록.
+  const sortedSessions = [...(p.sessions ?? [])].sort((a, b) => a.session_id - b.session_id);
   return {
     id: String(p.project_id),
     name: p.title,

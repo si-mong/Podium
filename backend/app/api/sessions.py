@@ -12,6 +12,9 @@
   POST /sessions/{id}/analyze/segments          -> STEP 4 구간 분리 + 집계
   GET    /sessions/{id}/voice-summary           -> 세션 전체 음성 지표 (필러/반복/무음/말속도)
   GET    /sessions/{id}/script                  -> 인터랙티브 스크립트용 문장 + 무음/필러/반복 (시각 포함)
+  GET    /sessions/{id}/video                   -> 영상 스트리밍 (Range 지원)
+  POST   /sessions/{id}/video/ticket            -> <video> 태그용 단기 재생 티켓
+  GET    /projects/{project_id}/sessions        -> 프로젝트의 세션(회차) 목록
   GET    /sessions/{id}                         -> 메타 + 청크 목록
   DELETE /sessions/{id}                         -> 세션 (DB + 파일) 삭제
 """
@@ -19,18 +22,24 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session as DbSession, selectinload
+from sqlalchemy.orm import Session as DbSession
 
-from app.api._dev_auth import get_current_user_id
+from app.api._deps import (
+    get_current_user_id,
+    get_owned_project,
+    get_owned_session,
+)
 from app.core.database import get_db
+from app.core.security import ACCESS_TYPE, VIDEO_TYPE, create_video_ticket, decode_token
 from app.models import (
-    Chunk, Feedback, Project, Segment, SegmentAnalysis, Session, SessionSummary,
+    Chunk, Feedback, Segment, SegmentAnalysis, Session, SessionSummary,
     SttSentence, VideoAnalysis, VoiceRaw,
 )
 from app.pipeline.step1_preprocess import FFmpegError, concat_audio, extract_chunk_audio, probe_duration
 from app.schemas.session import (
+    VideoTicket,
     MotionAnalysisResult,
     PreprocessResult,
     SessionDetail,
@@ -44,7 +53,7 @@ from app.schemas.session import (
     VoiceAnalysisResult,
     VoiceSummary,
 )
-from app.services import storage
+from app.services import storage, streaming
 
 
 CHUNK_DURATION_SEC = 30
@@ -64,12 +73,12 @@ router = APIRouter(tags=["sessions"])
     response_model=SessionRead,
     status_code=201,
 )
-def start_session(project_id: int, db: DbSession = Depends(get_db)):
-    user_id = get_current_user_id(db)
-
-    project = db.get(Project, project_id)
-    if project is None or project.user_id != user_id:
-        raise HTTPException(404, "project not found")
+def start_session(
+    project_id: int,
+    db: DbSession = Depends(get_db),
+    user_id: int = Depends(get_current_user_id),
+):
+    get_owned_project(db, project_id, user_id)
 
     # 회차 번호 = 이 프로젝트에서 가장 큰 번호 + 1. (중간 회차를 지워도 다른 회차 번호는 그대로 유지된다.)
     next_no = db.scalar(
@@ -94,8 +103,9 @@ async def upload_chunk(
     chunk_index: int,
     file: UploadFile = File(...),
     db: DbSession = Depends(get_db),
+    user_id: int = Depends(get_current_user_id),
 ):
-    session = _get_owned_session(db, session_id)
+    session = get_owned_session(db, session_id, user_id)
 
     path = storage.chunk_path(session_id, chunk_index)
     data = await file.read()
@@ -128,12 +138,13 @@ async def upload_full_video(
     session_id: int,
     file: UploadFile = File(...),
     db: DbSession = Depends(get_db),
+    user_id: int = Depends(get_current_user_id),
 ):
     """전체 영상 저장. 실시간 촬영(full_video.webm)과 "영상 업로드하기"로 올린 파일 둘 다 여기로 온다.
 
     업로드 파일은 원본 확장자 그대로 저장한다 (변환하지 않음 — ffmpeg/opencv 가 mp4·mov 도 읽는다).
     """
-    session = _get_owned_session(db, session_id)
+    session = get_owned_session(db, session_id, user_id)
 
     suffix = Path(file.filename or "").suffix.lower() or ".webm"
     if suffix not in ALLOWED_VIDEO_SUFFIXES:
@@ -150,12 +161,95 @@ async def upload_full_video(
 
 
 # ---------------------------------------------------------------------------
+# 재생 (스트리밍)
+# ---------------------------------------------------------------------------
+
+@router.post("/sessions/{session_id}/video/ticket", response_model=VideoTicket)
+def create_video_ticket_route(
+    session_id: int,
+    db: DbSession = Depends(get_db),
+    user_id: int = Depends(get_current_user_id),
+):
+    """`<video>` 태그에 붙일 단기 재생 티켓을 발급한다.
+
+    `<video src="...">` 는 브라우저가 직접 요청하므로 Authorization 헤더를 실을 수 없다.
+    그래서 **이 세션 영상에만, 5분간** 유효한 별도 토큰을 발급해 쿼리스트링으로 넘긴다.
+    (access 토큰을 URL 에 실으면 안 되는 이유는 app/core/security.py 주석 참고)
+
+    티켓 발급 자체는 일반 인증이 필요하므로, 남의 세션 티켓은 애초에 못 받는다.
+    """
+    get_owned_session(db, session_id, user_id)   # 소유권 확인이 곧 발급 조건
+    ticket, expires_in = create_video_ticket(user_id, session_id)
+    return VideoTicket(ticket=ticket, expires_in=expires_in)
+
+
+@router.get("/sessions/{session_id}/video")
+def stream_video(
+    session_id: int,
+    request: Request,
+    ticket: str | None = None,
+    db: DbSession = Depends(get_db),
+):
+    """녹화 원본(full_video.webm)을 Range 지원으로 내려준다 — 구간 재생용.
+
+    인증은 **둘 중 하나**를 받는다:
+      - `Authorization: Bearer <access_token>`  (fetch/XHR 로 받을 때)
+      - `?ticket=<video_ticket>`                (`<video src>` 로 직접 걸 때)
+
+    ★ 파일 경로는 **DB 의 session.full_video_path 로만** 조립한다. 클라이언트가 보낸
+      경로 문자열을 절대 쓰지 않는다 — 그러면 남의 영상이 그대로 새어나간다.
+      세션 응답에 노출되는 `file_path` 는 표시용일 뿐 입력으로 쓰라는 값이 아니다.
+    """
+    user_id = _authorize_playback(request, ticket, session_id, db)
+    session = get_owned_session(db, session_id, user_id)
+
+    if not session.full_video_path:
+        raise HTTPException(404, "업로드된 영상이 없습니다.")
+
+    upload_dir = _settings_upload_dir().resolve()
+    path = (upload_dir / session.full_video_path).resolve()
+    # DB 값이 어떤 경로로든 오염됐을 때를 대비한 이중 방어 — uploads/ 밖은 절대 안 준다.
+    if not path.is_relative_to(upload_dir) or not path.is_file():
+        raise HTTPException(404, "영상 파일을 찾을 수 없습니다.")
+
+    return streaming.range_response(path, request, media_type="video/webm")
+
+
+def _authorize_playback(
+    request: Request, ticket: str | None, session_id: int, db: DbSession
+) -> int:
+    """재생 요청 인증 — Bearer 헤더 우선, 없으면 티켓."""
+    auth = request.headers.get("authorization", "")
+    if auth.lower().startswith("bearer "):
+        payload = decode_token(auth[7:].strip(), ACCESS_TYPE)
+        if payload is not None:
+            return int(payload["sub"])
+
+    if ticket:
+        payload = decode_token(ticket, VIDEO_TYPE)
+        # 티켓은 발급받은 그 세션에만 쓸 수 있다. 이 검사가 없으면 티켓 하나로
+        # 다른 세션 영상까지 열린다.
+        if payload is not None and payload.get("sid") == session_id:
+            return int(payload["sub"])
+
+    raise HTTPException(
+        401,
+        "인증이 필요합니다. Authorization 헤더 또는 ?ticket= 을 붙이세요.",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+# ---------------------------------------------------------------------------
 # 전처리 종료 (오디오 추출 + concat)
 # ---------------------------------------------------------------------------
 
 @router.post("/sessions/{session_id}/end", response_model=PreprocessResult)
-def end_session(session_id: int, db: DbSession = Depends(get_db)):
-    session = _get_owned_session(db, session_id)
+def end_session(
+    session_id: int,
+    db: DbSession = Depends(get_db),
+    user_id: int = Depends(get_current_user_id),
+):
+    session = get_owned_session(db, session_id, user_id)
 
     chunks = db.scalars(
         select(Chunk).where(Chunk.session_id == session_id).order_by(Chunk.chunk_index)
@@ -216,7 +310,11 @@ def end_session(session_id: int, db: DbSession = Depends(get_db)):
     "/sessions/{session_id}/analyze/motion",
     response_model=MotionAnalysisResult,
 )
-def analyze_motion(session_id: int, db: DbSession = Depends(get_db)):
+def analyze_motion(
+    session_id: int,
+    db: DbSession = Depends(get_db),
+    user_id: int = Depends(get_current_user_id),
+):
     """full_video 를 스마트 청킹한 뒤 VLM 동작 분석 → video_analyses 에 저장.
 
     /end (전처리) 이후 호출. 비싼 호출이라 idempotent하지 않음 — 호출당 Gemini 청구 발생.
@@ -225,7 +323,7 @@ def analyze_motion(session_id: int, db: DbSession = Depends(get_db)):
     업로드 청크(30초 고정)가 아니라 full_video 를 쓰는 이유: 스마트 청킹은 동작이
     시작되는 임의 시점부터 자르므로 30초 격자에 갇히면 안 된다.
     """
-    session = _get_owned_session(db, session_id)
+    session = get_owned_session(db, session_id, user_id)
     if session.status not in ("preprocessed", "analyzed"):
         raise HTTPException(400, f"session status must be preprocessed (got {session.status!r}); call /end first")
 
@@ -293,9 +391,13 @@ def analyze_motion(session_id: int, db: DbSession = Depends(get_db)):
 # ---------------------------------------------------------------------------
 
 @router.get("/sessions/{session_id}/analysis")
-def get_session_analysis(session_id: int, db: DbSession = Depends(get_db)):
+def get_session_analysis(
+    session_id: int,
+    db: DbSession = Depends(get_db),
+    user_id: int = Depends(get_current_user_id),
+):
     """세션의 영상분석 결과를 시간 순으로 반환."""
-    session = _get_owned_session(db, session_id)
+    session = get_owned_session(db, session_id, user_id)
 
     rows = db.scalars(
         select(VideoAnalysis)
@@ -327,13 +429,17 @@ def get_session_analysis(session_id: int, db: DbSession = Depends(get_db)):
 # ---------------------------------------------------------------------------
 
 @router.get("/sessions/{session_id}/voice-summary", response_model=VoiceSummary)
-def get_voice_summary(session_id: int, db: DbSession = Depends(get_db)):
+def get_voice_summary(
+    session_id: int,
+    db: DbSession = Depends(get_db),
+    user_id: int = Depends(get_current_user_id),
+):
     """세션 전체 음성 지표를 한 번에 반환 (단일 분석 화면 상단 카드용).
 
     필러/반복/무음은 STEP 3 결과(voice_raws), 말하기 속도는 STEP 4 결과(session_summaries)에서
     가져온다. 해당 단계가 아직 안 끝났으면 그 값만 None 으로 나간다.
     """
-    _get_owned_session(db, session_id)
+    get_owned_session(db, session_id, user_id)
 
     voice_raw = db.get(VoiceRaw, session_id)
     summary = db.get(SessionSummary, session_id)
@@ -356,12 +462,16 @@ def get_voice_summary(session_id: int, db: DbSession = Depends(get_db)):
 
 
 @router.get("/sessions/{session_id}/script", response_model=ScriptResult)
-def get_script(session_id: int, db: DbSession = Depends(get_db)):
+def get_script(
+    session_id: int,
+    db: DbSession = Depends(get_db),
+    user_id: int = Depends(get_current_user_id),
+):
     """인터랙티브 스크립트용 데이터 — 문장(stt_sentences)과 그 위에 얹을 무음/필러/반복(voice_raws).
 
     STEP 3 가 안 끝난 세션은 전부 빈 배열로 나간다.
     """
-    _get_owned_session(db, session_id)
+    get_owned_session(db, session_id, user_id)
 
     sentences = db.scalars(
         select(SttSentence).where(SttSentence.session_id == session_id).order_by(SttSentence.t_start)
@@ -381,22 +491,42 @@ def get_script(session_id: int, db: DbSession = Depends(get_db)):
 # 조회 / 삭제
 # ---------------------------------------------------------------------------
 
-@router.get("/sessions/{session_id}", response_model=SessionDetail)
-def get_session(session_id: int, db: DbSession = Depends(get_db)):
-    user_id = get_current_user_id(db)
-    session = db.scalar(
+@router.get("/projects/{project_id}/sessions", response_model=list[SessionRead])
+def list_sessions(
+    project_id: int,
+    db: DbSession = Depends(get_db),
+    user_id: int = Depends(get_current_user_id),
+):
+    """프로젝트의 세션(연습 회차) 목록을 최신순으로 반환.
+
+    목록이므로 청크는 내리지 않는다 — 회차당 수십 개라 응답이 불필요하게 커진다.
+    청크까지 필요하면 GET /sessions/{id}.
+    """
+    get_owned_project(db, project_id, user_id)
+
+    return db.scalars(
         select(Session)
-        .options(selectinload(Session.chunks), selectinload(Session.project))
-        .where(Session.session_id == session_id)
-    )
-    if session is None or session.project.user_id != user_id:
-        raise HTTPException(404, "session not found")
-    return session
+        .where(Session.project_id == project_id)
+        .order_by(Session.created_at.desc())
+    ).all()
+
+
+@router.get("/sessions/{session_id}", response_model=SessionDetail)
+def get_session(
+    session_id: int,
+    db: DbSession = Depends(get_db),
+    user_id: int = Depends(get_current_user_id),
+):
+    return get_owned_session(db, session_id, user_id, with_chunks=True)
 
 
 @router.delete("/sessions/{session_id}", status_code=204)
-def delete_session(session_id: int, db: DbSession = Depends(get_db)):
-    session = _get_owned_session(db, session_id)
+def delete_session(
+    session_id: int,
+    db: DbSession = Depends(get_db),
+    user_id: int = Depends(get_current_user_id),
+):
+    session = get_owned_session(db, session_id, user_id)
     db.delete(session)  # cascade로 chunks/segments/... 자동 삭제
     db.commit()
     storage.delete_session_files(session_id)
@@ -405,18 +535,6 @@ def delete_session(session_id: int, db: DbSession = Depends(get_db)):
 # ---------------------------------------------------------------------------
 # 내부 헬퍼
 # ---------------------------------------------------------------------------
-
-def _get_owned_session(db: DbSession, session_id: int) -> Session:
-    user_id = get_current_user_id(db)
-    session = db.scalar(
-        select(Session)
-        .options(selectinload(Session.project))
-        .where(Session.session_id == session_id)
-    )
-    if session is None or session.project.user_id != user_id:
-        raise HTTPException(404, "session not found")
-    return session
-
 
 def _settings_upload_dir():
     # config의 upload_dir이 Path임을 보장. 매 호출 가져와 테스트 시 패치 쉬움.
@@ -433,6 +551,7 @@ def analyze_voice(
     session_id: int,
     keywords: str = "",
     db: DbSession = Depends(get_db),
+    user_id: int = Depends(get_current_user_id),
 ):
     """full_audio 로 STT + 무음 + 필러 + 반복 + 발화속도 → voice_raws / stt_sentences 저장.
 
@@ -446,7 +565,7 @@ def analyze_voice(
 
     재호출 시 이 세션의 기존 voice_raws / stt_sentences 는 지우고 새로 넣는다.
     """
-    session = _get_owned_session(db, session_id)
+    session = get_owned_session(db, session_id, user_id)
     if session.status not in ("preprocessed", "analyzed"):
         raise HTTPException(
             400,
@@ -496,7 +615,11 @@ def analyze_voice(
 # ---------------------------------------------------------------------------
 
 @router.post("/sessions/{session_id}/analyze/segments", response_model=SegmentationResult)
-def analyze_segments(session_id: int, db: DbSession = Depends(get_db)):
+def analyze_segments(
+    session_id: int,
+    db: DbSession = Depends(get_db),
+    user_id: int = Depends(get_current_user_id),
+):
     """STT 문장을 의미 단위 구간으로 나누고, 구간별로 앞 단계 결과를 집계한다.
 
     **STEP 2(동작)와 STEP 3(음성)이 모두 끝난 뒤** 호출해야 한다. 둘 다 이 단계의
@@ -509,7 +632,7 @@ def analyze_segments(session_id: int, db: DbSession = Depends(get_db)):
     재호출 시 이 세션의 기존 segments 는 통째로 교체된다 — segment_analyses 와
     feedbacks 는 FK CASCADE 로 함께 지워진다.
     """
-    session = _get_owned_session(db, session_id)
+    session = get_owned_session(db, session_id, user_id)
 
     sentences = db.scalars(
         select(SttSentence).where(SttSentence.session_id == session_id)
@@ -652,7 +775,11 @@ def _feedback_to_dict(fb: Feedback | None) -> dict | None:
 
 
 @router.post("/sessions/{session_id}/analyze/segment-feedback")
-def analyze_segment_feedback(session_id: int, db: DbSession = Depends(get_db)):
+def analyze_segment_feedback(
+    session_id: int,
+    db: DbSession = Depends(get_db),
+    user_id: int = Depends(get_current_user_id),
+):
     """구간마다 Gemini 를 따로 호출해 구간별 피드백을 받아 feedbacks 테이블에 저장한다.
 
     호출 수 = 구간 수 (동시에 최대 4개). 구간 하나에 발표 전체 목차 + 그 구간의 전사문·지표 +
@@ -660,7 +787,7 @@ def analyze_segment_feedback(session_id: int, db: DbSession = Depends(get_db)):
     일부 구간이 실패해도 성공한 구간은 저장하고, 실패한 구간은 응답의 error 에 적는다.
     재호출하면 성공한 구간의 기존 피드백은 새 결과로 바뀐다.
     """
-    _get_owned_session(db, session_id)
+    get_owned_session(db, session_id, user_id)
     video_analysis, voice_timeline, segments_payload = _load_feedback_inputs(db, session_id)
 
     # lazy import — google-genai 미설치 환경에서도 API 서버는 정상 기동.
@@ -690,9 +817,13 @@ def analyze_segment_feedback(session_id: int, db: DbSession = Depends(get_db)):
 
 
 @router.get("/sessions/{session_id}/segment-feedback")
-def get_segment_feedback(session_id: int, db: DbSession = Depends(get_db)):
+def get_segment_feedback(
+    session_id: int,
+    db: DbSession = Depends(get_db),
+    user_id: int = Depends(get_current_user_id),
+):
     """저장된 구간별 피드백 조회 (재실행 없이). 아직 없는 구간은 feedback: null."""
-    _get_owned_session(db, session_id)
+    get_owned_session(db, session_id, user_id)
 
     rows = db.execute(
         select(Segment, Feedback)
@@ -712,14 +843,18 @@ def get_segment_feedback(session_id: int, db: DbSession = Depends(get_db)):
 
 
 @router.post("/sessions/{session_id}/analyze/overall-feedback")
-def analyze_overall_feedback(session_id: int, db: DbSession = Depends(get_db)):
+def analyze_overall_feedback(
+    session_id: int,
+    db: DbSession = Depends(get_db),
+    user_id: int = Depends(get_current_user_id),
+):
     """Gemini 를 한 번만 호출해 발표 전체 총평(4~5줄)을 받아 session_summaries.llm_feedback 에 저장한다.
 
     STEP 4(POST /sessions/{id}/analyze/segments)가 먼저 끝나 있어야 한다.
     재호출하면 기존 총평은 새 결과로 바뀐다. session_summaries 행은 STEP 4가 이미 만들어뒀을
     수 있으니(총 길이·구간 수 등) 지우지 않고 llm_feedback 칸만 갱신한다.
     """
-    _get_owned_session(db, session_id)
+    get_owned_session(db, session_id, user_id)
     video_analysis, voice_timeline, segments_payload = _load_feedback_inputs(db, session_id)
 
     # lazy import — google-genai 미설치 환경에서도 API 서버는 정상 기동.
@@ -739,21 +874,29 @@ def analyze_overall_feedback(session_id: int, db: DbSession = Depends(get_db)):
 
 
 @router.get("/sessions/{session_id}/overall-feedback")
-def get_overall_feedback(session_id: int, db: DbSession = Depends(get_db)):
+def get_overall_feedback(
+    session_id: int,
+    db: DbSession = Depends(get_db),
+    user_id: int = Depends(get_current_user_id),
+):
     """저장된 종합 피드백 조회 (재실행 없이). 아직 없으면 overall_summary: null."""
-    _get_owned_session(db, session_id)
+    get_owned_session(db, session_id, user_id)
     summary = db.get(SessionSummary, session_id)
     overall = (summary.llm_feedback or {}).get("overall_summary") if summary and summary.llm_feedback else None
     return {"session_id": session_id, "overall_summary": overall}
 
 
 @router.get("/sessions/{session_id}/segments/trend", response_model=SegmentTrendResult)
-def get_segment_trend(session_id: int, db: DbSession = Depends(get_db)):
+def get_segment_trend(
+    session_id: int,
+    db: DbSession = Depends(get_db),
+    user_id: int = Depends(get_current_user_id),
+):
     """STEP 5 꺾은선 그래프용 — 세션 하나의 구간별 지표를 t_start 순으로 반환.
 
     STEP 4(POST /sessions/{id}/analyze/segments)가 먼저 끝나 있어야 한다.
     """
-    _get_owned_session(db, session_id)
+    get_owned_session(db, session_id, user_id)
 
     rows = db.execute(
         select(Segment, SegmentAnalysis)
