@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session as DbSession
 
 from app.api._deps import (
@@ -70,7 +70,11 @@ def start_session(
 ):
     get_owned_project(db, project_id, user_id)
 
-    session = Session(project_id=project_id, status="recording")
+    # 회차 번호 = 이 프로젝트에서 가장 큰 번호 + 1. (중간 회차를 지워도 다른 회차 번호는 그대로 유지된다.)
+    next_no = db.scalar(
+        select(func.coalesce(func.max(Session.session_no), 0) + 1).where(Session.project_id == project_id)
+    )
+    session = Session(project_id=project_id, session_no=next_no, status="recording")
     db.add(session)
     db.commit()
     db.refresh(session)
@@ -330,6 +334,7 @@ def analyze_motion(
             eye_contact=item.get("eye_contact"),
             gesture=item.get("gesture"),
             gesture_counts=item.get("gesture_counts"),
+            gesture_timelines=item.get("gesture_timelines"),
             notes=item.get("notes"),
         ))
 
@@ -552,7 +557,7 @@ def analyze_segments(
     videos = [
         {"t_start": v.t_start, "t_end": v.t_end, "posture": v.posture,
          "eye_contact": v.eye_contact, "gesture_counts": v.gesture_counts,
-         "notes": v.notes}
+         "gesture_timelines": v.gesture_timelines, "notes": v.notes}
         for v in db.scalars(
             select(VideoAnalysis).where(VideoAnalysis.session_id == session_id)
         ).all()
@@ -635,7 +640,7 @@ def _load_feedback_inputs(db: DbSession, session_id: int):
     video_analysis = [
         {"t_start": v.t_start, "t_end": v.t_end, "kind": v.kind,
          "posture": v.posture, "eye_contact": v.eye_contact, "gesture": v.gesture,
-         "gesture_counts": v.gesture_counts, "notes": v.notes}
+         "gesture_counts": v.gesture_counts, "gesture_timelines": v.gesture_timelines, "notes": v.notes}
         for v in db.scalars(
             select(VideoAnalysis).where(VideoAnalysis.session_id == session_id)
             .order_by(VideoAnalysis.t_start)
@@ -655,7 +660,10 @@ def _load_feedback_inputs(db: DbSession, session_id: int):
          "stt_text": sa.stt_text, "filler_count": sa.filler_count,
          "repetition_count": sa.repetition_count, "speaking_rate_spm": sa.speaking_rate_spm,
          "silence_ratio": sa.silence_ratio, "positive_gesture_count": sa.positive_gesture_count,
-         "negative_gesture_count": sa.negative_gesture_count}
+         "negative_gesture_count": sa.negative_gesture_count,
+         # STEP2 notes(이 구간과 겹치는 영상 조각들의 자세·동작·시선처리 서술)를 이어붙인 것 +
+         # 그 조각들의 gesture_timelines 를 합친 것(STEP4 aggregate() 계산).
+         "motion_notes": sa.motion_notes, "gesture_timelines": sa.gesture_timelines}
         for seg, sa in seg_rows
     ]
     return video_analysis, voice_timeline, segments_payload

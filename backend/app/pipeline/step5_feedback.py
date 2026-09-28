@@ -50,7 +50,12 @@ _TIME_RE = re.compile(r"\d+:\d\d")
 
 
 def _collect_time_tokens(obj) -> set[str]:
-    """데이터의 모든 time_label 에 들어 있는 M:SS 조각의 집합 (= Gemini 가 써도 되는 시각)."""
+    """Gemini 가 써도 되는 시각(M:SS)의 집합.
+
+    두 군데서 모은다: ① 모든 time_label 값 ② gesture_timelines 처럼 "MM:SS" 문자열만
+    담긴 리스트의 각 항목. 후자는 time_label 로 안 감싸여 있어서 따로 챙기지 않으면
+    Gemini 가 그 시각을 인용해도 "데이터에 없는 시각"으로 오판해 지워버린다.
+    """
     tokens: set[str] = set()
 
     def walk(o):
@@ -62,7 +67,10 @@ def _collect_time_tokens(obj) -> set[str]:
                 walk(v)
         elif isinstance(o, list):
             for x in o:
-                walk(x)
+                if isinstance(x, str):
+                    tokens.update(_TIME_RE.findall(x))
+                else:
+                    walk(x)
 
     walk(obj)
     return tokens
@@ -175,14 +183,21 @@ SEGMENT_PROMPT = """당신은 발표 코칭 전문가입니다.
    철자·단어 오류는 지적하지 말고 말하는 방식과 내용의 흐름만 평가하세요.
 7. video_analysis 가 "정보 없음"·"분석 불가"이거나 비어 있으면 자세·시선·제스처는
    추측하지 말고 언급하지 마세요.
-8. speaking_rate_spm 은 단어가 아니라 **분당 음절 수(SPM)** 입니다.
+8. video_analysis 의 notes 는 그 영상 조각을 실제로 보고 자세·동작·시선처리를 서술한
+   글입니다. gesture_counts(횟수)만 보지 말고 **notes 의 내용을 근거로 적극 활용**하세요 —
+   숫자보다 notes 가 "왜 그런지"에 대한 진짜 근거입니다. gesture_timelines 는 각 제스처가
+   발생한 시각(예: "0:14") 배열이니, 특정 제스처를 언급할 때는 gesture_counts 의 총 횟수만
+   나열하지 말고 gesture_timelines 에서 그 시각을 하나 골라 함께 쓰세요
+   (예: "0:14에 나온 산만한 제스처를 포함해 이 구간에서 3번 있었습니다"). gesture_timelines
+   의 시각도 다른 time_label 과 동일하게, 데이터에 있는 그대로만 쓰고 지어내지 마세요.
+9. speaking_rate_spm 은 단어가 아니라 **분당 음절 수(SPM)** 입니다.
    speaking_rate_label(느림/보통/빠름)은 코드가 미리 판정한 값이니 **그대로 따르세요.**
    "보통"이면 발화 속도를 문제로 지적하지 마세요(오히려 적절하다고 평가해도 됩니다).
    "판정되었다"처럼 라벨이 있다는 사실을 언급하지 말고 자연스러운 문장으로 쓰세요.
    silence_ratio 는 구간 시간 중 무음이 차지하는 비율(0~1)입니다.
-9. filler_count·repetition_count·silence_ratio·speaking_rate_label·pointing·explanatory_gesture·
-   video_analysis·voice_timeline 처럼 **영문 소문자와 _ 로 된 데이터 이름은 하나도 쓰지 마세요.**
-   "필러 횟수", "무음 비율", "발화 속도", "가리키기 제스처", "영상 분석 결과"처럼 발표자가 읽는 말로 쓰세요.
+10. filler_count·repetition_count·silence_ratio·speaking_rate_label·pointing·explanatory_gesture·
+    video_analysis·voice_timeline 처럼 **영문 소문자와 _ 로 된 데이터 이름은 하나도 쓰지 마세요.**
+    "필러 횟수", "무음 비율", "발화 속도", "가리키기 제스처", "영상 분석 결과"처럼 발표자가 읽는 말로 쓰세요.
 
 ## 출력 형식 (JSON, 다른 텍스트 없이)
 {{
