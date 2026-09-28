@@ -1,13 +1,13 @@
 "use client";
 
-// 로그인 페이지 (UI만 구현, 실제 인증 API는 아직 없음)
-// 백엔드가 지금은 _dev_auth.py 더미 인증이라, 여기서는 화면/입력값 검증만 하고
-// 제출하면 바로 대시보드로 이동시킨다. 실제 로그인 API 붙일 때 handleSubmit만 교체하면 됨.
+// 로그인 페이지 — POST /auth/login 으로 토큰을 받아 저장하고 대시보드로 이동한다.
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { BarChart2, Mail, Lock, Loader2, Eye, EyeOff } from "lucide-react";
 import Link from "next/link";
+import { API_BASE, errorMessage } from "@/utils/api";
+import { saveTokens } from "@/utils/auth";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -18,7 +18,7 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
 
@@ -31,12 +31,27 @@ export default function LoginPage() {
       return;
     }
 
-    // TODO: 실제 로그인 API 연동 (지금은 더미 인증이라 우선 화면만 넘어감)
     setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
+    try {
+      // 로그인은 아직 토큰이 없으니 apiFetch 가 아니라 fetch 로 직접 부른다.
+      // (apiFetch 는 401 이면 로그인 화면으로 보내버리는데, 여기선 "비밀번호 틀림"을 보여줘야 함)
+      const res = await fetch(`${API_BASE}/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim(), password }),
+      });
+      if (!res.ok) {
+        setError(await errorMessage(res, "로그인에 실패했어요. 잠시 후 다시 시도해주세요."));
+        return;
+      }
+      const data = await res.json();
+      saveTokens(data.access_token, data.refresh_token);
       router.push("/dashboard");
-    }, 500);
+    } catch {
+      setError("서버에 연결하지 못했어요. 잠시 후 다시 시도해주세요.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

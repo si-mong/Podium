@@ -1,17 +1,18 @@
 "use client";
 
-// 회원가입 페이지 (UI만 구현, 실제 회원가입 API는 아직 없음)
-// 로그인 페이지와 마찬가지로 지금은 입력값 검증만 하고 제출하면 로그인 페이지로 보낸다.
+// 회원가입 페이지 — POST /auth/signup 으로 계정을 만들고 로그인 페이지로 보낸다.
+// (백엔드는 가입 때 토큰을 주지 않는다 → 로그인은 따로 한 번 해야 함)
+// 백엔드가 이메일·비밀번호만 받아서 "이름" 칸은 없앴다.
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { BarChart2, Mail, Lock, User, Loader2, Eye, EyeOff } from "lucide-react";
+import { BarChart2, Mail, Lock, Loader2, Eye, EyeOff } from "lucide-react";
 import Link from "next/link";
+import { API_BASE, errorMessage } from "@/utils/api";
 
 export default function SignupPage() {
   const router = useRouter();
 
-  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [passwordConfirm, setPasswordConfirm] = useState("");
@@ -19,11 +20,11 @@ export default function SignupPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
 
-    if (!name.trim() || !email.trim() || !password.trim() || !passwordConfirm.trim()) {
+    if (!email.trim() || !password.trim() || !passwordConfirm.trim()) {
       setError("모든 항목을 입력해주세요.");
       return;
     }
@@ -40,12 +41,25 @@ export default function SignupPage() {
       return;
     }
 
-    // TODO: 실제 회원가입 API 연동. 지금은 화면만 만들어서 성공했다고 가정하고 로그인 페이지로 이동.
     setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
+    try {
+      const res = await fetch(`${API_BASE}/auth/signup`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim(), password }),
+      });
+      if (!res.ok) {
+        // 이미 가입된 이메일(409), 비밀번호 규칙 위반(422) 등 — 서버가 보낸 한국어 문구를 그대로 보여준다.
+        setError(await errorMessage(res, "회원가입에 실패했어요. 잠시 후 다시 시도해주세요."));
+        return;
+      }
+      alert("회원가입이 완료됐어요! 로그인해주세요.");
       router.push("/login");
-    }, 500);
+    } catch {
+      setError("서버에 연결하지 못했어요. 잠시 후 다시 시도해주세요.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -64,20 +78,6 @@ export default function SignupPage() {
           <h2 className="text-lg font-bold text-slate-800 mb-6">회원가입</h2>
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-sm font-semibold text-slate-600 mb-1.5">이름</label>
-              <div className="relative">
-                <User className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="홍길동"
-                  className="w-full pl-10 pr-3 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-              </div>
-            </div>
-
             <div>
               <label className="block text-sm font-semibold text-slate-600 mb-1.5">이메일</label>
               <div className="relative">
@@ -100,7 +100,7 @@ export default function SignupPage() {
                   type={showPassword ? "text" : "password"}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="8자 이상"
+                  placeholder="8자 이상, 영문·숫자·특수기호 (공백 불가)"
                   className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
                 <button
