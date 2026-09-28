@@ -744,6 +744,50 @@ def get_segment_feedback(
     }
 
 
+@router.post("/sessions/{session_id}/analyze/overall-feedback")
+def analyze_overall_feedback(
+    session_id: int,
+    db: DbSession = Depends(get_db),
+    user_id: int = Depends(get_current_user_id),
+):
+    """Gemini 를 한 번만 호출해 발표 전체 총평(4~5줄)을 받아 session_summaries.llm_feedback 에 저장한다.
+
+    STEP 4(POST /sessions/{id}/analyze/segments)가 먼저 끝나 있어야 한다.
+    재호출하면 기존 총평은 새 결과로 바뀐다. session_summaries 행은 STEP 4가 이미 만들어뒀을
+    수 있으니(총 길이·구간 수 등) 지우지 않고 llm_feedback 칸만 갱신한다.
+    """
+    get_owned_session(db, session_id, user_id)
+    video_analysis, voice_timeline, segments_payload = _load_feedback_inputs(db, session_id)
+
+    # lazy import — google-genai 미설치 환경에서도 API 서버는 정상 기동.
+    from app.pipeline import step5_feedback
+
+    try:
+        result = step5_feedback.run_overall(segments_payload, video_analysis, voice_timeline)
+    except RuntimeError as exc:
+        raise HTTPException(502, f"종합 피드백 생성 실패: {exc}")
+
+    summary = db.get(SessionSummary, session_id) or SessionSummary(session_id=session_id)
+    summary.llm_feedback = result
+    db.add(summary)
+    db.commit()
+
+    return {"session_id": session_id, "overall_summary": result.get("overall_summary")}
+
+
+@router.get("/sessions/{session_id}/overall-feedback")
+def get_overall_feedback(
+    session_id: int,
+    db: DbSession = Depends(get_db),
+    user_id: int = Depends(get_current_user_id),
+):
+    """저장된 종합 피드백 조회 (재실행 없이). 아직 없으면 overall_summary: null."""
+    get_owned_session(db, session_id, user_id)
+    summary = db.get(SessionSummary, session_id)
+    overall = (summary.llm_feedback or {}).get("overall_summary") if summary and summary.llm_feedback else None
+    return {"session_id": session_id, "overall_summary": overall}
+
+
 @router.get("/sessions/{session_id}/segments/trend", response_model=SegmentTrendResult)
 def get_segment_trend(
     session_id: int,

@@ -1,8 +1,9 @@
 """
-Step 5: 구간별 LLM 분석
+Step 5: 구간별 LLM 분석 + 종합 피드백
 
 STEP2(영상)·STEP3(음성 타임라인)·STEP4(구간분리+집계) 결과를 구간마다 Gemini 에게 보내
-구간별 잘한 점·개선점을 받는다. (발표 전체를 한 번에 보는 "종합분석"은 2026-09-20 에 제거함)
+구간별 잘한 점·개선점을 받는다(run_segments). 발표 전체를 한 번에 보는 총평(run_overall)도
+따로 제공한다 — 2026-09-20에 한 번 제거했다가 2026-09-22에 "4~5줄 총평" 형태로 다시 추가함.
 
 STEP1(전처리)은 안 보낸다 — 그 결과물(전체 길이)은 voice_timeline.total_duration 에 이미 있다.
 STEP3는 요약이 아니라 **원본 타임라인**(silence_segments/filler_words/repetitions)을 보낸다.
@@ -178,7 +179,12 @@ SEGMENT_PROMPT = """당신은 발표 코칭 전문가입니다.
 3. 수치를 나열하지 말고 **그 장면이 왜 잘한 점/개선점인지** 설명하세요.
    예: "0:12~0:16에 4초간 침묵이 있었고 그 직후 필러가 2번 나와 흐름이 끊겼습니다."
 4. 영상과 음성의 시간이 겹치는 지점을 찾아 교차 분석하세요.
-5. 잘한 점과 개선점은 각각 2~4개로 쓰고, 억지로 채우지 마세요. 정말 없으면 빈 배열로 두세요.
+5. 잘한 점은 1~2개, 개선점은 2~3개로 쓰고, 억지로 채우지 마세요. 정말 없으면 빈 배열로 두세요.
+   길이는 항목마다 다음을 지키세요 — 잘한 점: 1줄(대략 20~30자) 이내로 간결하게.
+   개선점: 1~2줄(한두 문장, 대략 30~60자) 이내로, 무엇이 문제였는지와 어떻게 고치면 좋을지를
+   함께 담으세요. 둘 다 화면에 표시되는 UI라 길게 늘어지면 안 됩니다.
+   개선점은 이 구간에서 발표 전달력에 가장 큰 영향을 준 것부터 중요도 순으로 고르고,
+   사소한 것(필러 1회 등)은 더 큰 문제가 있으면 빼세요. 시간 순서가 아니라 중요도 순으로 나열하세요.
 6. 전사문(stt_text)은 음성인식 결과라 고유명사나 단어가 잘못 적혀 있을 수 있습니다.
    철자·단어 오류는 지적하지 말고 말하는 방식과 내용의 흐름만 평가하세요.
 7. video_analysis 가 "정보 없음"·"분석 불가"이거나 비어 있으면 자세·시선·제스처는
@@ -321,3 +327,78 @@ def run_segments(segments: list[dict], video_analysis: list[dict],
     ok = sum(1 for r in results if "feedback" in r)
     logger.info("STEP 5 구간별 분석: %d/%d 성공", ok, len(results))
     return results
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 종합 피드백 (발표 전체 총평)
+#
+# 구간별 분석과 달리 Gemini 를 **한 번만** 호출해서 발표 전체를 한 문단으로 요약한다.
+# 구간별처럼 항목마다 시각을 강제하지 않는다 — 총평은 4~5줄로 짧아야 해서 문장마다
+# 시각을 넣으면 오히려 읽기 어려워진다. 다만 시각을 언급하는 경우엔 구간별과 같은 검증
+# (_generate_validated) 을 거쳐 데이터에 없는 시각을 지어내지 못하게 막는다.
+# ═══════════════════════════════════════════════════════════════════════════
+
+OVERALL_PROMPT = """당신은 발표 코칭 전문가입니다.
+아래는 발표 전체를 구간별로 나눠 분석한 데이터입니다. 발표 전체를 한 번에 보고 총평을 작성하세요.
+
+## 지침
+1. outline(구간별 라벨·제목·시각)과 segments(구간별 전사문·지표)를 종합해서 발표 전체의
+   흐름과 특징을 파악하세요. 특정 구간 하나만 보지 말고 전체를 아우르세요.
+2. segments 의 motion_notes 는 그 구간 영상을 실제로 보고 자세·동작·시선처리를 서술한
+   글입니다(구간마다 있음). 말하기 지표(전사문·필러·무음 등)만 요약하지 말고, motion_notes
+   에서 구간마다 반복되거나 눈에 띄는 동작·시선 습관이 있으면 총평에 함께 녹이세요.
+   gesture_timelines 는 그 습관이 발생한 시각(예: "0:14") 배열이니, 특정 동작을 짚고
+   싶으면 대표로 한 시각을 골라 함께 써도 됩니다(지침 5의 시각 규칙을 그대로 따르세요).
+3. 잘한 점과 개선할 점을 자연스럽게 엮어서 **하나의 총평 문단**으로 쓰세요. 목록이 아니라
+   이어지는 글입니다.
+4. 길이는 **4~5줄(약 200~280자)** 로 쓰세요. 그보다 길게 쓰지 마세요.
+5. 시각을 언급해도 되지만 강제는 아닙니다. 언급할 경우 반드시 데이터의 time_label 이나
+   gesture_timelines 의 값을 "0:12~0:16" 또는 "0:14"처럼 그대로 쓰고, 계산하거나 지어내지 마세요.
+6. filler_count·silence_ratio·speaking_rate_label 같은 영문 소문자와 _ 로 된 데이터
+   이름은 하나도 쓰지 말고, "필러 횟수", "무음 비율", "발화 속도"처럼 발표자가 읽는
+   말로 쓰세요.
+7. 전사문(stt_text)은 음성인식 결과라 고유명사나 단어가 잘못 적혀 있을 수 있습니다.
+   철자·단어 오류는 지적하지 말고 말하는 방식과 내용의 흐름만 평가하세요.
+
+## 출력 형식 (JSON, 다른 텍스트 없이)
+{{
+  "overall_summary": "4~5줄 분량의 총평 문단"
+}}
+
+## outline (발표 전체 구간 목록)
+{outline}
+
+## segments (구간별 전사문·지표)
+{segments}
+"""
+
+
+def run_overall(segments: list[dict], video_analysis: list[dict], voice_timeline: dict) -> dict:
+    """발표 전체를 한 번 호출해서 총평(overall_summary) 하나를 받는다.
+
+    segments: run_segments 와 같은 입력(segment_id 포함, 구간 순서). video_analysis·voice_timeline 은
+    인자로는 받지만 이번엔 프롬프트에 넣지 않는다 — 총평은 구간별 지표(segments 안에 이미 집계돼
+    있음)만으로 충분하고, 원본 이벤트까지 다 보내면 총평치고 너무 장황해진다.
+    반환: {"overall_summary": "..."}
+    """
+    from google import genai
+    from google.genai import types
+
+    from app.core.config import settings
+
+    api_key = settings.gemini_api_key
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY 없음 (.env 확인)")
+    client = genai.Client(api_key=api_key)
+
+    outline = [{"label": s["label"], "title": s["title"],
+                "t_start": s["t_start"], "t_end": s["t_end"]} for s in segments]
+    segs_view = [{k: v for k, v in s.items() if k != "segment_id"} for s in segments]
+    labeled = {"outline": _add_time_labels(outline), "segments": _add_time_labels(segs_view)}
+
+    prompt = OVERALL_PROMPT.format(
+        outline=json.dumps(labeled["outline"], ensure_ascii=False, indent=2),
+        segments=json.dumps(labeled["segments"], ensure_ascii=False, indent=2),
+    )
+
+    return _generate_validated(client, types, prompt, _collect_time_tokens(labeled), "STEP 5 종합")
