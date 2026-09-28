@@ -1,8 +1,9 @@
 "use client";
 
-// 인터랙티브 스크립트 — 구간 하나의 발화 스크립트를 영상과 연결해서 보여준다.
+// 인터랙티브 스크립트 — 세션 전체(모든 구간) 발화 스크립트를 영상과 연결해서 보여준다.
 //   - 문장을 누르면 영상이 그 시각으로 이동해서 재생된다.
 //   - 영상이 재생되는 동안 지금 말하는 문장이 강조되고, 스크롤도 따라간다.
+//   - 구간 버튼을 눌러도(대시보드 쪽에서 영상을 그 구간 시작으로 옮겨주면) 같은 방식으로 따라간다.
 //   - 필러/반복/무음/동작 표시를 누르면 그 장면 1초 전부터 재생된다.
 // 데이터: GET /sessions/{id}/script (문장·무음·필러·반복) + GET /sessions/{id}/analysis (동작 분석)
 
@@ -95,7 +96,6 @@ type Row =
   | { kind: 'motion'; t: number; chunk: VideoChunk };
 
 interface Props {
-  segment: { t_start: number; t_end: number; isLast: boolean } | null; // 보여줄 구간 (없으면 안내 문구)
   script: ScriptData | null;   // null = 아직 못 불러옴
   videoChunks: VideoChunk[];
   currentTime: number;         // 영상의 현재 재생 위치(초)
@@ -109,12 +109,9 @@ function fillerLabel(f: { text?: string | null }) {
   return word ? `필러: ${word}` : '필러';
 }
 
-function buildRows(segment: NonNullable<Props['segment']>, script: ScriptData, chunks: VideoChunk[]): Row[] {
-  // 구간에 속하는지는 "시작 시각" 기준으로 판단한다 (STEP 4 집계와 같은 규칙). 마지막 구간은 끝 시각도 포함.
-  const inSegment = (t: number) => t >= segment.t_start && (t < segment.t_end || segment.isLast);
-
-  const sentences = script.sentences.filter((s) => inSegment(s.t_start));
-  const rows: Row[] = sentences.map((s) => ({
+// 세션 전체 스크립트로 줄을 만든다 (구간 필터 없음 — 처음부터 끝까지 다 보여준다).
+function buildRows(script: ScriptData, chunks: VideoChunk[]): Row[] {
+  const rows: Row[] = script.sentences.map((s) => ({
     kind: 'sentence',
     t: s.t_start,
     end: s.t_end,
@@ -131,33 +128,34 @@ function buildRows(segment: NonNullable<Props['segment']>, script: ScriptData, c
     }
     return found && found.kind === 'sentence' ? found : null;
   };
-  for (const f of script.fillers.filter((f) => inSegment(f.t_start))) {
+  for (const f of script.fillers) {
     owner(f.t_start)?.fillers.push({ label: fillerLabel(f), at: f.t_start });
   }
-  for (const r of script.repetitions.filter((r) => inSegment(r.t_start))) {
+  for (const r of script.repetitions) {
     owner(r.t_start)?.repetitions.push({ label: r.text ? `반복: ${r.text}` : '반복', at: r.t_start });
   }
 
-  for (const s of script.silences.filter((s) => inSegment(s.t_start) && s.duration >= MIN_SILENCE_SEC)) {
+  for (const s of script.silences.filter((s) => s.duration >= MIN_SILENCE_SEC)) {
     rows.push({ kind: 'silence', t: s.t_start, duration: s.duration });
   }
-  for (const c of chunks.filter((c) => inSegment(c.t_start))) {
+  for (const c of chunks) {
     rows.push({ kind: 'motion', t: c.t_start, chunk: c });
   }
 
   return rows.sort((a, b) => a.t - b.t);
 }
 
-export default function InteractiveScript({ segment, script, videoChunks, currentTime, isPlaying, onSeek }: Props) {
+export default function InteractiveScript({ script, videoChunks, currentTime, isPlaying, onSeek }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef<HTMLDivElement>(null);
 
-  const rows = segment && script ? buildRows(segment, script, videoChunks) : [];
+  const rows = script ? buildRows(script, videoChunks) : [];
 
   // 지금 재생 중인 문장 = 시작 ≤ 현재 위치 < 끝
   const activeIndex = rows.findIndex((r) => r.kind === 'sentence' && r.t <= currentTime && currentTime < r.end);
 
   // 재생 중에는 지금 문장이 보이도록 스크립트 영역 안에서만 스크롤한다 (페이지 전체가 움직이지 않게).
+  // 구간 버튼을 눌러서 영상이 그 구간 시작으로 옮겨갈 때도, 재생이 시작되며 이 effect가 그대로 따라가 준다.
   useEffect(() => {
     const box = containerRef.current;
     const el = activeRef.current;
@@ -165,19 +163,14 @@ export default function InteractiveScript({ segment, script, videoChunks, curren
     box.scrollTo({ top: el.offsetTop - box.clientHeight / 2 + el.clientHeight / 2, behavior: 'smooth' });
   }, [activeIndex, isPlaying]);
 
-  if (!segment) {
-    return <p className="text-sm text-slate-400 font-medium py-6 text-center">구간 분석이 끝나면 스크립트가 표시됩니다.</p>;
-  }
   if (!script || script.sentences.length === 0) {
     return <p className="text-sm text-slate-400 font-medium py-6 text-center">이 세션에는 음성 분석(스크립트) 결과가 없습니다.</p>;
-  }
-  if (rows.length === 0) {
-    return <p className="text-sm text-slate-400 font-medium py-6 text-center">이 구간에는 표시할 스크립트가 없습니다.</p>;
   }
 
   return (
     // relative: 안쪽 줄의 offsetTop 이 이 박스 기준이 되도록 (자동 스크롤 계산용)
-    <div ref={containerRef} className="relative space-y-2 max-h-[320px] overflow-y-auto custom-scrollbar pr-2">
+    // h-[400px]: 대략 10줄 정도가 보이는 높이. 그 이상은 스크롤로 본다.
+    <div ref={containerRef} className="relative space-y-2 h-[400px] overflow-y-auto custom-scrollbar pr-2">
       {rows.map((row, i) => {
         const time = <span className="text-slate-400 font-bold shrink-0 w-12 pt-1 text-[13px]">{fmtTime(row.t)}</span>;
 

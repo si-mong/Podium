@@ -4,7 +4,9 @@
   POST /projects/{project_id}/sessions/start    -> 빈 세션 생성
   POST /sessions/{id}/chunks?chunk_index=N      -> 30초 webm 청크 업로드 (반복)
   POST /sessions/{id}/video                     -> 전체 연속 webm 업로드 (Stop 시 1회)
+                                                   또는 "영상 업로드하기"로 고른 파일 (청크 없이 이것만)
   POST /sessions/{id}/end                       -> 오디오 추출 + concat (전처리만 완료)
+                                                   청크가 없으면(업로드 영상) 전체 영상에서 바로 오디오 추출
   POST /sessions/{id}/analyze/motion            -> STEP 2 VLM 동작 분석 (별도 호출)
   POST /sessions/{id}/analyze/voice             -> STEP 3 음성 분석 (별도 호출)
   POST /sessions/{id}/analyze/segments          -> STEP 4 구간 분리 + 집계
@@ -14,6 +16,8 @@
   DELETE /sessions/{id}                         -> 세션 (DB + 파일) 삭제
 """
 from __future__ import annotations
+
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy import func, select
@@ -25,7 +29,7 @@ from app.models import (
     Chunk, Feedback, Project, Segment, SegmentAnalysis, Session, SessionSummary,
     SttSentence, VideoAnalysis, VoiceRaw,
 )
-from app.pipeline.step1_preprocess import concat_audio, extract_chunk_audio, probe_duration
+from app.pipeline.step1_preprocess import FFmpegError, concat_audio, extract_chunk_audio, probe_duration
 from app.schemas.session import (
     MotionAnalysisResult,
     PreprocessResult,
@@ -44,6 +48,8 @@ from app.services import storage
 
 
 CHUNK_DURATION_SEC = 30
+# "영상 업로드하기"로 받을 수 있는 확장자
+ALLOWED_VIDEO_SUFFIXES = {".webm", ".mp4", ".mov"}
 
 
 router = APIRouter(tags=["sessions"])
@@ -123,9 +129,17 @@ async def upload_full_video(
     file: UploadFile = File(...),
     db: DbSession = Depends(get_db),
 ):
+    """전체 영상 저장. 실시간 촬영(full_video.webm)과 "영상 업로드하기"로 올린 파일 둘 다 여기로 온다.
+
+    업로드 파일은 원본 확장자 그대로 저장한다 (변환하지 않음 — ffmpeg/opencv 가 mp4·mov 도 읽는다).
+    """
     session = _get_owned_session(db, session_id)
 
-    path = storage.full_video_path(session_id)
+    suffix = Path(file.filename or "").suffix.lower() or ".webm"
+    if suffix not in ALLOWED_VIDEO_SUFFIXES:
+        raise HTTPException(400, f"지원하지 않는 영상 형식이에요 ({suffix}). mp4, mov, webm 파일만 올릴 수 있어요.")
+
+    path = storage.full_video_path(session_id, suffix)
     data = await file.read()
     size = storage.write_bytes(path, data)
 
@@ -146,10 +160,28 @@ def end_session(session_id: int, db: DbSession = Depends(get_db)):
     chunks = db.scalars(
         select(Chunk).where(Chunk.session_id == session_id).order_by(Chunk.chunk_index)
     ).all()
-    if not chunks:
-        raise HTTPException(400, "no chunks uploaded")
-
     upload_dir = _settings_upload_dir()
+    full_audio = storage.full_audio_path(session_id)
+
+    # 업로드한 영상: 30초 청크 없이 전체 영상 하나만 있다 → 거기서 바로 오디오를 뽑는다.
+    if not chunks:
+        if not session.full_video_path:
+            raise HTTPException(400, "no chunks or video uploaded")
+        try:
+            extract_chunk_audio(upload_dir / session.full_video_path, full_audio)
+        except FFmpegError:
+            raise HTTPException(400, "영상에서 소리를 추출하지 못했어요. 소리가 있는 영상인지 확인해주세요.")
+        session.status = "preprocessed"
+        db.commit()
+        return PreprocessResult(
+            session_id=session_id,
+            status=session.status,
+            full_audio_path=str(full_audio.relative_to(upload_dir)),
+            total_duration_sec=probe_duration(full_audio),
+            chunk_count=0,
+        )
+
+    # 실시간 촬영: 30초 청크마다 오디오를 뽑아서 이어붙인다.
     wav_paths = []
     chunk_webm_paths = []
     for c in chunks:
@@ -159,7 +191,6 @@ def end_session(session_id: int, db: DbSession = Depends(get_db)):
         wav_paths.append(wav)
         chunk_webm_paths.append(webm)
 
-    full_audio = storage.full_audio_path(session_id)
     concat_audio(wav_paths, full_audio)
     total_duration = probe_duration(full_audio)
 
@@ -240,6 +271,7 @@ def analyze_motion(session_id: int, db: DbSession = Depends(get_db)):
             eye_contact=item.get("eye_contact"),
             gesture=item.get("gesture"),
             gesture_counts=item.get("gesture_counts"),
+            gesture_timelines=item.get("gesture_timelines"),
             notes=item.get("notes"),
         ))
 
@@ -499,7 +531,7 @@ def analyze_segments(session_id: int, db: DbSession = Depends(get_db)):
     videos = [
         {"t_start": v.t_start, "t_end": v.t_end, "posture": v.posture,
          "eye_contact": v.eye_contact, "gesture_counts": v.gesture_counts,
-         "notes": v.notes}
+         "gesture_timelines": v.gesture_timelines, "notes": v.notes}
         for v in db.scalars(
             select(VideoAnalysis).where(VideoAnalysis.session_id == session_id)
         ).all()
@@ -582,7 +614,7 @@ def _load_feedback_inputs(db: DbSession, session_id: int):
     video_analysis = [
         {"t_start": v.t_start, "t_end": v.t_end, "kind": v.kind,
          "posture": v.posture, "eye_contact": v.eye_contact, "gesture": v.gesture,
-         "gesture_counts": v.gesture_counts, "notes": v.notes}
+         "gesture_counts": v.gesture_counts, "gesture_timelines": v.gesture_timelines, "notes": v.notes}
         for v in db.scalars(
             select(VideoAnalysis).where(VideoAnalysis.session_id == session_id)
             .order_by(VideoAnalysis.t_start)
@@ -602,7 +634,11 @@ def _load_feedback_inputs(db: DbSession, session_id: int):
          "stt_text": sa.stt_text, "filler_count": sa.filler_count,
          "repetition_count": sa.repetition_count, "speaking_rate_spm": sa.speaking_rate_spm,
          "silence_ratio": sa.silence_ratio, "positive_gesture_count": sa.positive_gesture_count,
-         "negative_gesture_count": sa.negative_gesture_count}
+         "negative_gesture_count": sa.negative_gesture_count,
+         # STEP2 notes(이 구간과 겹치는 영상 조각들의 자세·동작·시선처리 서술)를 이어붙인 것 +
+         # 그 조각들의 gesture_timelines 를 합친 것(STEP4 aggregate() 계산). 종합 피드백
+         # (run_overall)은 원본 video_analysis 를 안 받으므로 이 두 필드가 유일한 동작·시선 근거.
+         "motion_notes": sa.motion_notes, "gesture_timelines": sa.gesture_timelines}
         for seg, sa in seg_rows
     ]
     return video_analysis, voice_timeline, segments_payload
@@ -673,6 +709,42 @@ def get_segment_feedback(session_id: int, db: DbSession = Depends(get_db)):
             for seg, fb in rows
         ],
     }
+
+
+@router.post("/sessions/{session_id}/analyze/overall-feedback")
+def analyze_overall_feedback(session_id: int, db: DbSession = Depends(get_db)):
+    """Gemini 를 한 번만 호출해 발표 전체 총평(4~5줄)을 받아 session_summaries.llm_feedback 에 저장한다.
+
+    STEP 4(POST /sessions/{id}/analyze/segments)가 먼저 끝나 있어야 한다.
+    재호출하면 기존 총평은 새 결과로 바뀐다. session_summaries 행은 STEP 4가 이미 만들어뒀을
+    수 있으니(총 길이·구간 수 등) 지우지 않고 llm_feedback 칸만 갱신한다.
+    """
+    _get_owned_session(db, session_id)
+    video_analysis, voice_timeline, segments_payload = _load_feedback_inputs(db, session_id)
+
+    # lazy import — google-genai 미설치 환경에서도 API 서버는 정상 기동.
+    from app.pipeline import step5_feedback
+
+    try:
+        result = step5_feedback.run_overall(segments_payload, video_analysis, voice_timeline)
+    except RuntimeError as exc:
+        raise HTTPException(502, f"종합 피드백 생성 실패: {exc}")
+
+    summary = db.get(SessionSummary, session_id) or SessionSummary(session_id=session_id)
+    summary.llm_feedback = result
+    db.add(summary)
+    db.commit()
+
+    return {"session_id": session_id, "overall_summary": result.get("overall_summary")}
+
+
+@router.get("/sessions/{session_id}/overall-feedback")
+def get_overall_feedback(session_id: int, db: DbSession = Depends(get_db)):
+    """저장된 종합 피드백 조회 (재실행 없이). 아직 없으면 overall_summary: null."""
+    _get_owned_session(db, session_id)
+    summary = db.get(SessionSummary, session_id)
+    overall = (summary.llm_feedback or {}).get("overall_summary") if summary and summary.llm_feedback else None
+    return {"session_id": session_id, "overall_summary": overall}
 
 
 @router.get("/sessions/{session_id}/segments/trend", response_model=SegmentTrendResult)

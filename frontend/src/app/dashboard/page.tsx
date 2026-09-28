@@ -14,6 +14,7 @@ import {
   ComposedChart
 } from 'recharts';
 import InteractiveScript, { TimestampText, fmtTime, ScriptData, VideoChunk } from './InteractiveScript';
+import { setPendingSlide } from '../slideStore';
 
 const videoThumbnail = "/dashboard-video-thumbnail.png";
 
@@ -137,14 +138,15 @@ function formatStat(value: number | null | undefined, format: (v: number) => str
 }
 
 // 제스처/음성 카드는 실제 데이터. (말 더듬 횟수 = 반복 횟수)
+// id는 SINGLE_METRICS_CONFIG의 id와 1:1로 맞춰뒀다 — 그래프에서 고른 지표에 맞는 총량 카드를 찾을 때 씀.
 function buildSummaryStats(gestureTotals: GestureTotals | null, voice: VoiceSummary | null) {
   return [
-    { title: "필러 단어 빈도", value: formatStat(voice?.filler_count, v => `${v}회`), icon: MessageSquare, color: "text-rose-600", bg: "bg-rose-50" },
-    { title: "평균 말하기 속도", value: formatStat(voice?.avg_speaking_rate_spm, v => `${Math.round(v)} 음절/분`), icon: Activity, color: "text-green-600", bg: "bg-green-50" },
-    { title: "전체 무음 비율", value: formatStat(voice?.silence_ratio, v => `${Math.round(v * 100)}%`), icon: Mic, color: "text-purple-600", bg: "bg-purple-50" },
-    { title: "말 더듬 횟수", value: formatStat(voice?.repetition_count, v => `${v}회`), icon: BarChart2, color: "text-orange-600", bg: "bg-orange-50" },
-    { title: "일반 제스처", value: gestureTotals ? `${gestureTotals.general}회` : "-", icon: ThumbsUp, color: "text-blue-600", bg: "bg-blue-50" },
-    { title: "부정적 제스처", value: gestureTotals ? `${gestureTotals.negative}회` : "-", icon: AlertCircle, color: "text-rose-600", bg: "bg-rose-50" },
+    { id: "fillerTotal", title: "필러 단어 빈도", value: formatStat(voice?.filler_count, v => `${v}회`), icon: MessageSquare, color: "text-rose-600", bg: "bg-rose-50" },
+    { id: "wpm", title: "평균 말하기 속도", value: formatStat(voice?.avg_speaking_rate_spm, v => `${Math.round(v)} 음절/분`), icon: Activity, color: "text-green-600", bg: "bg-green-50" },
+    { id: "silenceRatio", title: "전체 무음 비율", value: formatStat(voice?.silence_ratio, v => `${Math.round(v * 100)}%`), icon: Mic, color: "text-purple-600", bg: "bg-purple-50" },
+    { id: "habits", title: "말 더듬 횟수", value: formatStat(voice?.repetition_count, v => `${v}회`), icon: BarChart2, color: "text-orange-600", bg: "bg-orange-50" },
+    { id: "generalGesture", title: "일반 제스처", value: gestureTotals ? `${gestureTotals.general}회` : "-", icon: ThumbsUp, color: "text-blue-600", bg: "bg-blue-50" },
+    { id: "negativeGesture", title: "부정적 제스처", value: gestureTotals ? `${gestureTotals.negative}회` : "-", icon: AlertCircle, color: "text-rose-600", bg: "bg-rose-50" },
   ];
 }
 
@@ -327,6 +329,7 @@ export default function PresentationAnalysisDashboard() {
   const [script, setScript] = useState<ScriptData | null>(null);
   const [segments, setSegments] = useState<ApiSegment[]>([]);
   const [trend, setTrend] = useState<TrendPoint[]>([]);
+  const [overallFeedback, setOverallFeedback] = useState<string | null>(null); // GET /sessions/{id}/overall-feedback
   const [currentTime, setCurrentTime] = useState(0); // 영상의 현재 재생 위치(초)
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -344,19 +347,21 @@ export default function PresentationAnalysisDashboard() {
       setScript(null);
       setSegments([]);
       setTrend([]);
+      setOverallFeedback(null);
       return;
     }
 
     (async () => {
       const base = `/sessions/${activeSessionId}`;
       // 서로 상관없는 요청이라 한꺼번에 보낸다. 실패한 것은 null 로 오고, 그 부분만 비어 보인다.
-      const [detail, analysis, voice, scriptData, segmentData, trendData] = await Promise.all([
+      const [detail, analysis, voice, scriptData, segmentData, trendData, overallData] = await Promise.all([
         getJson<ApiSession>(base),
         getJson<{ analyses: VideoChunk[] }>(`${base}/analysis`),
         getJson<VoiceSummary>(`${base}/voice-summary`),
         getJson<ScriptData>(`${base}/script`),
         getJson<{ segments: ApiSegment[] }>(`${base}/segment-feedback`),
         getJson<{ points: TrendPoint[] }>(`${base}/segments/trend`),
+        getJson<{ overall_summary: string | null }>(`${base}/overall-feedback`),
       ]);
       if (cancelled) return;
 
@@ -365,6 +370,7 @@ export default function PresentationAnalysisDashboard() {
       setScript(scriptData);
       setSegments(segmentData ? segmentData.segments : []);
       setTrend(trendData ? trendData.points : []);
+      setOverallFeedback(overallData ? overallData.overall_summary : null);
 
       // 동작 분석: 제스처 합계(상단 카드)와 조각 목록(스크립트에 표시)
       setVideoChunks(analysis ? analysis.analyses : []);
@@ -387,7 +393,10 @@ export default function PresentationAnalysisDashboard() {
     };
   }, [activeSessionId]);
 
-  const videoSrc = sessionVideoPath ? `${API_BASE}/media/${activeSessionId}/full_video.webm` : null;
+  // 파일 이름은 DB 경로의 마지막 부분을 쓴다 (촬영본은 full_video.webm, 업로드본은 full_video.mp4 등).
+  // Windows 에서 저장된 경로는 "12\full_video.webm" 처럼 역슬래시라서 / 와 \ 둘 다로 자른다.
+  const videoFileName = sessionVideoPath ? sessionVideoPath.split(/[\\/]/).pop() : null;
+  const videoSrc = videoFileName ? `${API_BASE}/media/${activeSessionId}/${videoFileName}` : null;
 
   // 영상을 sec 초로 옮긴다 (play=true 면 바로 재생).
   // 영상 정보(길이 등)가 아직 안 왔으면 오는 즉시 옮긴다 — 안 그러면 이동이 무시돼 0초부터 재생된다.
@@ -414,9 +423,13 @@ export default function PresentationAnalysisDashboard() {
     v.currentTime = 1e7;
   };
 
-  // 구간 버튼/카드를 누르면 그 구간의 스크립트만 보여준다. 영상은 움직이지 않는다.
-  // (영상이 움직이는 건 인터랙티브 스크립트의 문장·표시를 눌렀을 때뿐이다.)
-  const selectSegment = (idx: number) => setActiveSegmentIndex(idx);
+  // 구간 버튼/카드를 누르면 영상이 그 구간 시작으로 이동해서 재생되고, 전체 스크립트도 그 지점을 따라간다.
+  // (스크립트 자체는 구간별로 나누지 않고 항상 세션 전체를 보여준다 — InteractiveScript 참고.)
+  const selectSegment = (idx: number) => {
+    setActiveSegmentIndex(idx);
+    const seg = segments[idx];
+    if (seg) seekVideo(seg.t_start);
+  };
 
   // 영상이 지금 재생되고 있는 위치가 속한 구간 번호 (없으면 -1)
   const playingSegmentIndex = segments.findIndex(
@@ -429,7 +442,6 @@ export default function PresentationAnalysisDashboard() {
     if (playingSegmentIndex >= 0) setActiveSegmentIndex(playingSegmentIndex);
   }, [playingSegmentIndex]);
 
-  const activeSegment = segments[activeSegmentIndex] ?? null;       // 스크립트로 보고 있는 구간
   const playingSegment = segments[playingSegmentIndex] ?? null;     // 영상이 재생 중인 구간
 
   // 단일 분석 그래프 데이터 — 구간마다 한 점. x축 이름이 겹치면(같은 라벨의 구간) 한 점으로 합쳐 보이므로 번호를 붙인다.
@@ -475,7 +487,10 @@ export default function PresentationAnalysisDashboard() {
   const [targetTopicId, setTargetTopicId] = useState<string | null>(null);
 
   // PDF는 아직 대응 API가 없어 Mock 유지. 영상은 /record 페이지에서 실시간 촬영으로 처리.
-  const [uploadedPdf, setUploadedPdf] = useState<string | null>(null);
+  // 발표자료 PDF. "영상촬영하기"를 누르면 slideStore 에 담아 촬영 페이지로 넘긴다 (서버엔 저장 안 함).
+  const [uploadedPdf, setUploadedPdf] = useState<File | null>(null);
+  const [pdfError, setPdfError] = useState<string | null>(null);
+  const pdfInputRef = useRef<HTMLInputElement>(null);
 
 
   // Helper to find currently selected topic and session names
@@ -560,8 +575,18 @@ export default function PresentationAnalysisDashboard() {
   const goToRecordPage = () => {
     if (!targetTopicId) return;
     const projectId = targetTopicId;
+    setPendingSlide(uploadedPdf); // PDF 를 골랐으면 촬영 화면에 슬라이드로 띄운다 (closeSessionModal 이 지우기 전에 담기)
     closeSessionModal();
     router.push(`/record?project=${projectId}`);
+  };
+
+  // 영상 업로드하기: 같은 /record 페이지를 업로드 모드로 연다 (카메라 자리에 파일 선택 칸이 나옴).
+  const goToUploadPage = () => {
+    if (!targetTopicId) return;
+    const projectId = targetTopicId;
+    setPendingSlide(null); // 업로드 모드는 슬라이드를 안 띄운다
+    closeSessionModal();
+    router.push(`/record?project=${projectId}&mode=upload`);
   };
 
   const deleteSession = async (sessionId: string) => {
@@ -619,6 +644,7 @@ export default function PresentationAnalysisDashboard() {
     setIsSessionModalOpen(false);
     setTargetTopicId(null);
     setUploadedPdf(null);
+    setPdfError(null);
   };
 
   const selectSession = (sessionId: string) => {
@@ -632,12 +658,16 @@ export default function PresentationAnalysisDashboard() {
       {/* Sidebar Navigation */}
       <aside className="w-[280px] bg-white border-r border-slate-200 flex flex-col flex-shrink-0 z-20 shadow-sm">
         <div className="h-20 flex items-center px-6 border-b border-slate-100 shrink-0">
-          <div className="flex items-center gap-2.5">
-            <div className="bg-blue-600 p-2 rounded-xl shadow-sm shadow-blue-200">
+          {/* 로그인/회원가입 미구현 상태라 임시로 여기서 /login 으로 보낸다. 인증 붙이면 보호 라우트로 교체 예정. */}
+          <button
+            onClick={() => router.push('/login')}
+            className="flex items-center gap-2.5 group"
+          >
+            <div className="bg-blue-600 p-2 rounded-xl shadow-sm shadow-blue-200 group-hover:bg-blue-700 transition-colors">
               <BarChart2 className="w-6 h-6 text-white" />
             </div>
-            <h1 className="text-xl font-extrabold text-slate-800 tracking-tight">발표 영상 분석</h1>
-          </div>
+            <h1 className="text-xl font-extrabold text-slate-800 tracking-tight group-hover:text-blue-700 transition-colors">발표 영상 분석</h1>
+          </button>
         </div>
         
         <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col pb-6">
@@ -707,6 +737,7 @@ export default function PresentationAnalysisDashboard() {
                 <div>
                   <h3 className="text-2xl font-extrabold text-slate-800">프로젝트 및 세션 관리</h3>
                   <p className="text-[15px] text-slate-500 mt-2 font-medium">주제별 폴더를 생성하고 발표 연습을 촬영하세요.</p>
+                  <p className="text-[15px] text-slate-500 mt-1 font-medium">1. 새 주제 폴더 추가하기 · 2. 발표 추가하기</p>
                 </div>
                 <button 
                   onClick={() => setIsTopicModalOpen(true)}
@@ -822,121 +853,36 @@ export default function PresentationAnalysisDashboard() {
               {/* VIEW 3: Single Analysis */}
               {activeMenu === 'single' && (
                 <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 space-y-6">
-                  {/* Top: Summary Cards */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {buildSummaryStats(gestureTotals, voiceSummary).map((stat, idx) => {
-                      const Icon = stat.icon;
-                      return (
-                        <div key={idx} className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 flex flex-col justify-between h-[110px]">
-                          <div className="flex justify-between items-start w-full gap-2">
-                            <p className="text-sm font-bold text-slate-500 mb-1 truncate">{stat.title}</p>
-                            <div className={`p-2 rounded-xl shrink-0 ${stat.bg}`}>
-                              <Icon className={`w-5 h-5 ${stat.color}`} />
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2 mt-auto">
-                            <h2 className="text-2xl font-extrabold text-slate-800 whitespace-nowrap">{stat.value}</h2>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  {/* Middle: Timeline & Video */}
-                  <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-                    <div className="flex items-center justify-between mb-4">
-                      <h3 className="font-extrabold text-slate-800 text-lg flex items-center gap-2">
-                        <span className="bg-blue-100 text-blue-600 p-1.5 rounded-xl"><Video className="w-5 h-5"/></span>
-                        구간별 영상 타임라인
-                      </h3>
-                    </div>
-                    
-                    <div className="relative bg-black rounded-xl overflow-hidden h-[360px] flex group mb-4">
-                      {videoSrc ? (
-                        <video
-                          ref={videoRef}
-                          src={videoSrc}
-                          controls
-                          onPlay={() => setIsPlaying(true)}
-                          onPause={() => setIsPlaying(false)}
-                          onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
-                          onLoadedMetadata={(e) => fixUnknownDuration(e.currentTarget)}
-                          className="absolute inset-0 w-full h-full object-contain bg-black"
-                        />
-                      ) : (
-                        <>
-                          <img src={videoThumbnail} alt="Presentation" className="absolute inset-0 w-full h-full object-cover opacity-80" />
-                          <div className="absolute inset-0 flex items-center justify-center">
-                            <button onClick={() => setIsPlaying(!isPlaying)} className="bg-white/20 p-4 rounded-full backdrop-blur-sm hover:bg-white/30 transition">
-                              {isPlaying ? <Pause className="w-8 h-8 text-white" /> : <Play className="w-8 h-8 text-white ml-1" />}
-                            </button>
-                          </div>
-                        </>
-                      )}
-                      {/* Current Segment indicator */}
-                      {playingSegment && (
-                        <div className="absolute top-4 left-4 bg-black/60 backdrop-blur-md text-white px-3 py-1.5 rounded-lg text-sm font-bold border border-white/10 shadow-lg pointer-events-none">
-                          현재 구간: <span className="text-blue-300">{segmentName(playingSegment)}</span>
-                        </div>
-                      )}
-                    </div>
-
-                    {segments.length > 0 ? (
-                      <>
-                        {/* Timeline Buttons */}
-                        <div className="flex flex-wrap items-center gap-2">
-                          {segments.map((seg, idx) => (
-                            <button
-                              key={seg.segment_id}
-                              onClick={() => selectSegment(idx)}
-                              title={`${seg.title} (${fmtTime(seg.t_start)}~${fmtTime(seg.t_end)})`}
-                              className={`flex-1 min-w-[110px] py-3 px-4 rounded-xl text-[15px] font-extrabold border transition-all ${activeSegmentIndex === idx ? 'bg-slate-800 text-white border-slate-800 shadow-md shadow-slate-300' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 hover:text-slate-800'}`}
-                            >
-                              <div className="flex items-center justify-center gap-2.5">
-                                <div className={`w-3 h-3 rounded-full shadow-sm shrink-0 ${SEGMENT_COLORS[idx % SEGMENT_COLORS.length]}`}></div>
-                                {segmentName(seg)}
-                              </div>
-                            </button>
-                          ))}
-                        </div>
-
-                        {/* Segment Script (인터랙티브: 문장/표시를 누르면 영상이 그 시점으로 이동) */}
-                        <div className="mt-5 bg-slate-50 rounded-xl p-5 border border-slate-100">
-                          <h4 className="font-extrabold text-slate-800 mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[15px]">
-                            <FileText className="w-4 h-4 text-blue-500" />
-                            {activeSegment ? `${segmentName(activeSegment)} 구간 스크립트` : '구간 스크립트'}
-                            {activeSegment && (
-                              <span className="text-xs font-medium text-slate-400">
-                                {fmtTime(activeSegment.t_start)}~{fmtTime(activeSegment.t_end)} · {activeSegment.title}
-                              </span>
-                            )}
-                            <span className="ml-auto text-xs font-medium text-slate-400">문장이나 표시를 누르면 그 장면부터 재생됩니다</span>
-                          </h4>
-                          <InteractiveScript
-                            segment={activeSegment ? { t_start: activeSegment.t_start, t_end: activeSegment.t_end, isLast: activeSegmentIndex === segments.length - 1 } : null}
-                            script={script}
-                            videoChunks={videoChunks}
-                            currentTime={currentTime}
-                            isPlaying={isPlaying}
-                            onSeek={(sec) => seekVideo(sec)}
-                          />
-                        </div>
-                      </>
-                    ) : (
-                      <div className="mt-2 rounded-xl bg-slate-50 border border-dashed border-slate-200 py-8 px-4 text-center text-sm text-slate-400 font-medium">
-                        구간 분석 결과가 없습니다. 음성 분석과 구간 분리까지 끝난 세션에서 구간 타임라인과 스크립트가 표시됩니다.
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Middle-Bottom: Graphs by Segment */}
-                  <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-                    <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  {/* Top: Graphs by Segment */}
+                  <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 relative">
+                    <div className="mb-6">
                       <h3 className="font-extrabold text-slate-800 text-lg flex items-center gap-2">
                         <span className="bg-purple-100 text-purple-600 p-1.5 rounded-xl"><BarChart2 className="w-5 h-5"/></span>
                         구간별 지표 분석 그래프
                       </h3>
                     </div>
+
+                    {/* 예전엔 이 위에 요약 카드 6개가 항상 다 보였는데, 지금 고른 지표(activeSingleMetric)의
+                        총량 하나만 그래프 우상단에 보여주는 걸로 바꿨다. 카드 자체 디자인은 통합 전 것 그대로 재사용.
+                        lg 이상에서는 absolute로 띄워서 제목-버튼 간격(원래 간격)이 벌어지지 않게 했다. */}
+                    {(() => {
+                      const activeStat = buildSummaryStats(gestureTotals, voiceSummary).find(s => s.id === activeSingleMetric);
+                      if (!activeStat) return null;
+                      const Icon = activeStat.icon;
+                      return (
+                        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 flex flex-col justify-between h-[110px] w-full lg:w-[260px] mb-6 lg:mb-0 lg:absolute lg:top-6 lg:right-6">
+                          <div className="flex justify-between items-start w-full gap-2">
+                            <p className="text-sm font-bold text-slate-500 mb-1 truncate">{activeStat.title}</p>
+                            <div className={`p-2 rounded-xl shrink-0 ${activeStat.bg}`}>
+                              <Icon className={`w-5 h-5 ${activeStat.color}`} />
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 mt-auto">
+                            <h2 className="text-2xl font-extrabold text-slate-800 whitespace-nowrap">{activeStat.value}</h2>
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     {trendData.length > 0 ? (
                       <>
@@ -1004,11 +950,92 @@ export default function PresentationAnalysisDashboard() {
                     )}
                   </div>
 
+                  {/* Middle: Timeline & Video */}
+                  <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="font-extrabold text-slate-800 text-lg flex items-center gap-2">
+                        <span className="bg-blue-100 text-blue-600 p-1.5 rounded-xl"><Video className="w-5 h-5"/></span>
+                        구간별 영상 타임라인
+                      </h3>
+                    </div>
+
+                    <div className="relative bg-black rounded-xl overflow-hidden h-[360px] flex group mb-4">
+                      {videoSrc ? (
+                        <video
+                          ref={videoRef}
+                          src={videoSrc}
+                          controls
+                          onPlay={() => setIsPlaying(true)}
+                          onPause={() => setIsPlaying(false)}
+                          onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
+                          onLoadedMetadata={(e) => fixUnknownDuration(e.currentTarget)}
+                          className="absolute inset-0 w-full h-full object-contain bg-black"
+                        />
+                      ) : (
+                        <>
+                          <img src={videoThumbnail} alt="Presentation" className="absolute inset-0 w-full h-full object-cover opacity-80" />
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <button onClick={() => setIsPlaying(!isPlaying)} className="bg-white/20 p-4 rounded-full backdrop-blur-sm hover:bg-white/30 transition">
+                              {isPlaying ? <Pause className="w-8 h-8 text-white" /> : <Play className="w-8 h-8 text-white ml-1" />}
+                            </button>
+                          </div>
+                        </>
+                      )}
+                      {/* Current Segment indicator */}
+                      {playingSegment && (
+                        <div className="absolute top-4 left-4 bg-black/60 backdrop-blur-md text-white px-3 py-1.5 rounded-lg text-sm font-bold border border-white/10 shadow-lg pointer-events-none">
+                          현재 구간: <span className="text-blue-300">{segmentName(playingSegment)}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {segments.length > 0 ? (
+                      <>
+                        {/* Timeline Buttons */}
+                        <div className="flex flex-wrap items-center gap-2">
+                          {segments.map((seg, idx) => (
+                            <button
+                              key={seg.segment_id}
+                              onClick={() => selectSegment(idx)}
+                              title={`${seg.title} (${fmtTime(seg.t_start)}~${fmtTime(seg.t_end)})`}
+                              className={`flex-1 min-w-[110px] py-3 px-4 rounded-xl text-[15px] font-extrabold border transition-all ${activeSegmentIndex === idx ? 'bg-slate-800 text-white border-slate-800 shadow-md shadow-slate-300' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 hover:text-slate-800'}`}
+                            >
+                              <div className="flex items-center justify-center gap-2.5">
+                                <div className={`w-3 h-3 rounded-full shadow-sm shrink-0 ${SEGMENT_COLORS[idx % SEGMENT_COLORS.length]}`}></div>
+                                {segmentName(seg)}
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* 총 스크립트 (인터랙티브: 문장/표시를 누르면 영상이 그 시점으로 이동, 구간 버튼을 누르면 그 구간 시작으로 이동) */}
+                        <div className="mt-5 bg-slate-50 rounded-xl p-5 border border-slate-100">
+                          <h4 className="font-extrabold text-slate-800 mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[15px]">
+                            <FileText className="w-4 h-4 text-blue-500" />
+                            총 스크립트
+                            <span className="ml-auto text-xs font-medium text-slate-400">문장이나 표시를 누르면 그 장면부터 재생됩니다</span>
+                          </h4>
+                          <InteractiveScript
+                            script={script}
+                            videoChunks={videoChunks}
+                            currentTime={currentTime}
+                            isPlaying={isPlaying}
+                            onSeek={(sec) => seekVideo(sec)}
+                          />
+                        </div>
+                      </>
+                    ) : (
+                      <div className="mt-2 rounded-xl bg-slate-50 border border-dashed border-slate-200 py-8 px-4 text-center text-sm text-slate-400 font-medium">
+                        구간 분석 결과가 없습니다. 음성 분석과 구간 분리까지 끝난 세션에서 구간 타임라인과 스크립트가 표시됩니다.
+                      </div>
+                    )}
+                  </div>
+
                   {/* Bottom: Segment AI Feedback */}
                   <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
                     <h3 className="font-extrabold text-slate-800 text-lg flex items-center gap-2 mb-6">
                       <span className="bg-green-100 text-green-600 p-1.5 rounded-xl"><CheckCircle className="w-5 h-5"/></span>
-                      구간별 AI 종합 피드백
+                      구간별 AI 피드백
                     </h3>
                     {segments.length > 0 ? (
                       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -1068,6 +1095,23 @@ export default function PresentationAnalysisDashboard() {
                     ) : (
                       <div className="rounded-xl bg-slate-50 border border-dashed border-slate-200 py-8 px-4 text-center text-sm text-slate-400 font-medium">
                         구간별 피드백이 없습니다. 구간 분리와 구간별 분석이 끝난 세션에서 표시됩니다.
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Bottom: Overall AI Feedback — 구간별 피드백 아래, 발표 전체를 한 문단(4~5줄)으로 요약 */}
+                  <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                    <h3 className="font-extrabold text-slate-800 text-lg flex items-center gap-2 mb-6">
+                      <span className="bg-blue-100 text-blue-600 p-1.5 rounded-xl"><Award className="w-5 h-5"/></span>
+                      종합 피드백
+                    </h3>
+                    {overallFeedback ? (
+                      <p className="text-slate-700 font-medium leading-relaxed">
+                        <TimestampText text={overallFeedback} onSeek={(sec) => seekVideo(sec)} />
+                      </p>
+                    ) : (
+                      <div className="rounded-xl bg-slate-50 border border-dashed border-slate-200 py-8 px-4 text-center text-sm text-slate-400 font-medium">
+                        종합 피드백이 없습니다. 구간별 분석까지 끝난 세션에서 표시됩니다.
                       </div>
                     )}
                   </div>
@@ -1569,14 +1613,14 @@ export default function PresentationAnalysisDashboard() {
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200">
             <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
-              <h3 className="font-extrabold text-slate-800 text-lg">새 발표 연습(세션) 추가</h3>
+              <h3 className="font-extrabold text-slate-800 text-lg">새 발표 연습 회차 추가</h3>
               <button onClick={closeSessionModal} className="text-slate-400 hover:text-slate-600">
                 <X className="w-5 h-5" />
               </button>
             </div>
             <div className="p-6 space-y-5">
               <p className="text-[14px] text-slate-500 font-medium">
-                Podium은 녹화 파일이 아니라 실시간으로 촬영하며 분석하는 방식입니다. 아래 버튼을 누르면 촬영 페이지로 이동합니다.
+                영상촬영 시작 전에 발표자료 PDF 파일을 올려주세요. (PPT는 PDF로 저장해서 올려주세요)
               </p>
 
               {/* Go to Recording Page */}
@@ -1593,28 +1637,62 @@ export default function PresentationAnalysisDashboard() {
                   <p className="font-bold text-slate-700 text-[15px]">영상촬영하기</p>
                   <p className="text-xs text-slate-400 mt-1">클릭하면 촬영 페이지로 이동합니다</p>
                 </button>
+
+                {/* 영상 업로드하기 — 촬영 페이지를 업로드 모드(?mode=upload)로 연다 */}
+                <button
+                  type="button"
+                  onClick={goToUploadPage}
+                  className="w-full mt-3 border-2 border-dashed rounded-xl p-5 flex items-center justify-center gap-3 cursor-pointer transition-colors border-slate-300 bg-slate-50 hover:bg-blue-50 hover:border-blue-300"
+                >
+                  <div className="w-9 h-9 rounded-full bg-white shadow-sm flex items-center justify-center shrink-0">
+                    <Upload className="w-4 h-4 text-slate-500" />
+                  </div>
+                  <div className="text-left">
+                    <p className="font-bold text-slate-700 text-[15px]">영상 업로드하기</p>
+                    <p className="text-xs text-slate-400 mt-0.5">촬영된 영상 파일을 올려서 분석합니다</p>
+                  </div>
+                </button>
               </div>
 
-              {/* PDF Upload Box */}
+              {/* 발표자료 PDF — 고르면 "영상촬영하기" 때 촬영 화면에 슬라이드로 크게 띄운다 */}
               <div>
                 <label className="block text-[14px] font-bold text-slate-700 mb-2">발표 자료(선택)</label>
-                <div 
+                <input
+                  ref={pdfInputRef}
+                  type="file"
+                  accept=".pdf,application/pdf"
+                  className="hidden"
+                  onChange={e => {
+                    const file = e.target.files?.[0];
+                    e.target.value = ''; // 같은 파일을 다시 골라도 onChange 가 불리게
+                    if (!file) return;
+                    if (!file.name.toLowerCase().endsWith('.pdf')) {
+                      setPdfError('PDF 파일만 올릴 수 있어요. PPT는 PDF로 저장해서 올려주세요.');
+                      return;
+                    }
+                    setPdfError(null);
+                    setUploadedPdf(file);
+                  }}
+                />
+                <div
                   className={`border-2 border-dashed rounded-xl p-6 flex flex-col items-center justify-center cursor-pointer transition-colors
                     ${uploadedPdf ? 'border-purple-500 bg-purple-50' : 'border-slate-300 bg-slate-50 hover:bg-slate-100'}`}
-                  onClick={() => setUploadedPdf('slide_deck_final.pdf')}
+                  onClick={() => pdfInputRef.current?.click()}
                 >
                   {uploadedPdf ? (
                     <>
                       <FileText className="w-7 h-7 text-purple-500 mb-2" />
-                      <p className="font-bold text-purple-700">{uploadedPdf}</p>
+                      <p className="font-bold text-purple-700">{uploadedPdf.name}</p>
+                      <p className="text-xs text-purple-400 mt-1">다른 파일로 바꾸려면 다시 클릭하세요</p>
                     </>
                   ) : (
                     <div className="flex items-center gap-3 text-slate-500">
                       <FileText className="w-5 h-5 text-slate-400" />
-                      <span className="font-semibold text-[14px]">클릭하여 PDF 자료 첨부 (슬라이드 동기화 용도)</span>
+                      <span className="font-semibold text-[14px]">클릭하여 PDF 자료 첨부 (촬영 화면에 슬라이드로 표시)</span>
                     </div>
                   )}
                 </div>
+                {pdfError && <p className="text-xs text-rose-600 font-semibold mt-2">{pdfError}</p>}
               </div>
 
             </div>
