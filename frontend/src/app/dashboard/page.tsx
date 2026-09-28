@@ -6,7 +6,7 @@ import {
   Play, Pause, Volume2, Maximize,
   CheckCircle, AlertCircle, TrendingUp,
   BarChart2, Mic, Activity, Award, Check, Clock, Video,
-  Folder, FolderOpen, ChevronRight, Plus, Trash2, Upload, X, FileText, MessageSquare, Columns, ThumbsUp, Lightbulb, Pencil
+  Folder, FolderOpen, ChevronRight, Plus, Trash2, Upload, X, FileText, MessageSquare, Columns, ThumbsUp, Lightbulb, Pencil, LogOut
 } from 'lucide-react';
 import {
   LineChart, Line, Bar, XAxis, YAxis,
@@ -18,7 +18,9 @@ import { setPendingSlide } from '../slideStore';
 
 const videoThumbnail = "/dashboard-video-thumbnail.png";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+// API 호출은 apiFetch (로그인 토큰 자동 첨부, 만료 시 자동 갱신) — frontend/src/utils/api.ts
+import { API_BASE, apiFetch } from '@/utils/api';
+import { clearTokens, getRefreshToken, isLoggedIn } from '@/utils/auth';
 
 // 백엔드 응답 형태 (app/schemas/project.py, app/schemas/session.py)
 interface ApiSession {
@@ -275,7 +277,7 @@ const SINGLE_METRICS_CONFIG = [
 // 백엔드 GET 요청 → JSON. 실패하면 null (화면에서 그 부분만 비어 보이게 한다).
 async function getJson<T>(path: string): Promise<T | null> {
   try {
-    const res = await fetch(`${API_BASE}${path}`);
+    const res = await apiFetch(path);
     if (!res.ok) throw new Error(`${path} -> HTTP ${res.status}`);
     return (await res.json()) as T;
   } catch (err) {
@@ -299,7 +301,8 @@ export default function PresentationAnalysisDashboard() {
 
   const fetchTopics = async () => {
     try {
-      const res = await fetch(`${API_BASE}/projects`);
+      const res = await apiFetch('/projects');
+      if (res.status === 401) return; // 로그인이 풀림 → apiFetch 가 이미 로그인 화면으로 보냄
       if (!res.ok) throw new Error('failed to load projects');
       const data: ApiProject[] = await res.json();
       setTopics(data.map(toTopic));
@@ -310,8 +313,27 @@ export default function PresentationAnalysisDashboard() {
   };
 
   useEffect(() => {
+    // 로그인 안 한 상태로 들어오면 바로 로그인 화면으로
+    if (!isLoggedIn()) {
+      router.replace('/login');
+      return;
+    }
     fetchTopics();
   }, []);
+
+  // 로그아웃: 서버에 refresh 토큰 폐기를 알리고(실패해도 무시), 저장된 토큰을 지운 뒤 로그인 화면으로.
+  const logout = async () => {
+    const refreshToken = getRefreshToken();
+    if (refreshToken) {
+      await fetch(`${API_BASE}/auth/logout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      }).catch(() => {});
+    }
+    clearTokens();
+    router.replace('/login');
+  };
 
   // /record 페이지에서 촬영+분석 끝내고 돌아올 때 ?session=<id>로 넘어옴 -> 바로 단일 분석 화면 표시.
   useEffect(() => {
@@ -508,7 +530,7 @@ export default function PresentationAnalysisDashboard() {
   const addTopic = async () => {
     if (!newTopicName.trim()) return;
     try {
-      const res = await fetch(`${API_BASE}/projects`, {
+      const res = await apiFetch('/projects', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: newTopicName }),
@@ -542,7 +564,7 @@ export default function PresentationAnalysisDashboard() {
       return;
     }
     try {
-      const res = await fetch(`${API_BASE}/projects/${id}`, {
+      const res = await apiFetch(`/projects/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: trimmed }),
@@ -559,7 +581,8 @@ export default function PresentationAnalysisDashboard() {
 
   const deleteTopic = async (id: string) => {
     try {
-      const res = await fetch(`${API_BASE}/projects/${id}`, { method: 'DELETE' });
+      // 백엔드는 바로 지우지 않고 "휴지통"으로 옮긴다 (DELETE /projects/{id}/purge 가 영구 삭제)
+      const res = await apiFetch(`/projects/${id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('failed to delete project');
       setTopics(topics.filter(t => t.id !== id));
       if (activeTopicName === topics.find(t => t.id === id)?.name) {
@@ -592,7 +615,7 @@ export default function PresentationAnalysisDashboard() {
 
   const deleteSession = async (sessionId: string) => {
     try {
-      const res = await fetch(`${API_BASE}/sessions/${sessionId}`, { method: 'DELETE' });
+      const res = await apiFetch(`/sessions/${sessionId}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('failed to delete session');
       await fetchTopics();
       if (activeSessionId === sessionId) {
@@ -659,9 +682,9 @@ export default function PresentationAnalysisDashboard() {
       {/* Sidebar Navigation */}
       <aside className="w-[280px] bg-white border-r border-slate-200 flex flex-col flex-shrink-0 z-20 shadow-sm">
         <div className="h-20 flex items-center px-6 border-b border-slate-100 shrink-0">
-          {/* 로그인/회원가입 미구현 상태라 임시로 여기서 /login 으로 보낸다. 인증 붙이면 보호 라우트로 교체 예정. */}
+          {/* 로고를 누르면 세션 관리(첫 메뉴)로 */}
           <button
-            onClick={() => router.push('/login')}
+            onClick={() => setActiveMenu('sessions')}
             className="flex items-center gap-2.5 group"
           >
             <div className="bg-blue-600 p-2 rounded-xl shadow-sm shadow-blue-200 group-hover:bg-blue-700 transition-colors">
@@ -700,6 +723,17 @@ export default function PresentationAnalysisDashboard() {
               )
             })}
           </nav>
+        </div>
+
+        {/* 로그아웃 — 사이드바 맨 아래 */}
+        <div className="p-4 border-t border-slate-100 shrink-0">
+          <button
+            onClick={logout}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition-colors text-[14px] font-semibold"
+          >
+            <LogOut className="w-4 h-4" />
+            로그아웃
+          </button>
         </div>
       </aside>
 

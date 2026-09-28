@@ -5,7 +5,9 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { getPendingSlide } from "../slideStore";
 import { ArrowLeft, Circle, Square, Sparkles, Loader2, AlertCircle, RotateCcw, CheckCircle2, Upload } from "lucide-react";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+// API 호출은 apiFetch (로그인 토큰 자동 첨부, 만료 시 자동 갱신) — frontend/src/utils/api.ts
+import { apiFetch } from "@/utils/api";
+import { isLoggedIn } from "@/utils/auth";
 const CHUNK_MS = 30_000; // 전송용 청크 길이 (STEP1 전처리 단위, app/api/sessions.py CHUNK_DURATION_SEC와 동일)
 
 type Phase = "idle" | "recording" | "finalizing" | "ready" | "analyzing" | "done" | "error";
@@ -97,6 +99,11 @@ export default function RecordPage() {
     return () => URL.revokeObjectURL(url);
   }, [selectedFile]);
 
+  // 로그인 안 한 상태로 들어오면 바로 로그인 화면으로
+  useEffect(() => {
+    if (!isLoggedIn()) router.replace("/login");
+  }, [router]);
+
   // 로그가 쌓이면 맨 아래로 스크롤해서 최신 로그가 보이게 한다.
   useEffect(() => {
     const box = logBoxRef.current;
@@ -116,7 +123,7 @@ export default function RecordPage() {
   const uploadChunk = (blob: Blob, idx: number) => {
     const fd = new FormData();
     fd.append("file", blob, `chunk_${String(idx).padStart(3, "0")}.webm`);
-    const p = fetch(`${API_BASE}/sessions/${sessionIdRef.current}/chunks?chunk_index=${idx}`, {
+    const p = apiFetch(`/sessions/${sessionIdRef.current}/chunks?chunk_index=${idx}`, {
       method: "POST",
       body: fd,
     }).catch(() => log("영상을 저장하는 중 잠깐 문제가 있었어요. 촬영은 계속 진행돼요.", "warn"));
@@ -126,7 +133,7 @@ export default function RecordPage() {
   const uploadFullVideo = (blob: Blob) => {
     const fd = new FormData();
     fd.append("file", blob, "full_video.webm");
-    const p = fetch(`${API_BASE}/sessions/${sessionIdRef.current}/video`, {
+    const p = apiFetch(`/sessions/${sessionIdRef.current}/video`, {
       method: "POST",
       body: fd,
     })
@@ -175,7 +182,7 @@ export default function RecordPage() {
       streamRef.current = stream;
       if (videoPreviewRef.current) videoPreviewRef.current.srcObject = stream;
 
-      const startRes = await fetch(`${API_BASE}/projects/${projectId}/sessions/start`, { method: "POST" });
+      const startRes = await apiFetch(`/projects/${projectId}/sessions/start`, { method: "POST" });
       if (!startRes.ok) throw new Error("세션 생성 실패");
       const session = await startRes.json();
       sessionIdRef.current = session.session_id;
@@ -250,7 +257,7 @@ export default function RecordPage() {
 
     log("영상을 분석할 수 있게 준비하고 있어요...");
     try {
-      const res = await fetch(`${API_BASE}/sessions/${sessionIdRef.current}/end`, { method: "POST" });
+      const res = await apiFetch(`/sessions/${sessionIdRef.current}/end`, { method: "POST" });
       if (!res.ok) throw new Error("전처리 실패");
       const data = await res.json();
       log(`영상 준비가 끝났어요! (총 ${fmtDuration(data.total_duration_sec ?? 0)} 분량)`, "success");
@@ -267,7 +274,7 @@ export default function RecordPage() {
 
   // 분석 단계 하나를 호출한다. 실패하면 서버가 알려준 이유(detail)를 담아 에러를 던진다.
   const callStep = async (path: string) => {
-    const res = await fetch(`${API_BASE}/sessions/${sessionIdRef.current}${path}`, { method: "POST" });
+    const res = await apiFetch(`/sessions/${sessionIdRef.current}${path}`, { method: "POST" });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
     return data;
@@ -338,7 +345,7 @@ export default function RecordPage() {
     try {
       const oldSessionId = sessionIdRef.current;
       if (oldSessionId) {
-        const res = await fetch(`${API_BASE}/sessions/${oldSessionId}`, { method: "DELETE" });
+        const res = await apiFetch(`/sessions/${oldSessionId}`, { method: "DELETE" });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         log("이전 촬영본을 정리했어요. 다시 촬영을 시작할게요!", "success");
       }
@@ -380,7 +387,7 @@ export default function RecordPage() {
     setLogs([]);
     setPhase("finalizing");
     try {
-      const startRes = await fetch(`${API_BASE}/projects/${projectId}/sessions/start`, { method: "POST" });
+      const startRes = await apiFetch(`/projects/${projectId}/sessions/start`, { method: "POST" });
       if (!startRes.ok) throw new Error("세션을 만들지 못했어요.");
       const session = await startRes.json();
       sessionIdRef.current = session.session_id;
@@ -388,13 +395,13 @@ export default function RecordPage() {
       log("영상을 올리고 있어요... (파일이 크면 몇 분 걸릴 수 있어요)");
       const fd = new FormData();
       fd.append("file", selectedFile, selectedFile.name); // 백엔드가 파일 이름의 확장자로 저장 형식을 정한다
-      const upRes = await fetch(`${API_BASE}/sessions/${session.session_id}/video`, { method: "POST", body: fd });
+      const upRes = await apiFetch(`/sessions/${session.session_id}/video`, { method: "POST", body: fd });
       const upData = await upRes.json().catch(() => ({}));
       if (!upRes.ok) throw new Error(upData.detail || "영상을 올리지 못했어요.");
       log("영상 업로드를 마쳤어요.", "success");
 
       log("영상을 분석할 수 있게 준비하고 있어요...");
-      const endRes = await fetch(`${API_BASE}/sessions/${session.session_id}/end`, { method: "POST" });
+      const endRes = await apiFetch(`/sessions/${session.session_id}/end`, { method: "POST" });
       const endData = await endRes.json().catch(() => ({}));
       if (!endRes.ok) throw new Error(endData.detail || "영상을 준비하지 못했어요.");
       log(`영상 준비가 끝났어요! (총 ${fmtDuration(endData.total_duration_sec ?? 0)} 분량)`, "success");
@@ -404,7 +411,7 @@ export default function RecordPage() {
       setErrorMsg("영상을 올리는 중 문제가 생겼어요. 다시 시도해주세요.");
       // 반쯤 만들어진 세션이 목록에 남지 않게 지운다.
       if (sessionIdRef.current) {
-        await fetch(`${API_BASE}/sessions/${sessionIdRef.current}`, { method: "DELETE" }).catch(() => {});
+        await apiFetch(`/sessions/${sessionIdRef.current}`, { method: "DELETE" }).catch(() => {});
         sessionIdRef.current = null;
       }
       setPhase("idle");
@@ -420,7 +427,7 @@ export default function RecordPage() {
     setErrorMsg(null);
     try {
       if (sessionIdRef.current) {
-        const res = await fetch(`${API_BASE}/sessions/${sessionIdRef.current}`, { method: "DELETE" });
+        const res = await apiFetch(`/sessions/${sessionIdRef.current}`, { method: "DELETE" });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
       }
       sessionIdRef.current = null;
