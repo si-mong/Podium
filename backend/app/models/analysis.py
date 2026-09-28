@@ -106,6 +106,9 @@ class SegmentAnalysis(Base):
     posture_counts: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     eye_contact_counts: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     motion_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # gesture_counts 와 같은 7종 키. 겹치는 영상 조각들의 gesture_timelines(발생 시각 배열)를
+    # 이어붙인 것 — STEP5 종합 피드백(run_overall)이 구체적 시각을 인용할 근거로 쓴다.
+    gesture_timelines: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     segment: Mapped["Segment"] = relationship(back_populates="analysis")
 
@@ -142,6 +145,9 @@ class VideoAnalysis(Base):
     gesture: Mapped[str | None] = mapped_column(String(32), nullable=True)
     # 정적 enum 카운트 (_GESTURE_KEYS 7종)
     gesture_counts: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # gesture_counts 와 같은 7종 키, 값은 그 제스처가 발생한 시각("MM:SS") 배열.
+    # STEP2 가 만들어주는데 STEP5 로 넘기기 전까진 저장하지 않고 버렸었다 (2026-09-22 부터 저장).
+    gesture_timelines: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     session: Mapped["Session"] = relationship(back_populates="video_analyses")  # noqa: F821

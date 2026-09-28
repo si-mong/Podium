@@ -28,6 +28,16 @@ def _count_syllables(text: str) -> int:
     return hangul + other // 2
 
 
+def _mmss_to_sec(t: str) -> float:
+    """"M:SS" -> 초. gesture_timelines 정렬용 — 문자열 그대로 정렬하면 분이 두 자리로
+    넘어갈 때(예: "10:00"이 "9:50"보다 앞으로) 순서가 틀어진다."""
+    try:
+        m, s = t.split(":")
+        return int(m) * 60 + int(s)
+    except (ValueError, AttributeError):
+        return 0.0
+
+
 def _in_range(items, t0: float, t1: float) -> list[dict]:
     """구간 [t0, t1) 안에서 **시작하는** 항목들.
 
@@ -69,11 +79,17 @@ def aggregate(segment: dict, sentences: list[dict], voice_raw: dict,
     posture: dict[str, int] = {}
     eye: dict[str, int] = {}
     notes: list[str] = []
+    # gesture_counts 와 같은 7종 키. 청크마다 있는 시각 배열을 구간 단위로 이어붙인다
+    # (겹치는 청크가 여러 개면 그만큼 합쳐짐 — gesture_counts 합계와 항목 수가 맞아야 하므로
+    # 정렬만 하고 중복 제거는 하지 않는다).
+    timelines: dict[str, list[str]] = {}
     for v in video_analyses or []:
         if _overlap(t0, t1, v["t_start"], v["t_end"]) <= 0:
             continue
         for k, n in (v.get("gesture_counts") or {}).items():
             gesture[k] = gesture.get(k, 0) + n
+        for k, times in (v.get("gesture_timelines") or {}).items():
+            timelines.setdefault(k, []).extend(times or [])
         # posture/eye_contact 는 청크당 라벨 하나 → 등장 횟수로 집계
         if v.get("posture"):
             posture[v["posture"]] = posture.get(v["posture"], 0) + 1
@@ -81,6 +97,8 @@ def aggregate(segment: dict, sentences: list[dict], voice_raw: dict,
             eye[v["eye_contact"]] = eye.get(v["eye_contact"], 0) + 1
         if v.get("notes"):
             notes.append(v["notes"])
+    for k in timelines:
+        timelines[k].sort(key=_mmss_to_sec)
 
     return {
         "stt_text": stt_text or None,
@@ -96,6 +114,7 @@ def aggregate(segment: dict, sentences: list[dict], voice_raw: dict,
         "posture_counts": posture or None,
         "eye_contact_counts": eye or None,
         "motion_notes": " / ".join(notes) or None,
+        "gesture_timelines": timelines or None,
     }
 
 

@@ -19,6 +19,7 @@ class SessionRead(BaseModel):
 
     session_id: int
     project_id: int
+    session_no: int          # 프로젝트 안에서의 회차 번호 ("N회차 연습"의 N). 앞 회차를 지워도 안 바뀐다.
     status: str
     full_video_path: Optional[str]
     pdf_path: Optional[str]
