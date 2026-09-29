@@ -9,6 +9,7 @@ backend/vlm_test/work/*
 # Local-only references / archived demo
 _refs/
 _legacy/
+_plans&docs/
 .claude/
 docs/CLAUDE.md
 ~$*.xlsx
