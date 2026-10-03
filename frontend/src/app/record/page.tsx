@@ -8,6 +8,7 @@ import { ArrowLeft, Circle, Square, Sparkles, Loader2, AlertCircle, RotateCcw, C
 // API 호출은 apiFetch (로그인 토큰 자동 첨부, 만료 시 자동 갱신) — frontend/src/utils/api.ts
 import { apiFetch } from "@/utils/api";
 import { isLoggedIn } from "@/utils/auth";
+import { startBackgroundBlur, BlurredCamera } from "./backgroundBlur";
 const CHUNK_MS = 30_000; // 전송용 청크 길이 (STEP1 전처리 단위, app/api/sessions.py CHUNK_DURATION_SEC와 동일)
 
 type Phase = "idle" | "recording" | "finalizing" | "ready" | "analyzing" | "done" | "error";
@@ -58,6 +59,21 @@ export default function RecordPage() {
   const sessionIdRef = useRef<number | null>(null);
   const recordingRef = useRef(false);
   const logBoxRef = useRef<HTMLDivElement>(null);
+  const blurRef = useRef<BlurredCamera | null>(null); // 배경 흐림을 켜고 촬영 중일 때만 값이 있다
+
+  // 배경 흐리게 — 촬영 시작 전에만 바꿀 수 있다. 마지막 선택은 브라우저에 기억해 둔다.
+  const [blurOn, setBlurOn] = useState(false);
+  useEffect(() => {
+    try {
+      setBlurOn(localStorage.getItem("podium.backgroundBlur") === "on");
+    } catch {}
+  }, []);
+  const changeBlur = (on: boolean) => {
+    setBlurOn(on);
+    try {
+      localStorage.setItem("podium.backgroundBlur", on ? "on" : "off");
+    } catch {}
+  };
 
   const [phase, setPhase] = useState<Phase>("idle");
   const [elapsedSec, setElapsedSec] = useState(0);
@@ -115,6 +131,7 @@ export default function RecordPage() {
     return () => {
       streamRef.current?.getTracks().forEach((t) => t.stop());
       fullStreamRef.current?.getTracks().forEach((t) => t.stop());
+      blurRef.current?.stop();
       if (chunkTimerRef.current) clearTimeout(chunkTimerRef.current);
       if (elapsedTimerRef.current) clearInterval(elapsedTimerRef.current);
     };
@@ -175,10 +192,23 @@ export default function RecordPage() {
     setErrorMsg(null);
     setLogs([]); // 이전 촬영/분석 시도의 로그를 지우고 새로 시작
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
+      const camera = await navigator.mediaDevices.getUserMedia({
         video: { width: { ideal: 1280 }, height: { ideal: 720 } },
         audio: true,
       });
+      // 배경 흐림을 켰으면 흐린 영상을 녹화한다. 준비에 실패하면 원본으로 그냥 촬영한다.
+      let stream = camera;
+      if (blurOn) {
+        log("배경을 흐리게 만드는 중이에요...");
+        try {
+          blurRef.current = await startBackgroundBlur(camera);
+          stream = blurRef.current.stream;
+          log("배경 흐림을 켰어요.", "success");
+        } catch (err) {
+          console.error(err);
+          log("배경 흐림을 켜지 못해서 원래 화면으로 촬영할게요.", "warn");
+        }
+      }
       streamRef.current = stream;
       if (videoPreviewRef.current) videoPreviewRef.current.srcObject = stream;
 
@@ -219,6 +249,8 @@ export default function RecordPage() {
       setPhase("recording");
     } catch (err) {
       console.error(err);
+      blurRef.current?.stop(); // 배경 흐림 그리기가 혼자 계속 돌지 않게
+      blurRef.current = null;
       setErrorMsg("카메라에 연결하지 못했어요. 브라우저의 카메라 권한을 확인해주세요.");
       setPhase("error");
     }
@@ -250,6 +282,8 @@ export default function RecordPage() {
 
     streamRef.current?.getTracks().forEach((t) => t.stop());
     fullStreamRef.current?.getTracks().forEach((t) => t.stop());
+    blurRef.current?.stop(); // 배경 흐림을 썼으면 원본 카메라도 여기서 꺼진다
+    blurRef.current = null;
 
     setPhase("finalizing");
     log("촬영한 영상을 저장하고 있어요...");
@@ -618,6 +652,21 @@ export default function RecordPage() {
               </button>
             )}
           </div>
+
+          {/* 배경 흐리게 켜기/끄기 — 촬영 시작 전에만 보인다 (촬영 중에는 바꿀 수 없음) */}
+          {!isUpload && (phase === "idle" || phase === "error") && (
+            <label className={`flex items-center gap-3 mb-4 cursor-pointer select-none ${!hasSlide ? "w-full lg:w-1/2 mx-auto" : ""}`}>
+              <input
+                type="checkbox"
+                checked={blurOn}
+                onChange={(e) => changeBlur(e.target.checked)}
+                className="sr-only peer"
+              />
+              <span className="relative w-10 h-6 rounded-full bg-slate-300 peer-checked:bg-blue-600 transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:w-5 after:h-5 after:rounded-full after:bg-white after:shadow after:transition-transform peer-checked:after:translate-x-4" />
+              <span className="text-sm font-bold text-slate-700">배경 흐리게</span>
+              <span className="text-xs text-slate-400">촬영 영상의 배경을 흐리게 처리해요</span>
+            </label>
+          )}
 
           {errorMsg && (
             <div className="flex items-start gap-2 bg-rose-50 border border-rose-100 text-rose-700 rounded-xl p-3 text-sm font-medium">
