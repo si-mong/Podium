@@ -39,6 +39,10 @@ interface ApiProject {
   created_at: string;
   sessions: ApiSession[];
 }
+// 휴지통 목록 항목 (GET /projects/trash) — 프로젝트 + 버린 시각
+interface ApiTrashProject extends ApiProject {
+  deleted_at: string;
+}
 
 // 화면에서 쓰는 폴더(주제)/세션 형태. 이름·날짜는 표시용으로 여기서 만든다.
 interface TopicSession {
@@ -311,6 +315,18 @@ export default function PresentationAnalysisDashboard() {
       alert('프로젝트 목록을 불러오지 못했습니다. 백엔드 서버(localhost:8000)가 켜져 있는지 확인하세요.');
     }
   };
+
+  // 휴지통 목록 — 휴지통 화면을 열 때마다 새로 불러온다.
+  const [trashItems, setTrashItems] = useState<ApiTrashProject[]>([]);
+
+  const fetchTrash = async () => {
+    const data = await getJson<ApiTrashProject[]>('/projects/trash');
+    setTrashItems(data ?? []);
+  };
+
+  useEffect(() => {
+    if (activeMenu === 'trash') fetchTrash();
+  }, [activeMenu]);
 
   useEffect(() => {
     // 로그인 안 한 상태로 들어오면 바로 로그인 화면으로
@@ -594,6 +610,32 @@ export default function PresentationAnalysisDashboard() {
     }
   };
 
+  // 휴지통에서 꺼내기 — 성공하면 휴지통 목록에서 빼고, 폴더 목록은 서버에서 다시 받아온다.
+  const restoreTopic = async (id: number) => {
+    try {
+      const res = await apiFetch(`/projects/${id}/restore`, { method: 'POST' });
+      if (!res.ok) throw new Error('failed to restore project');
+      setTrashItems(trashItems.filter(p => p.project_id !== id));
+      await fetchTopics();
+    } catch (err) {
+      console.error(err);
+      alert('폴더 복원에 실패했습니다.');
+    }
+  };
+
+  // 영구 삭제 — 폴더 안의 연습, 영상, 분석 결과까지 전부 지워지고 되돌릴 수 없다.
+  const purgeTopic = async (id: number) => {
+    try {
+      const res = await apiFetch(`/projects/${id}/purge`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('failed to purge project');
+      setTrashItems(trashItems.filter(p => p.project_id !== id));
+    } catch (err) {
+      console.error(err);
+      alert('영구 삭제에 실패했습니다.');
+      await fetchTrash(); // 실제 상태와 목록이 어긋나지 않게 다시 불러온다
+    }
+  };
+
   // Podium은 녹화 파일 업로드가 아니라 실시간 촬영 → 분석 흐름이라, 세션 생성/영상
   // 업로드/전처리/VLM 분석은 전부 /record 페이지가 담당한다. 여기서는 그 페이지로 이동만 시킨다.
   const goToRecordPage = () => {
@@ -633,9 +675,17 @@ export default function PresentationAnalysisDashboard() {
   const askDeleteTopic = (e: React.MouseEvent, topic: Topic) => {
     e.stopPropagation();
     setConfirmDialog({
-      message: `'${topic.name}' 폴더를 삭제하시겠습니까?`,
-      detail: `폴더 안의 연습 ${topic.sessions.length}개와 촬영 영상, 분석 결과가 모두 삭제되며 되돌릴 수 없습니다.`,
+      message: `'${topic.name}' 폴더를 휴지통으로 옮기시겠습니까?`,
+      detail: '휴지통에서 다시 복원할 수 있습니다.',
       onConfirm: () => deleteTopic(topic.id),
+    });
+  };
+
+  const askPurgeTopic = (project: ApiTrashProject) => {
+    setConfirmDialog({
+      message: `'${project.title}' 폴더를 영구 삭제하시겠습니까?`,
+      detail: `폴더 안의 연습 ${project.sessions.length}개와 촬영 영상, 분석 결과가 모두 삭제되며 되돌릴 수 없습니다.`,
+      onConfirm: () => purgeTopic(project.project_id),
     });
   };
 
@@ -725,8 +775,16 @@ export default function PresentationAnalysisDashboard() {
           </nav>
         </div>
 
-        {/* 로그아웃 — 사이드바 맨 아래 */}
-        <div className="p-4 border-t border-slate-100 shrink-0">
+        {/* 휴지통 + 로그아웃 — 사이드바 맨 아래 */}
+        <div className="p-4 border-t border-slate-100 shrink-0 space-y-1">
+          <button
+            onClick={() => setActiveMenu('trash')}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors text-[14px] font-semibold
+              ${activeMenu === 'trash' ? 'bg-blue-50/80 text-blue-700' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'}`}
+          >
+            <Trash2 className="w-4 h-4" />
+            휴지통
+          </button>
           <button
             onClick={logout}
             className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition-colors text-[14px] font-semibold"
@@ -744,7 +802,7 @@ export default function PresentationAnalysisDashboard() {
         <header className="h-20 bg-white/80 backdrop-blur-md border-b border-slate-200 flex items-center justify-between px-8 flex-shrink-0 z-10 sticky top-0 relative">
           <div className="absolute left-1/2 -translate-x-1/2 flex justify-center w-full max-w-[50%] pointer-events-none">
             <h2 className="text-xl font-bold text-slate-800 text-center">
-              {MENUS.find(m => m.id === activeMenu)?.label}
+              {activeMenu === 'trash' ? '휴지통' : MENUS.find(m => m.id === activeMenu)?.label}
             </h2>
           </div>
           <div></div>{/* Spacer for left side to keep justify-between working */}
@@ -881,8 +939,55 @@ export default function PresentationAnalysisDashboard() {
             </div>
           )}
 
+          {/* 휴지통 — 복원 / 영구 삭제 */}
+          {activeMenu === 'trash' && (
+            <div className="max-w-[1200px] mx-auto animate-in fade-in slide-in-from-bottom-2 duration-300">
+              <div className="mb-8">
+                <h3 className="text-2xl font-extrabold text-slate-800">휴지통</h3>
+                <p className="text-[15px] text-slate-500 mt-2 font-medium">삭제한 폴더는 여기에 보관됩니다. 복원하거나 영구 삭제할 수 있습니다.</p>
+              </div>
+
+              {trashItems.length > 0 ? (
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 divide-y divide-slate-100">
+                  {trashItems.map(project => (
+                    <div key={project.project_id} className="flex items-center justify-between p-5">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <Folder className="w-5 h-5 text-slate-400 shrink-0" />
+                        <div className="min-w-0">
+                          <p className="font-bold text-slate-800 text-[15px] truncate">{project.title}</p>
+                          <p className="text-[12px] text-slate-500 mt-0.5 font-medium">
+                            연습 {project.sessions.length}개 · {project.deleted_at.slice(0, 10).replace(/-/g, '.')} 삭제
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          onClick={() => restoreTopic(project.project_id)}
+                          className="px-4 py-2 text-sm font-bold text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                        >
+                          복원
+                        </button>
+                        <button
+                          onClick={() => askPurgeTopic(project)}
+                          className="px-4 py-2 text-sm font-bold text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                        >
+                          영구 삭제
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="py-16 flex flex-col items-center justify-center text-slate-400 border border-dashed border-slate-200 rounded-2xl bg-white">
+                  <Trash2 className="w-10 h-10 text-slate-300 mb-3" />
+                  <p className="text-[14px] font-medium">휴지통이 비어 있습니다</p>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Analysis Views (Only show if a session is selected and we are not in 'sessions' tab) */}
-          {activeMenu !== 'sessions' && activeSessionId ? (
+          {activeMenu !== 'sessions' && activeMenu !== 'trash' && activeSessionId ? (
             <div className="max-w-[1200px] mx-auto space-y-6 pb-12">
               
               {/* VIEW 3: Single Analysis */}
@@ -1551,7 +1656,7 @@ export default function PresentationAnalysisDashboard() {
               )}
 
             </div>
-          ) : activeMenu !== 'sessions' ? (
+          ) : activeMenu !== 'sessions' && activeMenu !== 'trash' ? (
             <div className="h-full flex flex-col items-center justify-center text-slate-400">
               <FolderOpen className="w-16 h-16 mb-4 text-slate-300" />
               <p className="text-lg font-bold text-slate-500">선택된 발표 세션이 없습니다.</p>
