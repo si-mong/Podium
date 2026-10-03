@@ -50,8 +50,13 @@ def _load_model(model_id: str, device: str | None = None):
     from transformers import WhisperForConditionalGeneration, WhisperProcessor
 
     if device is None:
-        # 애플 실리콘이면 MPS 사용 (CPU 대비 수 배 빠름). 리눅스 배포에서는 cpu.
-        device = "mps" if torch.backends.mps.is_available() else "cpu"
+        # NVIDIA GPU(학교 GPU 서버)면 cuda, 애플 실리콘이면 MPS, 둘 다 없으면 cpu.
+        if torch.cuda.is_available():
+            device = "cuda"
+        elif torch.backends.mps.is_available():
+            device = "mps"
+        else:
+            device = "cpu"
     proc = WhisperProcessor.from_pretrained(model_id)
     model = WhisperForConditionalGeneration.from_pretrained(model_id).to(device).eval()
     return proc, model, device
