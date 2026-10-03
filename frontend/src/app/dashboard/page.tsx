@@ -657,6 +657,13 @@ export default function PresentationAnalysisDashboard() {
 
   const deleteSession = async (sessionId: string) => {
     try {
+      // 지금 재생 중인 세션이면, 삭제 요청 전에 영상 재생을 먼저 끊어서
+      // 브라우저가 파일을 붙잡고 있는 상태(Windows 삭제 실패 원인)를 없앤다.
+      if (activeSessionId === sessionId && videoRef.current) {
+        videoRef.current.pause();
+        videoRef.current.removeAttribute('src');
+        videoRef.current.load();
+      }
       const res = await apiFetch(`/sessions/${sessionId}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('failed to delete session');
       await fetchTopics();
