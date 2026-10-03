@@ -48,10 +48,16 @@ def run(
     from app.pipeline.voice.analyze import analyze
 
     model = model_size or settings.whisper_model
-    logger.info("STEP 3 시작: %s (model=%s)", wav_path.name, model)
 
-    result = analyze(wav_path, model_size=model, keywords=keywords,
-                     on_progress=on_progress)
+    if settings.stt_remote_url:
+        # GPU 서버에 wav 를 보내 분석. 결과 dict 모양은 로컬 실행과 같다.
+        # (모델은 GPU 서버의 설정값을 쓰므로 model_size 는 전달하지 않음)
+        logger.info("STEP 3 시작: %s (GPU 서버 %s)", wav_path.name, settings.stt_remote_url)
+        result = _run_remote(settings.stt_remote_url, wav_path, keywords)
+    else:
+        logger.info("STEP 3 시작: %s (model=%s)", wav_path.name, model)
+        result = analyze(wav_path, model_size=model, keywords=keywords,
+                         on_progress=on_progress)
 
     m = result["metrics"]
     logger.info(
@@ -60,6 +66,35 @@ def run(
         m["articulation_rate_spm"],
     )
     return result
+
+
+# 10분 발표 기준 수 분 걸리므로 넉넉하게 30분.
+REMOTE_TIMEOUT_SEC = 1800
+
+
+def _run_remote(url: str, wav_path: Path, keywords: str) -> dict:
+    """GPU 서버(gpu_server/stt_server.py)의 /step3 에 wav 를 올리고 결과 dict 를 받는다.
+
+    GPU 서버는 학교 내부망에서만 접속된다. 연결이 안 되면 로컬로 대신 돌리지 않고
+    에러를 낸다 — 로컬(RAM 8GB)에서 SeloWhisper 를 돌리면 컴퓨터 전체가 느려지기 때문.
+    """
+    import httpx
+
+    try:
+        with open(wav_path, "rb") as f:
+            resp = httpx.post(
+                f"{url.rstrip('/')}/step3",
+                files={"file": (wav_path.name, f, "audio/wav")},
+                data={"keywords": keywords},
+                timeout=REMOTE_TIMEOUT_SEC,
+            )
+    except httpx.ConnectError as e:
+        raise RuntimeError(
+            f"GPU 서버({url})에 연결할 수 없습니다. 학교 내부망인지, 서버가 켜져 있는지 확인하세요."
+        ) from e
+
+    resp.raise_for_status()
+    return resp.json()
 
 
 def to_db_rows(session_id: int, result: dict) -> dict:

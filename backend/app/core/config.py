@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     # 그 외에는 faster-whisper(CTranslate2). 자세한 비교는
     # app/pipeline/step3_voice_analysis.py 모듈 주석 참고.
     whisper_model: str = "hf:rearleg/SeloWhisper-ko-disfluency"
+    # STEP 3 를 GPU 서버에 맡길 때 그 서버 주소 (예: http://10.198.138.104:18002).
+    # 비워두면 지금처럼 이 컴퓨터에서 직접 돌린다. 서버 코드는 gpu_server/stt_server.py.
+    stt_remote_url: str = ""
 
     @property
     def cors_origin_list(self) -> list[str]:
