@@ -19,7 +19,7 @@ bcrypt==5.0.0
 email-validator==2.2.0
 
 # OpenAI (VLM/LLM 호출 — API 서버에서 직접 사용)
-openai==1.54.4
+openai==1.109.1  # 1.54.4 는 httpx 0.28 과 충돌 (proxies 에러)
 
 # devtools — STEP 5 테스트 페이지가 본 API 서버(:8000)를 중계 호출할 때 사용
 httpx==0.28.1

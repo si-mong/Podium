@@ -19,9 +19,70 @@ import time
 
 logger = logging.getLogger(__name__)
 
-MODEL = "gemini-2.5-flash"
 MAX_ATTEMPTS = 3
 RETRY_WAIT_SEC = 5
+TEMPERATURE = 0.4
+
+# temperature 를 바꿀 수 없는 OpenAI 추론 모델들 (바꾸면 400 에러). 이 모델들은 기본값으로 호출한다.
+OPENAI_NO_TEMPERATURE = ("gpt-5", "o1", "o3", "o4")
+
+
+def _make_ask():
+    """설정(.env 의 STEP5_PROVIDER / STEP5_MODEL)에 맞는 LLM 호출 함수를 만들어 돌려준다.
+
+    돌려주는 함수는 ask(prompt) -> 응답 문자열(JSON) 하나뿐이라, 프롬프트·검증·재시도 코드는
+    어느 회사 모델을 쓰든 그대로 쓸 수 있다. 모델 비교 테스트용으로 2026-10-02 추가.
+    """
+    from app.core.config import settings
+
+    provider = settings.step5_provider.lower()
+    model = settings.step5_model
+    logger.info("STEP 5 LLM: provider=%s model=%s", provider, model)
+
+    if provider == "gemini":
+        from google import genai
+        from google.genai import types
+
+        if not settings.gemini_api_key:
+            raise RuntimeError("GEMINI_API_KEY 없음 (.env 확인)")
+        client = genai.Client(api_key=settings.gemini_api_key)
+
+        def ask(prompt: str) -> str:
+            resp = client.models.generate_content(
+                model=model,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    temperature=TEMPERATURE,
+                ),
+            )
+            return resp.text
+
+        return ask
+
+    if provider == "openai":
+        from openai import OpenAI
+
+        if not settings.openai_api_key:
+            raise RuntimeError("OPENAI_API_KEY 없음 (.env 확인)")
+        client = OpenAI(api_key=settings.openai_api_key)
+
+        def ask(prompt: str) -> str:
+            options = {}
+            if not model.startswith(OPENAI_NO_TEMPERATURE):
+                options["temperature"] = TEMPERATURE
+            # json_object 모드는 프롬프트에 "JSON" 이라는 단어가 있어야 한다 (출력 형식 절에 있음)
+            resp = client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"},
+                **options,
+            )
+            return resp.choices[0].message.content
+
+        return ask
+
+    raise RuntimeError(f"STEP5_PROVIDER 는 gemini 또는 openai 여야 함 (지금: {provider})")
 
 
 def _mmss(sec: float) -> str:
@@ -105,8 +166,8 @@ def _sanitize(obj, allowed: set[str]):
     return obj
 
 
-def _generate_validated(client, types, prompt: str, allowed: set[str], tag: str) -> dict:
-    """Gemini 를 호출하고, 결과의 **모든 시각이 데이터의 time_label 에 있는 시각인지** 검증한다.
+def _generate_validated(ask, prompt: str, allowed: set[str], tag: str) -> dict:
+    """LLM(ask, _make_ask 참고)을 호출하고, 결과의 **모든 시각이 데이터의 time_label 에 있는 시각인지** 검증한다.
 
     time_label 을 붙여 보내도 Gemini 가 시각을 지어내거나 바꿔 쓸 수 있어서, 결과를 코드가 확인한다.
       1) 데이터에 없는 시각이 있으면 그 시각을 알려주고 다시 요청 (최대 MAX_ATTEMPTS 회)
@@ -117,15 +178,7 @@ def _generate_validated(client, types, prompt: str, allowed: set[str], tag: str)
     hint = ""
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
-            resp = client.models.generate_content(
-                model=MODEL,
-                contents=prompt + hint,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    temperature=0.4,
-                ),
-            )
-            parsed = json.loads(resp.text)
+            parsed = json.loads(ask(prompt + hint))
         except Exception as exc:  # noqa: BLE001 — 재시도 대상
             last_err = exc
             logger.warning("%s 시도 %d 실패: %s", tag, attempt, exc)
@@ -273,7 +326,7 @@ def _ensure_timestamps(fb: dict, seg_time_label: str) -> dict:
     return fb
 
 
-def _run_one_segment(client, types, seg: dict, outline: list[dict],
+def _run_one_segment(ask, seg: dict, outline: list[dict],
                      video_analysis: list[dict], voice_timeline: dict) -> dict:
     videos, voice = _slice_for_segment(seg, video_analysis, voice_timeline)
     seg_view = {**{k: v for k, v in seg.items() if k != "segment_id"},
@@ -288,7 +341,7 @@ def _run_one_segment(client, types, seg: dict, outline: list[dict],
     )
 
     try:
-        fb = _generate_validated(client, types, prompt, _collect_time_tokens(labeled),
+        fb = _generate_validated(ask, prompt, _collect_time_tokens(labeled),
                                  f"STEP 5 구간 {seg['segment_id']}")
     except RuntimeError as exc:
         return {"segment_id": seg["segment_id"], "error": str(exc)}
@@ -306,21 +359,13 @@ def run_segments(segments: list[dict], video_analysis: list[dict],
     """
     import concurrent.futures
 
-    from google import genai
-    from google.genai import types
-
-    from app.core.config import settings
-
-    api_key = settings.gemini_api_key
-    if not api_key:
-        raise RuntimeError("GEMINI_API_KEY 없음 (.env 확인)")
-    client = genai.Client(api_key=api_key)
+    ask = _make_ask()
 
     outline = [{"label": s["label"], "title": s["title"],
                 "t_start": s["t_start"], "t_end": s["t_end"]} for s in segments]
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=SEGMENT_MAX_WORKERS) as pool:
-        futures = [pool.submit(_run_one_segment, client, types, s, outline,
+        futures = [pool.submit(_run_one_segment, ask, s, outline,
                                video_analysis, voice_timeline) for s in segments]
         results = [f.result() for f in futures]
 
@@ -381,15 +426,7 @@ def run_overall(segments: list[dict], video_analysis: list[dict], voice_timeline
     있음)만으로 충분하고, 원본 이벤트까지 다 보내면 총평치고 너무 장황해진다.
     반환: {"overall_summary": "..."}
     """
-    from google import genai
-    from google.genai import types
-
-    from app.core.config import settings
-
-    api_key = settings.gemini_api_key
-    if not api_key:
-        raise RuntimeError("GEMINI_API_KEY 없음 (.env 확인)")
-    client = genai.Client(api_key=api_key)
+    ask = _make_ask()
 
     outline = [{"label": s["label"], "title": s["title"],
                 "t_start": s["t_start"], "t_end": s["t_end"]} for s in segments]
@@ -401,4 +438,4 @@ def run_overall(segments: list[dict], video_analysis: list[dict], voice_timeline
         segments=json.dumps(labeled["segments"], ensure_ascii=False, indent=2),
     )
 
-    return _generate_validated(client, types, prompt, _collect_time_tokens(labeled), "STEP 5 종합")
+    return _generate_validated(ask, prompt, _collect_time_tokens(labeled), "STEP 5 종합")
