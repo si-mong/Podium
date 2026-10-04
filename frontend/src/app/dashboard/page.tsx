@@ -6,7 +6,7 @@ import {
   Play, Pause, Volume2, Maximize,
   CheckCircle, AlertCircle, TrendingUp,
   BarChart2, Mic, Activity, Award, Check, Clock, Video,
-  Folder, FolderOpen, ChevronRight, Plus, Trash2, Upload, X, FileText, MessageSquare, Columns, ThumbsUp, Lightbulb, Pencil, LogOut
+  Folder, FolderOpen, ChevronRight, ArrowLeft, Plus, Trash2, Upload, X, FileText, MessageSquare, Columns, ThumbsUp, Lightbulb, Pencil, LogOut
 } from 'lucide-react';
 import {
   LineChart, Line, Bar, XAxis, YAxis,
@@ -290,6 +290,101 @@ async function getJson<T>(path: string): Promise<T | null> {
   }
 }
 
+// 회차별 성장 추이 그래프 (지표 버튼 + 그래프). "종합추이" 메뉴와 폴더 화면 오른쪽에서 같이 쓴다.
+// 아직 회차별 지표 API 가 없어서 회차 수에 맞춘 Mock 값을 보여준다.
+function GrowthTrendChart({ sessions }: { sessions: TopicSession[] }) {
+  const [metricId, setMetricId] = useState('fillerTotal');
+
+  if (sessions.length === 0) {
+    return (
+      <div className="h-full min-h-[300px] flex flex-col items-center justify-center text-slate-400 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+        <TrendingUp className="w-12 h-12 mb-3 text-slate-300" />
+        <p className="font-bold text-[15px]">해당 주제에 발표 연습 기록이 없습니다.</p>
+      </div>
+    );
+  }
+
+  // Mock 값 — 회차가 지날수록 좋아지는 모양으로 만든다
+  const chartData = sessions.map((s, index) => {
+    const maxImprovementFactor = Math.max(1, 4 - index);
+    return {
+      session: s.name.replace(' 연습', ''),
+      fillerTotal: 10 + maxImprovementFactor * 5,  // 필러 단어 빈도
+      wpm: 120 + maxImprovementFactor * 10,         // 평균 말하기 속도
+      silenceRatio: 5 + maxImprovementFactor * 2,   // 전체 무음 비율 (%)
+      habits: 4 + maxImprovementFactor * 3,         // 말 더듬 횟수
+    };
+  });
+
+  const metric = GROWTH_METRICS_CONFIG.find(m => m.id === metricId)!;
+
+  return (
+    <div className="h-full flex flex-col">
+      {/* Metric Selection Buttons */}
+      <div className="flex flex-wrap gap-3 mb-6">
+        {GROWTH_METRICS_CONFIG.map(m => (
+          <button
+            key={m.id}
+            onClick={() => setMetricId(m.id)}
+            className={`px-4 py-2 rounded-xl text-[14px] font-bold transition-all border ${
+              metricId === m.id
+                ? 'bg-slate-800 text-white border-slate-800 shadow-md shadow-slate-300'
+                : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50 hover:text-slate-800'
+            }`}
+          >
+            {m.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="flex-1 min-h-[300px] w-full pr-4">
+        <ResponsiveContainer width="100%" height="100%">
+          <ComposedChart data={chartData} margin={{ top: 20, right: 20, bottom: 20, left: 0 }}>
+            <CartesianGrid key="grid" strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+            <XAxis key="xaxis" dataKey="session" axisLine={false} tickLine={false} tick={{fill: '#64748B', fontSize: 14, fontWeight: 600}} dy={15} />
+            <YAxis
+              key={`yaxis-${metric.id}`}
+              axisLine={false}
+              tickLine={false}
+              tick={{fill: metric.color, fontSize: 13, fontWeight: 700}}
+              domain={['auto', 'auto']}
+              dx={-10}
+              unit={metric.unit}
+            />
+            <Tooltip
+              key={`tooltip-${metric.id}`}
+              cursor={{fill: '#f8fafc', stroke: metric.type === 'line' ? '#e2e8f0' : 'none', strokeWidth: 1, strokeDasharray: '4 4'}}
+              contentStyle={{ borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 10px 25px -5px rgb(0 0 0 / 0.1)', padding: '16px 20px', fontWeight: 600 }}
+              formatter={(value) => [`${value}${metric.unit}`, metric.label]}
+            />
+            {metric.type === 'line' ? (
+              <Line
+                key={`line-${metric.id}`}
+                type="monotone"
+                dataKey={metric.id}
+                name={metric.label}
+                stroke={metric.color}
+                strokeWidth={4}
+                dot={{r: 6, fill: metric.color, strokeWidth: 3, stroke: '#fff'}}
+                activeDot={{r: 8}}
+              />
+            ) : (
+              <Bar
+                key={`bar-${metric.id}`}
+                dataKey={metric.id}
+                name={metric.label}
+                fill={metric.color}
+                radius={[6, 6, 0, 0]}
+                barSize={40}
+              />
+            )}
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
 export default function PresentationAnalysisDashboard() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -302,6 +397,15 @@ export default function PresentationAnalysisDashboard() {
   // Topics & Sessions State — 실제 데이터는 Podium 백엔드(/projects)에서 불러온다.
   const [topics, setTopics] = useState<Topic[]>([]);
   const [activeSessionId, setActiveSessionId] = useState('');
+  // "내 기록"에서 열어 둔 폴더. null 이면 폴더 목록(아이콘)을, 값이 있으면 그 폴더의 세션 목록 + 종합추이를 보여준다.
+  const [openFolderId, setOpenFolderId] = useState<string | null>(null);
+
+  // 촬영을 마치고 돌아왔을 때(?session=) 그 세션이 든 폴더를 열어 둔다 → "내 기록"으로 가면 바로 그 폴더가 보인다.
+  useEffect(() => {
+    if (!activeSessionId || openFolderId) return;
+    const topic = topics.find(t => t.sessions.some(s => s.id === activeSessionId));
+    if (topic) setOpenFolderId(topic.id);
+  }, [activeSessionId, topics]);
 
   const fetchTopics = async () => {
     try {
@@ -500,7 +604,6 @@ export default function PresentationAnalysisDashboard() {
 
   // Growth Chart State
   const [selectedGrowthTopicId, setSelectedGrowthTopicId] = useState('t1');
-  const [activeGrowthMetric, setActiveGrowthMetric] = useState('fillerTotal');
 
   // Single Analysis State
   const [activeSingleMetric, setActiveSingleMetric] = useState('fillerTotal');
@@ -601,6 +704,7 @@ export default function PresentationAnalysisDashboard() {
       const res = await apiFetch(`/projects/${id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('failed to delete project');
       setTopics(topics.filter(t => t.id !== id));
+      if (openFolderId === id) setOpenFolderId(null); // 열어 둔 폴더를 지웠으면 폴더 목록으로
       if (activeTopicName === topics.find(t => t.id === id)?.name) {
         setActiveSessionId(''); // Reset active session if its topic is deleted
       }
@@ -830,31 +934,142 @@ export default function PresentationAnalysisDashboard() {
         {/* Scrollable Container for Content */}
         <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
           
-          {/* VIEW 0: Session Management */}
-          {activeMenu === 'sessions' && (
-            <div className="max-w-[1200px] mx-auto animate-in fade-in slide-in-from-bottom-2 duration-300">
-              <div className="flex justify-between items-end mb-8">
-                <div>
-                  <h3 className="text-2xl font-extrabold text-slate-800">프로젝트 및 세션 관리</h3>
-                  <p className="text-[15px] text-slate-500 mt-2 font-medium">주제별 폴더를 생성하고 발표 연습을 촬영하세요.</p>
-                  <p className="text-[15px] text-slate-500 mt-1 font-medium">1. 새 주제 폴더 추가하기 · 2. 발표 추가하기</p>
-                </div>
-                <button 
-                  onClick={() => setIsTopicModalOpen(true)}
-                  className="flex items-center gap-2 bg-blue-600 text-white px-5 py-2.5 rounded-xl font-bold hover:bg-blue-700 shadow-sm transition-colors"
-                >
-                  <Plus className="w-4 h-4" />
-                  새 주제 폴더 추가
-                </button>
-              </div>
+          {/* VIEW 0: Session Management — 폴더 목록(아이콘) ↔ 폴더 안(세션 목록 + 종합추이) */}
+          {activeMenu === 'sessions' && (() => {
+            const openFolder = topics.find(t => t.id === openFolderId);
 
-              <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-                {topics.map(topic => (
-                  <div key={topic.id} className="bg-white rounded-2xl shadow-sm border border-slate-200 flex flex-col h-full">
-                    {/* Folder Header */}
-                    <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50 rounded-t-2xl shrink-0">
-                      <div className="flex items-center gap-3 min-w-0 flex-1">
-                        <Folder className="w-5 h-5 text-blue-500 shrink-0" />
+            // 1) 폴더를 열었으면: 왼쪽 세션 목록 / 오른쪽 종합추이(Mock)
+            if (openFolder) {
+              return (
+                <div className="max-w-[1200px] mx-auto animate-in fade-in slide-in-from-bottom-2 duration-300">
+                  {/* 경로: ← 내 기록 > 폴더명 */}
+                  <div className="flex items-center gap-2 mb-6 min-w-0">
+                    <button
+                      onClick={() => setOpenFolderId(null)}
+                      className="flex items-center gap-1.5 text-slate-500 hover:text-slate-800 font-semibold text-[15px] shrink-0"
+                    >
+                      <ArrowLeft className="w-4 h-4" />
+                      내 기록
+                    </button>
+                    <ChevronRight className="w-4 h-4 text-slate-300 shrink-0" />
+                    <FolderOpen className="w-5 h-5 text-blue-500 shrink-0" />
+                    <h3 className="text-xl font-extrabold text-slate-800 truncate">{openFolder.name}</h3>
+                  </div>
+
+                  <div className="grid grid-cols-1 lg:grid-cols-[2fr_3fr] gap-6 items-start">
+                    {/* 왼쪽: 세션 목록 */}
+                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 flex flex-col gap-3">
+                      <h4 className="font-bold text-slate-800 text-[16px]">
+                        발표 세션 목록 <span className="text-slate-400 font-semibold">({openFolder.sessions.length})</span>
+                      </h4>
+                      <button
+                        onClick={(e) => openSessionModal(e, openFolder.id)}
+                        className="w-full flex items-center justify-center gap-2 p-3.5 rounded-xl border-2 border-dashed border-slate-200 text-slate-500 hover:text-blue-600 hover:border-blue-300 hover:bg-blue-50 transition-all font-semibold text-[14px]"
+                      >
+                        <Plus className="w-4 h-4" />
+                        발표 추가
+                      </button>
+
+                      {openFolder.sessions.length > 0 ? (
+                        // 오른쪽 그래프 카드와 높이를 맞추고, 넘치면 이 안에서 스크롤한다.
+                        <div className="space-y-3 max-h-[440px] overflow-y-auto custom-scrollbar pr-1">
+                          {openFolder.sessions.map(session => (
+                            <div
+                              key={session.id}
+                              onClick={() => selectSession(session.id)}
+                              className={`group flex items-center justify-between p-4 rounded-xl border transition-all cursor-pointer
+                                ${activeSessionId === session.id
+                                  ? 'border-blue-500 bg-blue-50 shadow-sm'
+                                  : 'border-slate-100 hover:border-blue-200 hover:bg-slate-50'}`}
+                            >
+                              <div className="flex items-center gap-3.5">
+                                <div className={`p-2 rounded-lg ${activeSessionId === session.id ? 'bg-blue-100' : 'bg-slate-100 group-hover:bg-white'}`}>
+                                  <Video className={`w-4 h-4 ${activeSessionId === session.id ? 'text-blue-600' : 'text-slate-400 group-hover:text-blue-500'}`} />
+                                </div>
+                                <div>
+                                  <p className={`font-bold text-[14px] ${activeSessionId === session.id ? 'text-blue-700' : 'text-slate-700'}`}>{session.name}</p>
+                                  <p className="text-[12px] text-slate-500 mt-0.5 font-medium">{session.date}</p>
+                                </div>
+                              </div>
+                              <button
+                                onClick={(e) => askDeleteSession(e, session)}
+                                className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-red-500 p-2 hover:bg-red-50 rounded-lg transition-all"
+                                title="연습 삭제"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="py-10 flex flex-col items-center justify-center text-slate-400 border border-dashed border-slate-200 rounded-xl bg-slate-50/50">
+                          <FolderOpen className="w-8 h-8 text-slate-300 mb-2" />
+                          <p className="text-[13px] font-medium">등록된 세션이 없습니다</p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* 오른쪽: 이 폴더의 종합추이 (아직 Mock 데이터) */}
+                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 h-[560px] flex flex-col">
+                      <div className="flex items-center gap-2.5 mb-5">
+                        <span className="bg-green-100 text-green-600 p-1.5 rounded-xl"><TrendingUp className="w-5 h-5" /></span>
+                        <h4 className="font-extrabold text-slate-800 text-lg">종합추이</h4>
+                        <span className="text-[12px] font-bold text-amber-600 bg-amber-50 border border-amber-100 px-2 py-0.5 rounded-md">예시 데이터</span>
+                      </div>
+                      <div className="flex-1 min-h-0">
+                        <GrowthTrendChart sessions={openFolder.sessions} />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+
+            // 2) 폴더 목록: 컴퓨터 폴더처럼 아이콘만. 누르면 그 폴더가 열린다.
+            return (
+              <div className="max-w-[1200px] mx-auto animate-in fade-in slide-in-from-bottom-2 duration-300">
+                <div className="flex justify-between items-end mb-8">
+                  <div>
+                    <h3 className="text-2xl font-extrabold text-slate-800">프로젝트 및 세션 관리</h3>
+                    <p className="text-[15px] text-slate-500 mt-2 font-medium">주제별 폴더를 생성하고 발표 연습을 촬영하세요.</p>
+                    <p className="text-[15px] text-slate-500 mt-1 font-medium">1. 새 주제 폴더 추가하기 · 2. 폴더를 열고 발표 추가하기</p>
+                  </div>
+                  <button
+                    onClick={() => setIsTopicModalOpen(true)}
+                    className="flex items-center gap-2 bg-blue-600 text-white px-5 py-2.5 rounded-xl font-bold hover:bg-blue-700 shadow-sm transition-colors"
+                  >
+                    <Plus className="w-4 h-4" />
+                    새 주제 폴더 추가
+                  </button>
+                </div>
+
+                {topics.length > 0 ? (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5">
+                    {topics.map(topic => (
+                      <div
+                        key={topic.id}
+                        onClick={() => editingTopicId !== topic.id && setOpenFolderId(topic.id)}
+                        className="group relative bg-white rounded-2xl border border-slate-200 hover:border-blue-300 hover:shadow-md p-5 pt-7 flex flex-col items-center text-center cursor-pointer transition-all"
+                      >
+                        {/* 이름 변경 / 삭제 — 마우스를 올리면 보인다 */}
+                        <div className="absolute top-2 right-2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                          <button
+                            onClick={(e) => startEditingTopic(e, topic)}
+                            className="text-slate-400 hover:text-blue-500 p-1.5 hover:bg-blue-50 rounded-lg transition-colors"
+                            title="폴더 이름 변경"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={(e) => askDeleteTopic(e, topic)}
+                            className="text-slate-400 hover:text-red-500 p-1.5 hover:bg-red-50 rounded-lg transition-colors"
+                            title="폴더 삭제"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+
+                        <Folder className="w-16 h-16 text-blue-500 fill-blue-100 mb-3" strokeWidth={1.5} />
                         {editingTopicId === topic.id ? (
                           <input
                             type="text"
@@ -867,84 +1082,24 @@ export default function PresentationAnalysisDashboard() {
                               if (e.key === 'Escape') cancelEditingTopic();
                             }}
                             autoFocus
-                            className="font-bold text-slate-800 text-[16px] border border-blue-300 rounded-lg px-2 py-0.5 min-w-0 flex-1 outline-none focus:ring-2 focus:ring-blue-500"
+                            className="w-full font-bold text-slate-800 text-[14px] text-center border border-blue-300 rounded-lg px-2 py-0.5 outline-none focus:ring-2 focus:ring-blue-500"
                           />
                         ) : (
-                          <h3 className="font-bold text-slate-800 text-[16px] truncate">{topic.name}</h3>
+                          <p className="w-full font-bold text-slate-800 text-[15px] truncate" title={topic.name}>{topic.name}</p>
                         )}
+                        <p className="text-[12px] text-slate-500 mt-1 font-medium">연습 {topic.sessions.length}개</p>
                       </div>
-                      <div className="flex items-center gap-1 shrink-0">
-                        <button
-                          onClick={(e) => startEditingTopic(e, topic)}
-                          className="text-slate-400 hover:text-blue-500 p-1.5 hover:bg-blue-50 rounded-lg transition-colors"
-                          title="폴더 이름 변경"
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={(e) => askDeleteTopic(e, topic)}
-                          className="text-slate-400 hover:text-red-500 p-1.5 hover:bg-red-50 rounded-lg transition-colors"
-                          title="폴더 삭제"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Sessions List */}
-                    <div className="p-5 flex-1 flex flex-col gap-3">
-                      {/* Add Session Button inside folder */}
-                      <button
-                        onClick={(e) => openSessionModal(e, topic.id)}
-                        className="w-full flex items-center justify-center gap-2 p-3.5 rounded-xl border-2 border-dashed border-slate-200 text-slate-500 hover:text-blue-600 hover:border-blue-300 hover:bg-blue-50 transition-all font-semibold text-[14px]"
-                      >
-                        <Plus className="w-4 h-4" />
-                        발표 추가
-                      </button>
-
-                      {topic.sessions.length > 0 ? (
-                        // 세션이 5개(한 줄 75px + 간격 12px)까지만 보이고, 그 이상은 이 안에서 스크롤한다.
-                        <div className={`space-y-3 max-h-[423px] overflow-y-auto custom-scrollbar ${topic.sessions.length > 5 ? 'pr-2' : ''}`}>
-                          {topic.sessions.map(session => (
-                            <div 
-                              key={session.id}
-                              onClick={() => selectSession(session.id)}
-                              className={`group flex items-center justify-between p-4 rounded-xl border transition-all cursor-pointer
-                                ${activeSessionId === session.id 
-                                  ? 'border-blue-500 bg-blue-50 shadow-sm' 
-                                  : 'border-slate-100 hover:border-blue-200 hover:bg-slate-50'}`}
-                            >
-                              <div className="flex items-center gap-3.5">
-                                <div className={`p-2 rounded-lg ${activeSessionId === session.id ? 'bg-blue-100' : 'bg-slate-100 group-hover:bg-white'}`}>
-                                  <Video className={`w-4 h-4 ${activeSessionId === session.id ? 'text-blue-600' : 'text-slate-400 group-hover:text-blue-500'}`} />
-                                </div>
-                                <div>
-                                  <p className={`font-bold text-[14px] ${activeSessionId === session.id ? 'text-blue-700' : 'text-slate-700'}`}>{session.name}</p>
-                                  <p className="text-[12px] text-slate-500 mt-0.5 font-medium">{session.date}</p>
-                                </div>
-                              </div>
-                              <button 
-                                onClick={(e) => askDeleteSession(e, session)} 
-                                className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-red-500 p-2 hover:bg-red-50 rounded-lg transition-all"
-                                title="연습 삭제"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="py-6 flex flex-col items-center justify-center text-slate-400 border border-dashed border-slate-200 rounded-xl bg-slate-50/50 mb-auto">
-                          <FolderOpen className="w-8 h-8 text-slate-300 mb-2" />
-                          <p className="text-[13px] font-medium">등록된 세션이 없습니다</p>
-                        </div>
-                      )}
-                    </div>
+                    ))}
                   </div>
-                ))}
+                ) : (
+                  <div className="py-16 flex flex-col items-center justify-center text-slate-400 border border-dashed border-slate-200 rounded-2xl bg-white">
+                    <Folder className="w-10 h-10 text-slate-300 mb-3" />
+                    <p className="text-[14px] font-medium">아직 폴더가 없습니다. &quot;새 주제 폴더 추가&quot;로 시작해 보세요.</p>
+                  </div>
+                )}
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* 휴지통 — 복원 / 영구 삭제 */}
           {activeMenu === 'trash' && (
@@ -1001,55 +1156,60 @@ export default function PresentationAnalysisDashboard() {
               {activeMenu === 'single' && (
                 <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 space-y-6">
                   {/* Top: Graphs by Segment */}
-                  <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 relative">
-                    <div className="mb-6">
-                      <h3 className="font-extrabold text-slate-800 text-lg flex items-center gap-2">
-                        <span className="bg-purple-100 text-purple-600 p-1.5 rounded-xl"><BarChart2 className="w-5 h-5"/></span>
-                        구간별 지표 분석 그래프
-                      </h3>
-                    </div>
+                  <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                    {/* 윗부분: 왼쪽(제목 + 지표 버튼) / 오른쪽(고른 지표의 총량 카드).
+                        예전엔 카드를 absolute 로 띄웠는데, 화면이 좁으면(브라우저 100% 등) 버튼 줄이 카드 밑으로
+                        들어가 가려졌다. 지금은 카드가 실제로 자리를 차지해서, 버튼은 카드 앞까지만 가고 줄바꿈된다. */}
+                    <div className="flex flex-col lg:flex-row lg:items-start gap-6 mb-8">
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-extrabold text-slate-800 text-lg flex items-center gap-2">
+                          <span className="bg-purple-100 text-purple-600 p-1.5 rounded-xl"><BarChart2 className="w-5 h-5"/></span>
+                          구간별 지표 분석 그래프
+                        </h3>
 
-                    {/* 예전엔 이 위에 요약 카드 6개가 항상 다 보였는데, 지금 고른 지표(activeSingleMetric)의
-                        총량 하나만 그래프 우상단에 보여주는 걸로 바꿨다. 카드 자체 디자인은 통합 전 것 그대로 재사용.
-                        lg 이상에서는 absolute로 띄워서 제목-버튼 간격(원래 간격)이 벌어지지 않게 했다. */}
-                    {(() => {
-                      const activeStat = buildSummaryStats(gestureTotals, voiceSummary).find(s => s.id === activeSingleMetric);
-                      if (!activeStat) return null;
-                      const Icon = activeStat.icon;
-                      return (
-                        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 flex flex-col justify-between h-[110px] w-full lg:w-[260px] mb-6 lg:mb-0 lg:absolute lg:top-6 lg:right-6">
-                          <div className="flex justify-between items-start w-full gap-2">
-                            <p className="text-sm font-bold text-slate-500 mb-1 truncate">{activeStat.title}</p>
-                            <div className={`p-2 rounded-xl shrink-0 ${activeStat.bg}`}>
-                              <Icon className={`w-5 h-5 ${activeStat.color}`} />
+                        {/* Metric Selection Buttons */}
+                        {trendData.length > 0 && (
+                          <div className="flex flex-wrap gap-3 mt-6">
+                            {SINGLE_METRICS_CONFIG.map(metric => (
+                              <button
+                                key={metric.id}
+                                onClick={() => setActiveSingleMetric(metric.id)}
+                                className={`px-5 py-2.5 rounded-xl text-[14px] font-bold transition-all border ${
+                                  activeSingleMetric === metric.id
+                                    ? 'bg-slate-800 text-white border-slate-800 shadow-md shadow-slate-300'
+                                    : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50 hover:text-slate-800'
+                                }`}
+                              >
+                                {metric.label}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* 지금 고른 지표(activeSingleMetric)의 총량 카드. 카드 디자인은 예전 요약 카드 그대로. */}
+                      {(() => {
+                        const activeStat = buildSummaryStats(gestureTotals, voiceSummary).find(s => s.id === activeSingleMetric);
+                        if (!activeStat) return null;
+                        const Icon = activeStat.icon;
+                        return (
+                          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 flex flex-col justify-between h-[110px] w-full lg:w-[260px] shrink-0">
+                            <div className="flex justify-between items-start w-full gap-2">
+                              <p className="text-sm font-bold text-slate-500 mb-1 truncate">{activeStat.title}</p>
+                              <div className={`p-2 rounded-xl shrink-0 ${activeStat.bg}`}>
+                                <Icon className={`w-5 h-5 ${activeStat.color}`} />
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2 mt-auto">
+                              <h2 className="text-2xl font-extrabold text-slate-800 whitespace-nowrap">{activeStat.value}</h2>
                             </div>
                           </div>
-                          <div className="flex items-center gap-2 mt-auto">
-                            <h2 className="text-2xl font-extrabold text-slate-800 whitespace-nowrap">{activeStat.value}</h2>
-                          </div>
-                        </div>
-                      );
-                    })()}
+                        );
+                      })()}
+                    </div>
 
                     {trendData.length > 0 ? (
                       <>
-                        {/* Metric Selection Buttons */}
-                        <div className="flex flex-wrap gap-3 mb-8">
-                          {SINGLE_METRICS_CONFIG.map(metric => (
-                            <button
-                              key={metric.id}
-                              onClick={() => setActiveSingleMetric(metric.id)}
-                              className={`px-5 py-2.5 rounded-xl text-[14px] font-bold transition-all border ${
-                                activeSingleMetric === metric.id
-                                  ? 'bg-slate-800 text-white border-slate-800 shadow-md shadow-slate-300'
-                                  : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50 hover:text-slate-800'
-                              }`}
-                            >
-                              {metric.label}
-                            </button>
-                          ))}
-                        </div>
-
                         <div className="h-[300px] w-full pr-4">
                           {(() => {
                              const activeMetricConfig = SINGLE_METRICS_CONFIG.find(m => m.id === activeSingleMetric)!;
@@ -1566,97 +1726,8 @@ export default function PresentationAnalysisDashboard() {
                       </div>
                     </div>
 
-                    {/* Metric Selection Buttons */}
-                    <div className="flex flex-wrap gap-3 mb-8">
-                       {GROWTH_METRICS_CONFIG.map(metric => (
-                         <button
-                           key={metric.id}
-                           onClick={() => setActiveGrowthMetric(metric.id)}
-                           className={`px-5 py-2.5 rounded-xl text-[14px] font-bold transition-all border ${
-                             activeGrowthMetric === metric.id
-                               ? 'bg-slate-800 text-white border-slate-800 shadow-md shadow-slate-300'
-                               : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50 hover:text-slate-800'
-                           }`}
-                         >
-                           {metric.label}
-                         </button>
-                       ))}
-                    </div>
-                    
-                    <div className="flex-1 min-h-[300px] w-full pr-4">
-                      {(() => {
-                        const activeTopicForGrowth = topics.find(t => t.id === selectedGrowthTopicId) || topics[0];
-                        if (!activeTopicForGrowth || activeTopicForGrowth.sessions.length === 0) {
-                          return (
-                            <div className="h-full flex flex-col items-center justify-center text-slate-400 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
-                              <TrendingUp className="w-12 h-12 mb-3 text-slate-300" />
-                              <p className="font-bold text-[15px]">해당 주제에 발표 연습 기록이 없습니다.</p>
-                            </div>
-                          );
-                        }
-                        
-                        // Generate mock metrics dynamically based on actual sessions in the topic
-                        const growthChartData = activeTopicForGrowth.sessions.map((s, index) => {
-                          const maxImprovementFactor = Math.max(1, 4 - index);
-                          return {
-                            session: s.name.replace(' 연습', ''), // Simplify name
-                            fillerTotal: 10 + maxImprovementFactor * 5, // 필러 단어 빈도
-                            wpm: 120 + maxImprovementFactor * 10,        // 평균 말하기 속도
-                            silenceRatio: 5 + maxImprovementFactor * 2,  // 전체 무음 비율 (%)
-                            habits: 4 + maxImprovementFactor * 3,        // 말 더듬 횟수
-                          };
-                        });
-
-                        const activeMetricConfig = GROWTH_METRICS_CONFIG.find(m => m.id === activeGrowthMetric)!;
-
-                        return (
-                          <ResponsiveContainer width="100%" height="100%">
-                            <ComposedChart data={growthChartData} margin={{ top: 20, right: 20, bottom: 20, left: 0 }}>
-                              <CartesianGrid key="grid" strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                              <XAxis key="xaxis" dataKey="session" axisLine={false} tickLine={false} tick={{fill: '#64748B', fontSize: 14, fontWeight: 600}} dy={15} />
-                              
-                              <YAxis 
-                                key={`yaxis-${activeMetricConfig.id}`}
-                                axisLine={false} 
-                                tickLine={false} 
-                                tick={{fill: activeMetricConfig.color, fontSize: 13, fontWeight: 700}} 
-                                domain={['auto', 'auto']} 
-                                dx={-10}
-                                unit={activeMetricConfig.unit}
-                              />
-                              
-                              <Tooltip 
-                                key={`tooltip-${activeMetricConfig.id}`}
-                                cursor={{fill: '#f8fafc', stroke: activeMetricConfig.type === 'line' ? '#e2e8f0' : 'none', strokeWidth: 1, strokeDasharray: '4 4'}}
-                                contentStyle={{ borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 10px 25px -5px rgb(0 0 0 / 0.1)', padding: '16px 20px', fontWeight: 600 }}
-                                formatter={(value: number) => [`${value}${activeMetricConfig.unit}`, activeMetricConfig.label]}
-                              />
-                              
-                              {activeMetricConfig.type === 'line' ? (
-                                <Line 
-                                  key={`line-${activeMetricConfig.id}`}
-                                  type="monotone" 
-                                  dataKey={activeMetricConfig.id} 
-                                  name={activeMetricConfig.label} 
-                                  stroke={activeMetricConfig.color} 
-                                  strokeWidth={4} 
-                                  dot={{r: 6, fill: activeMetricConfig.color, strokeWidth: 3, stroke: '#fff'}} 
-                                  activeDot={{r: 8}} 
-                                />
-                              ) : (
-                                <Bar 
-                                  key={`bar-${activeMetricConfig.id}`}
-                                  dataKey={activeMetricConfig.id} 
-                                  name={activeMetricConfig.label} 
-                                  fill={activeMetricConfig.color} 
-                                  radius={[6, 6, 0, 0]} 
-                                  barSize={40} 
-                                />
-                              )}
-                            </ComposedChart>
-                          </ResponsiveContainer>
-                        );
-                      })()}
+                    <div className="flex-1 min-h-0">
+                      <GrowthTrendChart sessions={(topics.find(t => t.id === selectedGrowthTopicId) || topics[0])?.sessions ?? []} />
                     </div>
                   </div>
                 </div>
