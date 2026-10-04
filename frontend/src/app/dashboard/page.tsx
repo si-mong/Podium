@@ -636,11 +636,13 @@ export default function PresentationAnalysisDashboard() {
 
 
   // Helper to find currently selected topic and session names
+  let activeTopicId = "";
   let activeTopicName = "";
   let activeSessionName = "";
   topics.forEach(t => {
     const s = t.sessions.find(s => s.id === activeSessionId);
     if (s) {
+      activeTopicId = t.id;
       activeTopicName = t.name;
       activeSessionName = s.name;
     }
@@ -920,8 +922,18 @@ export default function PresentationAnalysisDashboard() {
           <div className="flex items-center gap-3 text-sm font-medium bg-slate-100 px-4 py-2 rounded-full text-slate-600 border border-slate-200 z-10">
             {activeTopicName && activeSessionName ? (
               <>
-                <FolderOpen className="w-4 h-4 text-slate-400" />
-                <span>{activeTopicName}</span>
+                {/* 폴더 이름을 누르면 "내 기록"에서 그 폴더(세션 목록 + 종합추이)를 연다 — 뒤로가기와 같은 효과 */}
+                <button
+                  onClick={() => {
+                    setOpenFolderId(activeTopicId);
+                    setActiveMenu('sessions');
+                  }}
+                  className="flex items-center gap-3 hover:text-blue-600 transition-colors"
+                  title="이 폴더로 이동"
+                >
+                  <FolderOpen className="w-4 h-4 text-slate-400" />
+                  <span className="hover:underline">{activeTopicName}</span>
+                </button>
                 <ChevronRight className="w-3.5 h-3.5 text-slate-300" />
                 <span className="text-blue-600 font-bold bg-blue-100 px-2.5 py-0.5 rounded-md">{activeSessionName}</span>
               </>
