@@ -389,23 +389,57 @@ export default function PresentationAnalysisDashboard() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const [activeMenu, setActiveMenu] = useState('sessions');
+  // 화면 상태(어느 메뉴 / 어느 폴더 / 어느 세션)는 변수가 아니라 **주소(URL)** 에 담는다.
+  // 화면을 옮길 때마다 주소가 바뀌어 방문 기록이 쌓이므로, 브라우저 뒤로가기·새로고침이 화면과 맞게 동작한다.
+  //   view    : sessions(내 기록, 기본) | single | compare | growth | trash
+  //   folder  : "내 기록"에서 열어 둔 폴더(프로젝트) id. 없으면 폴더 목록(아이콘)을 보여준다.
+  //   session : 선택한 세션 id
+  // 예) /dashboard?view=single&folder=3&session=12
+  // 촬영 화면은 /dashboard?session=12 로 돌아오는데, view 가 없고 session 만 있으면 단일 분석으로 본다.
+  const openFolderId = searchParams.get('folder');
+  const activeSessionId = searchParams.get('session') || '';
+  const activeMenu = searchParams.get('view') || (activeSessionId ? 'single' : 'sessions');
+
+  // 화면 이동 — 바꿀 값만 넘기면 나머지는 지금 값을 그대로 쓴다 (null 을 넘기면 그 값을 지운다).
+  // replace=true 면 방문 기록을 새로 쌓지 않고 지금 주소를 바꿔치기한다 (자동 정리용).
+  const goTo = (next: { view?: string; folder?: string | null; session?: string | null }, replace = false) => {
+    const view = next.view ?? activeMenu;
+    const folder = next.folder === undefined ? openFolderId : next.folder;
+    const session = next.session === undefined ? activeSessionId : next.session;
+
+    const params = new URLSearchParams();
+    if (view !== 'sessions' || session) params.set('view', view); // 세션이 있으면 view 를 꼭 적는다 (위 기본값 규칙 때문)
+    if (folder) params.set('folder', folder);
+    if (session) params.set('session', session);
+    const query = params.toString();
+    if (query === searchParams.toString()) return; // 같은 화면을 또 누르면 기록을 쌓지 않는다
+    const url = query ? `/dashboard?${query}` : '/dashboard';
+    if (replace) router.replace(url);
+    else router.push(url);
+  };
+
   const [activeSttIndex, setActiveSttIndex] = useState(1);
   const [activeSegmentIndex, setActiveSegmentIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
 
   // Topics & Sessions State — 실제 데이터는 Podium 백엔드(/projects)에서 불러온다.
   const [topics, setTopics] = useState<Topic[]>([]);
-  const [activeSessionId, setActiveSessionId] = useState('');
-  // "내 기록"에서 열어 둔 폴더. null 이면 폴더 목록(아이콘)을, 값이 있으면 그 폴더의 세션 목록 + 종합추이를 보여준다.
-  const [openFolderId, setOpenFolderId] = useState<string | null>(null);
+  const [topicsLoaded, setTopicsLoaded] = useState(false); // 목록을 한 번이라도 받아왔는지 (받기 전엔 빈 목록이라 정리하면 안 됨)
 
-  // 촬영을 마치고 돌아왔을 때(?session=) 그 세션이 든 폴더를 열어 둔다 → "내 기록"으로 가면 바로 그 폴더가 보인다.
+  // 주소와 실제 데이터를 맞춘다 (목록을 받아온 뒤에만).
+  //  - 세션만 있고 폴더가 없으면(촬영 후 돌아옴) 그 세션이 든 폴더를 채운다 → "내 기록"으로 가면 그 폴더가 열려 있다.
+  //  - 주소의 폴더/세션이 이미 지워졌으면(삭제 직후, 또는 뒤로가기로 예전 주소에 옴) 내 기록 화면으로 바꾼다.
   useEffect(() => {
-    if (!activeSessionId || openFolderId) return;
-    const topic = topics.find(t => t.sessions.some(s => s.id === activeSessionId));
-    if (topic) setOpenFolderId(topic.id);
-  }, [activeSessionId, topics]);
+    if (!topicsLoaded) return;
+    const folderGone = !!openFolderId && !topics.some(t => t.id === openFolderId);
+    const sessionTopic = topics.find(t => t.sessions.some(s => s.id === activeSessionId));
+    const sessionGone = !!activeSessionId && !sessionTopic;
+    if (folderGone || sessionGone) {
+      goTo({ view: 'sessions', folder: folderGone ? null : undefined, session: sessionGone ? null : undefined }, true);
+    } else if (sessionTopic && !openFolderId) {
+      goTo({ folder: sessionTopic.id }, true);
+    }
+  }, [topicsLoaded, topics, openFolderId, activeSessionId]);
 
   const fetchTopics = async () => {
     try {
@@ -414,6 +448,7 @@ export default function PresentationAnalysisDashboard() {
       if (!res.ok) throw new Error('failed to load projects');
       const data: ApiProject[] = await res.json();
       setTopics(data.map(toTopic));
+      setTopicsLoaded(true);
     } catch (err) {
       console.error(err);
       alert('프로젝트 목록을 불러오지 못했습니다. 백엔드 서버(localhost:8000)가 켜져 있는지 확인하세요.');
@@ -454,15 +489,6 @@ export default function PresentationAnalysisDashboard() {
     clearTokens();
     router.replace('/login');
   };
-
-  // /record 페이지에서 촬영+분석 끝내고 돌아올 때 ?session=<id>로 넘어옴 -> 바로 단일 분석 화면 표시.
-  useEffect(() => {
-    const sessionParam = searchParams.get('session');
-    if (sessionParam) {
-      setActiveSessionId(sessionParam);
-      setActiveMenu('single');
-    }
-  }, [searchParams]);
 
   // 선택된 세션의 실제 데이터 — 영상 경로, 동작 분석(STEP2), 음성 요약·스크립트(STEP3), 구간·피드백(STEP4·5)
   const [sessionVideoPath, setSessionVideoPath] = useState<string | null>(null);
@@ -705,11 +731,8 @@ export default function PresentationAnalysisDashboard() {
       // 백엔드는 바로 지우지 않고 "휴지통"으로 옮긴다 (DELETE /projects/{id}/purge 가 영구 삭제)
       const res = await apiFetch(`/projects/${id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('failed to delete project');
+      // 열어 둔 폴더나 보던 세션이 이 폴더 것이면, 위의 "주소와 실제 데이터 맞추기"가 내 기록 화면으로 돌려놓는다.
       setTopics(topics.filter(t => t.id !== id));
-      if (openFolderId === id) setOpenFolderId(null); // 열어 둔 폴더를 지웠으면 폴더 목록으로
-      if (activeTopicName === topics.find(t => t.id === id)?.name) {
-        setActiveSessionId(''); // Reset active session if its topic is deleted
-      }
     } catch (err) {
       console.error(err);
       alert('폴더 삭제에 실패했습니다.');
@@ -772,11 +795,8 @@ export default function PresentationAnalysisDashboard() {
       }
       const res = await apiFetch(`/sessions/${sessionId}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('failed to delete session');
+      // 보던 세션을 지웠으면, 목록을 다시 받아온 뒤 "주소와 실제 데이터 맞추기"가 내 기록 화면으로 돌려놓는다.
       await fetchTopics();
-      if (activeSessionId === sessionId) {
-        setActiveSessionId('');
-        if (activeMenu !== 'sessions') setActiveMenu('sessions');
-      }
     } catch (err) {
       console.error(err);
       alert('세션 삭제에 실패했습니다.');
@@ -835,8 +855,7 @@ export default function PresentationAnalysisDashboard() {
   };
 
   const selectSession = (sessionId: string) => {
-    setActiveSessionId(sessionId);
-    setActiveMenu('single'); // Switch to single view when a session is selected
+    goTo({ view: 'single', session: sessionId }); // 세션을 고르면 단일 분석 화면으로
   };
 
   return (
@@ -845,9 +864,9 @@ export default function PresentationAnalysisDashboard() {
       {/* Sidebar Navigation */}
       <aside className="w-[280px] bg-white border-r border-slate-200 flex flex-col flex-shrink-0 z-20 shadow-sm">
         <div className="h-20 flex items-center px-6 border-b border-slate-100 shrink-0">
-          {/* 로고를 누르면 세션 관리(첫 메뉴)로 */}
+          {/* 로고를 누르면 세션 관리(첫 메뉴)의 폴더 목록으로 */}
           <button
-            onClick={() => setActiveMenu('sessions')}
+            onClick={() => goTo({ view: 'sessions', folder: null })}
             className="flex items-center gap-2.5 group"
           >
             <div className="bg-blue-600 p-2 rounded-xl shadow-sm shadow-blue-200 group-hover:bg-blue-700 transition-colors">
@@ -867,7 +886,7 @@ export default function PresentationAnalysisDashboard() {
               return (
                 <button
                   key={menu.id}
-                  onClick={() => !isDisabled && setActiveMenu(menu.id)}
+                  onClick={() => !isDisabled && goTo({ view: menu.id })}
                   disabled={isDisabled}
                   className={`w-full flex items-center gap-3.5 px-4 py-3.5 rounded-xl transition-all text-left group
                     ${isActive 
@@ -891,7 +910,7 @@ export default function PresentationAnalysisDashboard() {
         {/* 휴지통 + 로그아웃 — 사이드바 맨 아래 */}
         <div className="p-4 border-t border-slate-100 shrink-0 space-y-1">
           <button
-            onClick={() => setActiveMenu('trash')}
+            onClick={() => goTo({ view: 'trash' })}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors text-[14px] font-semibold
               ${activeMenu === 'trash' ? 'bg-blue-50/80 text-blue-700' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'}`}
           >
@@ -924,10 +943,7 @@ export default function PresentationAnalysisDashboard() {
               <>
                 {/* 폴더 이름을 누르면 "내 기록"에서 그 폴더(세션 목록 + 종합추이)를 연다 — 뒤로가기와 같은 효과 */}
                 <button
-                  onClick={() => {
-                    setOpenFolderId(activeTopicId);
-                    setActiveMenu('sessions');
-                  }}
+                  onClick={() => goTo({ view: 'sessions', folder: activeTopicId })}
                   className="flex items-center gap-3 hover:text-blue-600 transition-colors"
                   title="이 폴더로 이동"
                 >
@@ -957,7 +973,7 @@ export default function PresentationAnalysisDashboard() {
                   {/* 경로: ← 내 기록 > 폴더명 */}
                   <div className="flex items-center gap-2 mb-6 min-w-0">
                     <button
-                      onClick={() => setOpenFolderId(null)}
+                      onClick={() => goTo({ folder: null })}
                       className="flex items-center gap-1.5 text-slate-500 hover:text-slate-800 font-semibold text-[15px] shrink-0"
                     >
                       <ArrowLeft className="w-4 h-4" />
@@ -1060,7 +1076,7 @@ export default function PresentationAnalysisDashboard() {
                     {topics.map(topic => (
                       <div
                         key={topic.id}
-                        onClick={() => editingTopicId !== topic.id && setOpenFolderId(topic.id)}
+                        onClick={() => editingTopicId !== topic.id && goTo({ folder: topic.id })}
                         className="group relative bg-white rounded-2xl border border-slate-200 hover:border-blue-300 hover:shadow-md p-5 pt-7 flex flex-col items-center text-center cursor-pointer transition-all"
                       >
                         {/* 이름 변경 / 삭제 — 마우스를 올리면 보인다 */}
