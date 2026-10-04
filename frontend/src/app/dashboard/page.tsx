@@ -427,7 +427,8 @@ export default function PresentationAnalysisDashboard() {
   const [topicsLoaded, setTopicsLoaded] = useState(false); // 목록을 한 번이라도 받아왔는지 (받기 전엔 빈 목록이라 정리하면 안 됨)
 
   // 주소와 실제 데이터를 맞춘다 (목록을 받아온 뒤에만).
-  //  - 세션만 있고 폴더가 없으면(촬영 후 돌아옴) 그 세션이 든 폴더를 채운다 → "내 기록"으로 가면 그 폴더가 열려 있다.
+  //  - 분석 화면인데 세션만 있고 폴더가 없으면(촬영 후 돌아옴) 그 세션이 든 폴더를 채운다
+  //    → 위쪽 경로의 폴더 이름이나 뒤로가기로 그 폴더에 갈 수 있다.
   //  - 주소의 폴더/세션이 이미 지워졌으면(삭제 직후, 또는 뒤로가기로 예전 주소에 옴) 내 기록 화면으로 바꾼다.
   useEffect(() => {
     if (!topicsLoaded) return;
@@ -436,7 +437,8 @@ export default function PresentationAnalysisDashboard() {
     const sessionGone = !!activeSessionId && !sessionTopic;
     if (folderGone || sessionGone) {
       goTo({ view: 'sessions', folder: folderGone ? null : undefined, session: sessionGone ? null : undefined }, true);
-    } else if (sessionTopic && !openFolderId) {
+    } else if (sessionTopic && !openFolderId && activeMenu !== 'sessions') {
+      // 분석 화면일 때만 채운다. 내 기록 화면에서 폴더가 비어 있는 건 사용자가 폴더를 닫은 것이므로 그대로 둔다.
       goTo({ folder: sessionTopic.id }, true);
     }
   }, [topicsLoaded, topics, openFolderId, activeSessionId]);
@@ -886,7 +888,8 @@ export default function PresentationAnalysisDashboard() {
               return (
                 <button
                   key={menu.id}
-                  onClick={() => !isDisabled && goTo({ view: menu.id })}
+                  // "내 기록"은 어느 화면에서 누르든 폴더 목록(아이콘)으로 간다 — 열어 둔 폴더는 닫는다.
+                  onClick={() => !isDisabled && goTo(menu.id === 'sessions' ? { view: 'sessions', folder: null } : { view: menu.id })}
                   disabled={isDisabled}
                   className={`w-full flex items-center gap-3.5 px-4 py-3.5 rounded-xl transition-all text-left group
                     ${isActive 
