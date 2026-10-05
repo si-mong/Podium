@@ -113,7 +113,7 @@ def _analyze_chunk(client, uploaded_file):
     # 영상이 모델에 전달되지 않는다 ("영상을 볼 수 없다"는 답이 옴) → Part.from_uri 로 감싼다.
     video_part = types.Part.from_uri(file_uri=uploaded_file.uri, mime_type=uploaded_file.mime_type)
     response = client.models.generate_content(
-        model="gemini-2.5-flash",
+        model="gemini-3.8-flash",
         contents=[video_part, _PROMPT],
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
