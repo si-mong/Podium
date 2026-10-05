@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 # 그 외(잘못된 요청 400, API 키 문제 401/403, 모델 없음 404, 코드/라이브러리 버전 오류 등)는
 # 몇 번을 다시 해도 똑같이 실패하므로 바로 멈추고 에러를 올린다.
 MAX_RETRY = 3        # 최대 시도 횟수 (첫 시도 포함)
-RETRY_WAIT_SEC = 10  # 첫 재시도 전 대기 시간. 실패할 때마다 2배로 늘린다 (10초 → 20초)
+RETRY_WAIT_SEC = 10  # 재시도 전 대기 시간 (고정)
 
 # 네트워크 끊김 / 시간 초과 오류 (google-genai 버전에 따라 requests 또는 httpx 를 씀)
 _NETWORK_ERRORS = (
@@ -185,12 +185,11 @@ def _process_one_chunk(client, i, chunk_path, total):
                 logger.error("[%d/%d] %d회 모두 실패해서 중단: %r", i + 1, total, MAX_RETRY, e)
                 raise
 
-            wait_sec = RETRY_WAIT_SEC * (2 ** (attempt - 1))
             logger.warning(
                 "[%d/%d] 시도 %d회 실패: %r → %d초 후 재시도",
-                i + 1, total, attempt, e, wait_sec,
+                i + 1, total, attempt, e, RETRY_WAIT_SEC,
             )
-            time.sleep(wait_sec)
+            time.sleep(RETRY_WAIT_SEC)
 
         finally:
             # 분석 완료 후 구글 서버에서 즉시 삭제하여 용량 확보
