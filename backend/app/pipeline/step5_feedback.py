@@ -1,7 +1,7 @@
 """
 Step 5: 구간별 LLM 분석 + 종합 피드백
 
-STEP2(영상)·STEP3(음성 타임라인)·STEP4(구간분리+집계) 결과를 구간마다 Gemini 에게 보내
+STEP2(영상)·STEP3(음성 타임라인)·STEP4(구간분리+집계) 결과를 구간마다 GPT 에게 보내
 구간별 잘한 점·개선점을 받는다(run_segments). 발표 전체를 한 번에 보는 총평(run_overall)도
 따로 제공한다 — 2026-09-20에 한 번 제거했다가 2026-09-22에 "4~5줄 총평" 형태로 다시 추가함.
 
@@ -19,9 +19,20 @@ import time
 
 logger = logging.getLogger(__name__)
 
-MODEL = "gemini-2.5-flash"
+MODEL = "gpt-4.1"
 MAX_ATTEMPTS = 3
 RETRY_WAIT_SEC = 5
+
+
+def _make_client():
+    """OpenAI 클라이언트를 만든다. 키는 .env 의 OPENAI_API_KEY."""
+    from openai import OpenAI
+
+    from app.core.config import settings
+
+    if not settings.openai_api_key:
+        raise RuntimeError("OPENAI_API_KEY 없음 (.env 확인)")
+    return OpenAI(api_key=settings.openai_api_key)
 
 
 def _mmss(sec: float) -> str:
@@ -32,8 +43,8 @@ def _mmss(sec: float) -> str:
 def _add_time_labels(obj):
     """복사본을 돌려준다. t_start/t_end 가 있는 모든 dict 에 time_label("M:SS~M:SS")을 붙인다.
 
-    데이터의 시각은 12.48 같은 소수 초라, Gemini 에게 "M:SS 로 바꿔 쓰라"고 하면 계산을
-    틀릴 수 있다. 변환은 코드가 하고 Gemini 는 time_label 을 그대로 옮기게 한다.
+    데이터의 시각은 12.48 같은 소수 초라, GPT 에게 "M:SS 로 바꿔 쓰라"고 하면 계산을
+    틀릴 수 있다. 변환은 코드가 하고 GPT 는 time_label 을 그대로 옮기게 한다.
     """
     if isinstance(obj, list):
         return [_add_time_labels(x) for x in obj]
@@ -51,11 +62,11 @@ _TIME_RE = re.compile(r"\d+:\d\d")
 
 
 def _collect_time_tokens(obj) -> set[str]:
-    """Gemini 가 써도 되는 시각(M:SS)의 집합.
+    """GPT 가 써도 되는 시각(M:SS)의 집합.
 
     두 군데서 모은다: ① 모든 time_label 값 ② gesture_timelines 처럼 "MM:SS" 문자열만
     담긴 리스트의 각 항목. 후자는 time_label 로 안 감싸여 있어서 따로 챙기지 않으면
-    Gemini 가 그 시각을 인용해도 "데이터에 없는 시각"으로 오판해 지워버린다.
+    GPT 가 그 시각을 인용해도 "데이터에 없는 시각"으로 오판해 지워버린다.
     """
     tokens: set[str] = set()
 
@@ -105,10 +116,10 @@ def _sanitize(obj, allowed: set[str]):
     return obj
 
 
-def _generate_validated(client, types, prompt: str, allowed: set[str], tag: str) -> dict:
-    """Gemini 를 호출하고, 결과의 **모든 시각이 데이터의 time_label 에 있는 시각인지** 검증한다.
+def _generate_validated(client, prompt: str, allowed: set[str], tag: str) -> dict:
+    """GPT 를 호출하고, 결과의 **모든 시각이 데이터의 time_label 에 있는 시각인지** 검증한다.
 
-    time_label 을 붙여 보내도 Gemini 가 시각을 지어내거나 바꿔 쓸 수 있어서, 결과를 코드가 확인한다.
+    time_label 을 붙여 보내도 GPT 가 시각을 지어내거나 바꿔 쓸 수 있어서, 결과를 코드가 확인한다.
       1) 데이터에 없는 시각이 있으면 그 시각을 알려주고 다시 요청 (최대 MAX_ATTEMPTS 회)
       2) 그래도 남으면 그 항목·문장을 제거 — 잘못된 시각이 사용자에게 나가지 않게 한다.
     """
@@ -117,15 +128,14 @@ def _generate_validated(client, types, prompt: str, allowed: set[str], tag: str)
     hint = ""
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
-            resp = client.models.generate_content(
+            # response_format=json_object: 답을 JSON 으로만 받는다 (프롬프트에 "JSON" 단어가 있어야 함)
+            resp = client.chat.completions.create(
                 model=MODEL,
-                contents=prompt + hint,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    temperature=0.4,
-                ),
+                messages=[{"role": "user", "content": prompt + hint}],
+                response_format={"type": "json_object"},
+                temperature=0.4,
             )
-            parsed = json.loads(resp.text)
+            parsed = json.loads(resp.choices[0].message.content)
         except Exception as exc:  # noqa: BLE001 — 재시도 대상
             last_err = exc
             logger.warning("%s 시도 %d 실패: %s", tag, attempt, exc)
@@ -150,7 +160,7 @@ def _generate_validated(client, types, prompt: str, allowed: set[str], tag: str)
 # ═══════════════════════════════════════════════════════════════════════════
 # 구간별 분석
 #
-# **구간 하나씩** Gemini 에 맡긴다.
+# **구간 하나씩** GPT 에 맡긴다.
 # 구간마다 따로 호출하는 이유: 한 번에 다 맡기면 뒤쪽 구간 분석이 짧아지고
 # 구간별 근거(시각·횟수)가 흐려진다. 대신 호출이 구간 수만큼 나간다.
 #
@@ -262,7 +272,7 @@ def _slice_for_segment(seg: dict, video_analysis: list[dict], voice_timeline: di
 def _ensure_timestamps(fb: dict, seg_time_label: str) -> dict:
     """시각(M:SS)이 없는 항목 앞에 이 구간의 시각 범위를 붙인다.
 
-    "반복이 없었다", "구성이 명확하다"처럼 특정 시각이 없는 문장은 지침을 줘도 Gemini 가
+    "반복이 없었다", "구성이 명확하다"처럼 특정 시각이 없는 문장은 지침을 줘도 GPT 가
     시각을 빼먹는다 (29개 중 2개). 항상 시각 근거가 있게 하려고 코드가 보장한다.
     """
     for key in ("strengths", "improvements"):
@@ -273,7 +283,7 @@ def _ensure_timestamps(fb: dict, seg_time_label: str) -> dict:
     return fb
 
 
-def _run_one_segment(client, types, seg: dict, outline: list[dict],
+def _run_one_segment(client, seg: dict, outline: list[dict],
                      video_analysis: list[dict], voice_timeline: dict) -> dict:
     videos, voice = _slice_for_segment(seg, video_analysis, voice_timeline)
     seg_view = {**{k: v for k, v in seg.items() if k != "segment_id"},
@@ -288,7 +298,7 @@ def _run_one_segment(client, types, seg: dict, outline: list[dict],
     )
 
     try:
-        fb = _generate_validated(client, types, prompt, _collect_time_tokens(labeled),
+        fb = _generate_validated(client, prompt, _collect_time_tokens(labeled),
                                  f"STEP 5 구간 {seg['segment_id']}")
     except RuntimeError as exc:
         return {"segment_id": seg["segment_id"], "error": str(exc)}
@@ -298,7 +308,7 @@ def _run_one_segment(client, types, seg: dict, outline: list[dict],
 
 def run_segments(segments: list[dict], video_analysis: list[dict],
                  voice_timeline: dict) -> list[dict]:
-    """구간마다 Gemini 를 호출해 구간별 피드백을 받는다.
+    """구간마다 GPT 를 호출해 구간별 피드백을 받는다.
 
     segments: segment_id / label / title / t_start / t_end / stt_text / 지표 를 가진 dict 목록
     반환: 구간 순서대로 {"segment_id", "feedback"} 또는 {"segment_id", "error"}.
@@ -306,21 +316,13 @@ def run_segments(segments: list[dict], video_analysis: list[dict],
     """
     import concurrent.futures
 
-    from google import genai
-    from google.genai import types
-
-    from app.core.config import settings
-
-    api_key = settings.gemini_api_key
-    if not api_key:
-        raise RuntimeError("GEMINI_API_KEY 없음 (.env 확인)")
-    client = genai.Client(api_key=api_key)
+    client = _make_client()
 
     outline = [{"label": s["label"], "title": s["title"],
                 "t_start": s["t_start"], "t_end": s["t_end"]} for s in segments]
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=SEGMENT_MAX_WORKERS) as pool:
-        futures = [pool.submit(_run_one_segment, client, types, s, outline,
+        futures = [pool.submit(_run_one_segment, client, s, outline,
                                video_analysis, voice_timeline) for s in segments]
         results = [f.result() for f in futures]
 
@@ -332,7 +334,7 @@ def run_segments(segments: list[dict], video_analysis: list[dict],
 # ═══════════════════════════════════════════════════════════════════════════
 # 종합 피드백 (발표 전체 총평)
 #
-# 구간별 분석과 달리 Gemini 를 **한 번만** 호출해서 발표 전체를 한 문단으로 요약한다.
+# 구간별 분석과 달리 GPT 를 **한 번만** 호출해서 발표 전체를 한 문단으로 요약한다.
 # 구간별처럼 항목마다 시각을 강제하지 않는다 — 총평은 4~5줄로 짧아야 해서 문장마다
 # 시각을 넣으면 오히려 읽기 어려워진다. 다만 시각을 언급하는 경우엔 구간별과 같은 검증
 # (_generate_validated) 을 거쳐 데이터에 없는 시각을 지어내지 못하게 막는다.
@@ -381,15 +383,7 @@ def run_overall(segments: list[dict], video_analysis: list[dict], voice_timeline
     있음)만으로 충분하고, 원본 이벤트까지 다 보내면 총평치고 너무 장황해진다.
     반환: {"overall_summary": "..."}
     """
-    from google import genai
-    from google.genai import types
-
-    from app.core.config import settings
-
-    api_key = settings.gemini_api_key
-    if not api_key:
-        raise RuntimeError("GEMINI_API_KEY 없음 (.env 확인)")
-    client = genai.Client(api_key=api_key)
+    client = _make_client()
 
     outline = [{"label": s["label"], "title": s["title"],
                 "t_start": s["t_start"], "t_end": s["t_end"]} for s in segments]
@@ -401,4 +395,4 @@ def run_overall(segments: list[dict], video_analysis: list[dict], voice_timeline
         segments=json.dumps(labeled["segments"], ensure_ascii=False, indent=2),
     )
 
-    return _generate_validated(client, types, prompt, _collect_time_tokens(labeled), "STEP 5 종합")
+    return _generate_validated(client, prompt, _collect_time_tokens(labeled), "STEP 5 종합")
