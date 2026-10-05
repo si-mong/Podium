@@ -17,15 +17,30 @@ import os
 import time
 from pathlib import Path
 
+import httpx
+import requests
 from dotenv import load_dotenv
 from google import genai
+from google.genai import errors as genai_errors
 from google.genai import types
 
 logger = logging.getLogger(__name__)
 
 # ── 재시도 정책 ───────────────────────────────────────────────────────────────
-# Gemini API 일시 오류 대비. 성공할 때까지 무제한 재시도.
-RETRY_WAIT_SEC = 10
+# 다시 하면 성공할 수도 있는 오류(요청 과다 429, 구글 서버 오류 5xx, 네트워크 끊김)만 재시도한다.
+# 그 외(잘못된 요청 400, API 키 문제 401/403, 모델 없음 404, 코드/라이브러리 버전 오류 등)는
+# 몇 번을 다시 해도 똑같이 실패하므로 바로 멈추고 에러를 올린다.
+MAX_RETRY = 3        # 최대 시도 횟수 (첫 시도 포함)
+RETRY_WAIT_SEC = 10  # 첫 재시도 전 대기 시간. 실패할 때마다 2배로 늘린다 (10초 → 20초)
+
+# 네트워크 끊김 / 시간 초과 오류 (google-genai 버전에 따라 requests 또는 httpx 를 씀)
+_NETWORK_ERRORS = (
+    ConnectionError,
+    TimeoutError,
+    requests.exceptions.ConnectionError,
+    requests.exceptions.Timeout,
+    httpx.TransportError,
+)
 
 _GESTURE_KEYS = (
     "explanatory_gesture",
@@ -124,15 +139,19 @@ def _analyze_chunk(client, uploaded_file):
 
 # ── 청크 1개 처리 (병렬 실행 단위) ───────────────────────────────────────────
 
+def _is_retryable(e):
+    """다시 시도하면 성공할 수도 있는 오류인지 판단."""
+    # Gemini API 가 돌려준 오류 → 상태 코드로 판단
+    if isinstance(e, genai_errors.APIError):
+        return e.code == 429 or e.code >= 500
+    return isinstance(e, _NETWORK_ERRORS)
+
+
 def _process_one_chunk(client, i, chunk_path, total):
     """청크 하나를 분석하고 (인덱스, 결과dict) 를 반환. ThreadPoolExecutor에서 호출됨."""
     logger.info("[%d/%d] 분석 시작: %s", i + 1, total, chunk_path.name)
 
-    result = None
-    attempt = 0
-
-    while result is None:
-        attempt += 1
+    for attempt in range(1, MAX_RETRY + 1):
         uploaded_file = None
         try:
             uploaded_file = _upload_and_wait(client, chunk_path)
@@ -156,14 +175,22 @@ def _process_one_chunk(client, i, chunk_path, total):
                 result["posture"], result["eye_contact"], result["gesture"],
                 result["gesture_counts"],
             )
+            return i, result
 
         except Exception as e:
+            if not _is_retryable(e):
+                logger.error("[%d/%d] 재시도로 해결되지 않는 오류라 중단: %r", i + 1, total, e)
+                raise
+            if attempt == MAX_RETRY:
+                logger.error("[%d/%d] %d회 모두 실패해서 중단: %r", i + 1, total, MAX_RETRY, e)
+                raise
+
+            wait_sec = RETRY_WAIT_SEC * (2 ** (attempt - 1))
             logger.warning(
-                "[%d/%d] 시도 %d회 실패: %s",
-                i + 1, total, attempt, e,
+                "[%d/%d] 시도 %d회 실패: %r → %d초 후 재시도",
+                i + 1, total, attempt, e, wait_sec,
             )
-            logger.info("[%d/%d] %d초 후 재시도...", i + 1, total, RETRY_WAIT_SEC)
-            time.sleep(RETRY_WAIT_SEC)
+            time.sleep(wait_sec)
 
         finally:
             # 분석 완료 후 구글 서버에서 즉시 삭제하여 용량 확보
@@ -173,8 +200,6 @@ def _process_one_chunk(client, i, chunk_path, total):
                     logger.info("[%d/%d] 구글 서버 임시 파일 삭제 완료", i + 1, total)
                 except Exception as del_err:
                     logger.warning("임시 파일 삭제 실패: %s", del_err)
-
-    return i, result
 
 
 # ── 공개 API ──────────────────────────────────────────────────────────────────
