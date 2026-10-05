@@ -32,6 +32,7 @@ Table projects {
 Table sessions {
   session_id      bigserial    [pk]
   project_id      bigint       [not null, ref: > projects.project_id]
+  session_no      int          [not null, note: '프로젝트 안의 회차 번호(N회차 연습의 N). 프로젝트 안에서 유일. 앞 회차를 지워도 안 바뀜']
   status          varchar(32)  [not null, default: 'processing', note: 'processing / done / error']
   full_video_path varchar(512)
   pdf_path        varchar(512)
@@ -39,6 +40,7 @@ Table sessions {
 
   indexes {
     project_id
+    (project_id, session_no) [unique]
   }
 }
 
@@ -127,13 +129,15 @@ Table feedbacks {
   fb_fluency     text
   fb_motion      text
   fb_overall     text
+  strengths      jsonb
+  improvements   jsonb
 }
 
 Table session_summaries {
   session_id         bigint [pk, ref: - sessions.session_id]
   total_duration     float
   segment_count      integer
-  overall_scores     jsonb
+  llm_feedback       jsonb
   total_filler_count integer
   total_repetition_count    int
   avg_speaking_rate_spm     float

@@ -34,6 +34,14 @@
         ]},
       ],
     },
+    {
+      base: "/voice/run", text: "STEP1~4 통합",
+      groups: [],
+    },
+    {
+      base: "/voice/step5", text: "STEP 5 종합피드백",
+      groups: [],
+    },
   ];
 
   // 페이지마다 body 폭·색이 달라 토큰을 못 쓰므로 투명도/테두리 기반으로 칠한다.
@@ -78,7 +86,10 @@
     const mount = document.getElementById("nav-mount");
     if (!mount) return;
 
-    const current = MODULES.find(m => inModule(m.base));
+    // base 가 서로의 접두사인 경우("/voice/" vs "/voice/step5")가 있어
+    // 배열 순서가 아니라 **가장 구체적으로 일치하는 것**을 고른다.
+    const current = MODULES.filter(m => inModule(m.base))
+      .sort((a, b) => norm(b.base).length - norm(a.base).length)[0];
 
     // 1단 — 모든 페이지 동일
     const bar = `<div class="pd-bar">

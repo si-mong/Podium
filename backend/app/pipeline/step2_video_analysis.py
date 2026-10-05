@@ -17,15 +17,30 @@ import os
 import time
 from pathlib import Path
 
+import httpx
+import requests
 from dotenv import load_dotenv
 from google import genai
+from google.genai import errors as genai_errors
 from google.genai import types
 
 logger = logging.getLogger(__name__)
 
 # ── 재시도 정책 ───────────────────────────────────────────────────────────────
-# Gemini API 일시 오류 대비. 성공할 때까지 무제한 재시도.
-RETRY_WAIT_SEC = 10
+# 다시 하면 성공할 수도 있는 오류(요청 과다 429, 구글 서버 오류 5xx, 네트워크 끊김)만 재시도한다.
+# 그 외(잘못된 요청 400, API 키 문제 401/403, 모델 없음 404, 코드/라이브러리 버전 오류 등)는
+# 몇 번을 다시 해도 똑같이 실패하므로 바로 멈추고 에러를 올린다.
+MAX_RETRY = 3        # 최대 시도 횟수 (첫 시도 포함)
+RETRY_WAIT_SEC = 10  # 재시도 전 대기 시간 (고정)
+
+# 네트워크 끊김 / 시간 초과 오류 (google-genai 버전에 따라 requests 또는 httpx 를 씀)
+_NETWORK_ERRORS = (
+    ConnectionError,
+    TimeoutError,
+    requests.exceptions.ConnectionError,
+    requests.exceptions.Timeout,
+    httpx.TransportError,
+)
 
 _GESTURE_KEYS = (
     "explanatory_gesture",
@@ -52,13 +67,18 @@ _PROMPT = """\
 3. 부정적 습관(얼굴 만지기, 산만한 움직임, 물건 만지기 등)을 최우선으로 탐지하고, 순수한 설명 목적의 제스처와 완벽히 분리해.
 4. 임계값 적용: 무의식적인 0.5초 미만의 찰나의 움직임은 카운트하지 마. 최소 1초 이상 지속되거나 동작의 크기가 뚜렷한 '유의미한 제스처'만 카운트해.
 5. 각 제스처가 발생할 때마다 시작 타임라인("MM:SS")을 배열에 저장해 줘. (발생하지 않으면 빈 배열 [])
+6. notes 는 위 posture/eye_contact/gesture 라벨을 그대로 반복하지 말고, **이 영상 구간 동안
+   실제로 어떻게 움직이고 어디를 봤는지**를 2~3줄로 구체적으로 서술해. 자세·동작·시선처리를
+   전부 다뤄야 하고(하나만 쓰지 마), "설명 제스처가 잦았지만 후반부에 시선이 화면 아래로
+   자주 향했다"처럼 이 구간만의 특징을 담아. 이 데이터가 나중에 발표 코칭 피드백의 근거로
+   그대로 쓰이니, "특이사항 없음" 같은 형식적인 문장 대신 관찰한 그대로를 적어.
 
 아래 JSON 형식으로만 답해줘 (다른 텍스트 없이):
 {
   "posture": "안정적 또는 구부정 또는 과도한 움직임 또는 기댐 중 하나",
   "eye_contact": "빈번 또는 보통 또는 드묾 중 하나",
   "gesture": "적극적 또는 보통 또는 소극적 중 하나",
-  "notes": "특이한 동작 습관이나 개선 포인트를 1~2문장으로 서술 (없으면 빈 문자열)",
+  "notes": "이 구간의 자세·동작·시선처리를 2~3줄로 구체적으로 서술 (지침 6 참고, 정말 아무 특징도 없으면 빈 문자열)",
 
   "gesture_counts": {
     "explanatory_gesture": "설명을 돕기 위해 의도적으로 사용한 긍정적 손/몸짓 총 횟수 (주의: 머리/얼굴 만지기, 옷 만지기는 절대 포함 금지) (정수)",
@@ -88,14 +108,14 @@ _PROMPT = """\
 def _upload_and_wait(client, video_path):
     """청크 영상을 Gemini File API에 업로드하고 처리 완료까지 대기."""
     logger.info("업로드 중: %s", video_path.name)
-    video_file = client.files.upload(file=str(video_path))
+    video_file = client.files.upload(path=str(video_path))
 
-    while video_file.state.name == "PROCESSING":
+    while video_file.state == "PROCESSING":
         time.sleep(3)
         video_file = client.files.get(name=video_file.name)
 
-    if video_file.state.name != "ACTIVE":
-        raise RuntimeError("파일 업로드 실패 (state={}): {}".format(video_file.state.name, video_path.name))
+    if video_file.state != "ACTIVE":
+        raise RuntimeError("파일 업로드 실패 (state={}): {}".format(video_file.state, video_path.name))
 
     return video_file
 
@@ -104,9 +124,12 @@ def _upload_and_wait(client, video_path):
 
 def _analyze_chunk(client, uploaded_file):
     """업로드된 Gemini 파일을 분석하고 결과 dict를 반환."""
+    # google-genai 0.3.0 은 File 객체를 contents 에 그대로 넣으면 빈 part 로 바뀌어
+    # 영상이 모델에 전달되지 않는다 ("영상을 볼 수 없다"는 답이 옴) → Part.from_uri 로 감싼다.
+    video_part = types.Part.from_uri(file_uri=uploaded_file.uri, mime_type=uploaded_file.mime_type)
     response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=[uploaded_file, _PROMPT],
+        model="gemini-3.8-flash",
+        contents=[video_part, _PROMPT],
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
         ),
@@ -116,15 +139,19 @@ def _analyze_chunk(client, uploaded_file):
 
 # ── 청크 1개 처리 (병렬 실행 단위) ───────────────────────────────────────────
 
+def _is_retryable(e):
+    """다시 시도하면 성공할 수도 있는 오류인지 판단."""
+    # Gemini API 가 돌려준 오류 → 상태 코드로 판단
+    if isinstance(e, genai_errors.APIError):
+        return e.code == 429 or e.code >= 500
+    return isinstance(e, _NETWORK_ERRORS)
+
+
 def _process_one_chunk(client, i, chunk_path, total):
     """청크 하나를 분석하고 (인덱스, 결과dict) 를 반환. ThreadPoolExecutor에서 호출됨."""
     logger.info("[%d/%d] 분석 시작: %s", i + 1, total, chunk_path.name)
 
-    result = None
-    attempt = 0
-
-    while result is None:
-        attempt += 1
+    for attempt in range(1, MAX_RETRY + 1):
         uploaded_file = None
         try:
             uploaded_file = _upload_and_wait(client, chunk_path)
@@ -148,13 +175,20 @@ def _process_one_chunk(client, i, chunk_path, total):
                 result["posture"], result["eye_contact"], result["gesture"],
                 result["gesture_counts"],
             )
+            return i, result
 
         except Exception as e:
+            if not _is_retryable(e):
+                logger.error("[%d/%d] 재시도로 해결되지 않는 오류라 중단: %r", i + 1, total, e)
+                raise
+            if attempt == MAX_RETRY:
+                logger.error("[%d/%d] %d회 모두 실패해서 중단: %r", i + 1, total, MAX_RETRY, e)
+                raise
+
             logger.warning(
-                "[%d/%d] 시도 %d회 실패: %s",
-                i + 1, total, attempt, e,
+                "[%d/%d] 시도 %d회 실패: %r → %d초 후 재시도",
+                i + 1, total, attempt, e, RETRY_WAIT_SEC,
             )
-            logger.info("[%d/%d] %d초 후 재시도...", i + 1, total, RETRY_WAIT_SEC)
             time.sleep(RETRY_WAIT_SEC)
 
         finally:
@@ -165,8 +199,6 @@ def _process_one_chunk(client, i, chunk_path, total):
                     logger.info("[%d/%d] 구글 서버 임시 파일 삭제 완료", i + 1, total)
                 except Exception as del_err:
                     logger.warning("임시 파일 삭제 실패: %s", del_err)
-
-    return i, result
 
 
 # ── 공개 API ──────────────────────────────────────────────────────────────────

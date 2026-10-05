@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, Float, ForeignKey, Integer, String, func
+from sqlalchemy import BigInteger, DateTime, Float, ForeignKey, Integer, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -8,6 +8,7 @@ from app.core.database import Base
 
 class Session(Base):
     __tablename__ = "sessions"
+    __table_args__ = (UniqueConstraint("project_id", "session_no", name="uq_sessions_project_session_no"),)
 
     session_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     project_id: Mapped[int] = mapped_column(
@@ -16,6 +17,9 @@ class Session(Base):
         nullable=False,
         index=True,
     )
+    # 프로젝트 안에서의 회차 번호 ("N회차 연습"의 N). 목록 순서로 매기면 앞 회차를 지울 때 뒤 회차 이름이
+    # 당겨지므로 DB 에 저장한다. 새 세션은 (그 프로젝트의 가장 큰 번호 + 1). 프로젝트 안에서 유일.
+    session_no: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="processing")
     full_video_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
     pdf_path: Mapped[str | None] = mapped_column(String(512), nullable=True)

@@ -90,15 +90,25 @@ class SegmentAnalysis(Base):
     speaking_rate_spm: Mapped[float | None] = mapped_column(Float, nullable=True)      # 무음 포함
     articulation_rate_spm: Mapped[float | None] = mapped_column(Float, nullable=True)  # 무음 제외
     silence_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # 구간 길이 대비 무음 시간 비율 (silence_count 는 "몇 번"만 셀 뿐 길이는 안 담음)
+    silence_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
     filler_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     repetition_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # VLM 동작 분석 (구간 집계): 카테고리별 카운트 dict.
     # 키셋은 step2_video_analysis.py 의 카테고리 enum과 일치.
     gesture_counts: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # gesture_counts 를 STEP 5 꺾은선 그래프용으로 긍정/부정 둘로 미리 합산해둔 값
+    #   긍정 = explanatory_gesture + pointing + body_movement
+    #   부정 = distracting_gesture + touching_face_or_hair + fidgeting_with_objects + closed_posture
+    positive_gesture_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    negative_gesture_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     posture_counts: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     eye_contact_counts: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     motion_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # gesture_counts 와 같은 7종 키. 겹치는 영상 조각들의 gesture_timelines(발생 시각 배열)를
+    # 이어붙인 것 — STEP5 종합 피드백(run_overall)이 구체적 시각을 인용할 근거로 쓴다.
+    gesture_timelines: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     segment: Mapped["Segment"] = relationship(back_populates="analysis")
 
@@ -135,6 +145,9 @@ class VideoAnalysis(Base):
     gesture: Mapped[str | None] = mapped_column(String(32), nullable=True)
     # 정적 enum 카운트 (_GESTURE_KEYS 7종)
     gesture_counts: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # gesture_counts 와 같은 7종 키, 값은 그 제스처가 발생한 시각("MM:SS") 배열.
+    # STEP2 가 만들어주는데 STEP5 로 넘기기 전까진 저장하지 않고 버렸었다 (2026-09-22 부터 저장).
+    gesture_timelines: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     session: Mapped["Session"] = relationship(back_populates="video_analyses")  # noqa: F821
@@ -155,6 +168,10 @@ class Feedback(Base):
     fb_fluency: Mapped[str | None] = mapped_column(Text, nullable=True)
     fb_motion: Mapped[str | None] = mapped_column(Text, nullable=True)
     fb_overall: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # STEP 5 LLM 구간별 분석 결과 — 근거 시각(M:SS)을 포함한 문장 목록 (["...", "..."]).
+    # 위 fb_* 텍스트 칸은 목록을 담기에 맞지 않아 별도 JSONB 칸으로 추가함.
+    strengths: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    improvements: Mapped[list | None] = mapped_column(JSONB, nullable=True)
 
     segment: Mapped["Segment"] = relationship(back_populates="feedback")
 
@@ -169,7 +186,9 @@ class SessionSummary(Base):
     )
     total_duration: Mapped[float | None] = mapped_column(Float, nullable=True)
     segment_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    overall_scores: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # STEP 5 종합분석 (LLM) 결과 — overall_summary/strengths/improvements/... 키를 가진 JSON.
+    # app/pipeline/step5_feedback.py 참고.
+    llm_feedback: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     total_filler_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     total_repetition_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     avg_speaking_rate_spm: Mapped[float | None] = mapped_column(Float, nullable=True)
