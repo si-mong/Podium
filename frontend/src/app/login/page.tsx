@@ -57,13 +57,13 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-sans">
       <div className="w-full max-w-sm">
-        {/* 로고 */}
-        <div className="flex flex-col items-center gap-3 mb-8">
-          <div className="bg-blue-600 p-3 rounded-2xl shadow-sm shadow-blue-200">
+        {/* 로고 — 누르면 첫 화면(랜딩)으로 */}
+        <Link href="/" className="flex flex-col items-center gap-3 mb-8 group">
+          <div className="bg-blue-600 p-3 rounded-2xl shadow-sm shadow-blue-200 group-hover:bg-blue-700 transition-colors">
             <BarChart2 className="w-7 h-7 text-white" />
           </div>
-          <h1 className="text-xl font-extrabold text-slate-800 tracking-tight">발표 영상 분석</h1>
-        </div>
+          <h1 className="text-xl font-extrabold text-slate-800 tracking-tight group-hover:text-blue-700 transition-colors">발표 영상 분석</h1>
+        </Link>
 
         {/* 로그인 카드 */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8">

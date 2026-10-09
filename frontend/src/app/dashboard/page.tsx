@@ -478,7 +478,7 @@ export default function PresentationAnalysisDashboard() {
     fetchTopics();
   }, []);
 
-  // 로그아웃: 서버에 refresh 토큰 폐기를 알리고(실패해도 무시), 저장된 토큰을 지운 뒤 로그인 화면으로.
+  // 로그아웃: 서버에 refresh 토큰 폐기를 알리고(실패해도 무시), 저장된 토큰을 지운 뒤 첫 화면(랜딩)으로.
   const logout = async () => {
     const refreshToken = getRefreshToken();
     if (refreshToken) {
@@ -489,7 +489,7 @@ export default function PresentationAnalysisDashboard() {
       }).catch(() => {});
     }
     clearTokens();
-    router.replace('/login');
+    router.replace('/');
   };
 
   // 선택된 세션의 실제 데이터 — 영상 경로, 동작 분석(STEP2), 음성 요약·스크립트(STEP3), 구간·피드백(STEP4·5)
@@ -866,9 +866,9 @@ export default function PresentationAnalysisDashboard() {
       {/* Sidebar Navigation */}
       <aside className="w-[280px] bg-white border-r border-slate-200 flex flex-col flex-shrink-0 z-20 shadow-sm">
         <div className="h-20 flex items-center px-6 border-b border-slate-100 shrink-0">
-          {/* 로고를 누르면 세션 관리(첫 메뉴)의 폴더 목록으로 */}
+          {/* 로고를 누르면 홈 화면으로 */}
           <button
-            onClick={() => goTo({ view: 'sessions', folder: null })}
+            onClick={() => router.push('/home')}
             className="flex items-center gap-2.5 group"
           >
             <div className="bg-blue-600 p-2 rounded-xl shadow-sm shadow-blue-200 group-hover:bg-blue-700 transition-colors">
