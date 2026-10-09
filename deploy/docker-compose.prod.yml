@@ -1,0 +1,57 @@
+# 운영 배포용 compose. EC2 에서 deploy/ 폴더 기준으로 실행한다.
+#   docker compose -f docker-compose.prod.yml up -d --build
+# 로컬 개발용은 루트의 docker-compose.yml (Postgres 만 띄움).
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: podium
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?.env 에 POSTGRES_PASSWORD 를 지정하세요}
+      POSTGRES_DB: podium
+    # ports 를 열지 않는다 — DB 는 같은 네트워크의 api 컨테이너에서만 접근
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U podium"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: ../backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://podium:${POSTGRES_PASSWORD}@postgres:5432/podium
+      UPLOAD_DIR: /data/uploads
+      DEBUG: "false"
+    volumes:
+      - uploads:/data/uploads
+      - hf_models:/models        # STT 모델(약 3GB) 캐시 — 재시작마다 다시 받지 않도록
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      API_DOMAIN: ${API_DOMAIN:?.env 에 API_DOMAIN 을 지정하세요}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+
+volumes:
+  pg_data:
+  uploads:
+  hf_models:
+  caddy_data:
+  caddy_config:

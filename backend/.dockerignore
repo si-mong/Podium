@@ -1,0 +1,9 @@
+.venv
+.env
+__pycache__
+*.pyc
+uploads
+stt_test
+vlm_test
+devtools
+dev_static

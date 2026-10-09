@@ -19,9 +19,10 @@ app = FastAPI(title=settings.app_name, lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    # :3000 은 본 프론트엔드. :8001 은 devtools(STEP 실행/조회 테스트 페이지)가
+    # 기본값 :3000 은 본 프론트엔드. :8001 은 devtools(STEP 실행/조회 테스트 페이지)가
     # 브라우저에서 직접 이 서버를 호출하기 위함 — devtools 자체는 DB 를 안 만짐.
-    allow_origins=["http://localhost:3000", "http://localhost:8001"],
+    # 배포 환경에서는 .env 의 CORS_ORIGINS 로 프론트 도메인을 지정한다.
+    allow_origins=settings.cors_origin_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
