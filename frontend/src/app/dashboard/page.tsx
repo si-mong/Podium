@@ -563,7 +563,7 @@ function PresentationAnalysisDashboard() {
     };
   }, [activeSessionId]);
 
-  // 영상 재생 티켓 — <video src> 는 Authorization 헤더를 못 실어서, 이 세션 영상에만 5분간 통하는
+  // 영상 재생 티켓 — <video src> 는 Authorization 헤더를 못 실어서, 이 세션 영상에만 30분간 통하는
   // 티켓을 받아 주소 뒤에 붙인다 (백엔드 POST /sessions/{id}/video/ticket).
   const [videoTicket, setVideoTicket] = useState<string | null>(null);
   const ticketIssuedAt = useRef(0);
@@ -601,7 +601,7 @@ function PresentationAnalysisDashboard() {
       ? `${API_BASE}/sessions/${activeSessionId}/video?ticket=${encodeURIComponent(videoTicket)}`
       : null;
 
-  // 티켓은 5분이면 만료된다. 오래 보다가 다른 구간으로 이동하면 새 요청이 401 로 실패해 영상이 멈추므로,
+  // 티켓은 30분이면 만료된다. 오래 보다가 다른 구간으로 이동하면 새 요청이 401 로 실패해 영상이 멈추므로,
   // 그때 티켓을 새로 받아 같은 위치에서 이어서 재생한다.
   const handleVideoError = async (v: HTMLVideoElement) => {
     if (!activeSessionId) return;

@@ -35,7 +35,7 @@ ACCESS_TYPE = "access"
 REFRESH_TYPE = "refresh"
 VIDEO_TYPE = "video"      # 영상 재생 전용 단기 티켓 — create_video_ticket 주석 참고
 
-VIDEO_TICKET_TTL_SEC = 300
+VIDEO_TICKET_TTL_SEC = 1800  # 보통 10~20분인 발표 영상을 보는 동안 만료되지 않게
 
 
 # ---------------------------------------------------------------------------
@@ -116,11 +116,11 @@ def create_video_ticket(user_id: int, session_id: int) -> tuple[str, int]:
     서버 로그·브라우저 기록·Referer 에 **모든 API 를 열 수 있는 열쇠**가 남는다.
 
     그래서 권한을 좁힌 티켓을 쓴다:
-      - 수명 5분 (access 60분 대비)
+      - 수명 30분 (access 60분 대비)
       - `sid` 로 **특정 세션 하나**에만 유효 — 다른 세션 영상에는 못 쓴다
       - `type` 이 "video" 라 일반 API 인증에는 통하지 않는다
 
-    URL 이 새어나가도 5분 뒤 죽고, 그 사이에도 해당 영상 하나만 열린다.
+    URL 이 새어나가도 30분 뒤 죽고, 그 사이에도 해당 영상 하나만 열린다.
     """
     now = datetime.now(timezone.utc)
     token = _encode({
