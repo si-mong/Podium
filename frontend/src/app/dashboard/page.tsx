@@ -564,10 +564,55 @@ export default function PresentationAnalysisDashboard() {
     };
   }, [activeSessionId]);
 
-  // 파일 이름은 DB 경로의 마지막 부분을 쓴다 (촬영본은 full_video.webm, 업로드본은 full_video.mp4 등).
-  // Windows 에서 저장된 경로는 "12\full_video.webm" 처럼 역슬래시라서 / 와 \ 둘 다로 자른다.
-  const videoFileName = sessionVideoPath ? sessionVideoPath.split(/[\\/]/).pop() : null;
-  const videoSrc = videoFileName ? `${API_BASE}/media/${activeSessionId}/${videoFileName}` : null;
+  // 영상 재생 티켓 — <video src> 는 Authorization 헤더를 못 실어서, 이 세션 영상에만 5분간 통하는
+  // 티켓을 받아 주소 뒤에 붙인다 (백엔드 POST /sessions/{id}/video/ticket).
+  const [videoTicket, setVideoTicket] = useState<string | null>(null);
+  const ticketIssuedAt = useRef(0);
+  // 티켓을 새로 받아 영상을 다시 불러올 때, 보던 위치·재생 상태를 이어가기 위해 잠시 담아둔다.
+  const resumeRef = useRef<{ time: number; play: boolean } | null>(null);
+
+  const fetchVideoTicket = async (sessionId: string): Promise<string | null> => {
+    try {
+      const res = await apiFetch(`/sessions/${sessionId}/video/ticket`, { method: 'POST' });
+      if (!res.ok) return null;
+      const data: { ticket: string } = await res.json();
+      ticketIssuedAt.current = Date.now();
+      return data.ticket;
+    } catch {
+      return null;
+    }
+  };
+
+  const hasVideo = !!sessionVideoPath;
+  useEffect(() => {
+    let cancelled = false;
+    setVideoTicket(null);
+    resumeRef.current = null;
+    if (!activeSessionId || !hasVideo) return;
+    fetchVideoTicket(activeSessionId).then((ticket) => {
+      if (!cancelled) setVideoTicket(ticket);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSessionId, hasVideo]);
+
+  const videoSrc =
+    hasVideo && videoTicket
+      ? `${API_BASE}/sessions/${activeSessionId}/video?ticket=${encodeURIComponent(videoTicket)}`
+      : null;
+
+  // 티켓은 5분이면 만료된다. 오래 보다가 다른 구간으로 이동하면 새 요청이 401 로 실패해 영상이 멈추므로,
+  // 그때 티켓을 새로 받아 같은 위치에서 이어서 재생한다.
+  const handleVideoError = async (v: HTMLVideoElement) => {
+    if (!activeSessionId) return;
+    // 방금 받은 티켓인데도 실패하면 만료 문제가 아니다 — 다시 받아도 같으니 멈춘다 (무한 반복 방지).
+    if (Date.now() - ticketIssuedAt.current < 10_000) return;
+    const sessionId = activeSessionId;
+    resumeRef.current = { time: v.currentTime, play: isPlaying };
+    const ticket = await fetchVideoTicket(sessionId);
+    if (ticket && sessionId === activeSessionId) setVideoTicket(ticket);
+  };
 
   // 영상을 sec 초로 옮긴다 (play=true 면 바로 재생).
   // 영상 정보(길이 등)가 아직 안 왔으면 오는 즉시 옮긴다 — 안 그러면 이동이 무시돼 0초부터 재생된다.
@@ -583,12 +628,15 @@ export default function PresentationAnalysisDashboard() {
   };
 
   // 브라우저 카메라로 찍은 webm 은 파일에 길이 정보가 없어 duration 이 Infinity 로 나오고 이동이 안 될 수 있다.
-  // 맨 끝으로 한 번 이동시켜 브라우저가 길이를 계산하게 한 뒤 처음으로 되돌린다.
-  const fixUnknownDuration = (v: HTMLVideoElement) => {
-    if (Number.isFinite(v.duration)) return;
+  // 맨 끝으로 한 번 이동시켜 브라우저가 길이를 계산하게 한 뒤 startAt(기본 처음)으로 되돌린다.
+  const fixUnknownDuration = (v: HTMLVideoElement, startAt = 0) => {
+    if (Number.isFinite(v.duration)) {
+      if (startAt > 0) v.currentTime = startAt;
+      return;
+    }
     const back = () => {
       v.removeEventListener('timeupdate', back);
-      v.currentTime = 0;
+      v.currentTime = startAt;
     };
     v.addEventListener('timeupdate', back);
     v.currentTime = 1e7;
@@ -1306,7 +1354,15 @@ export default function PresentationAnalysisDashboard() {
                           onPlay={() => setIsPlaying(true)}
                           onPause={() => setIsPlaying(false)}
                           onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
-                          onLoadedMetadata={(e) => fixUnknownDuration(e.currentTarget)}
+                          onLoadedMetadata={(e) => {
+                            // 티켓을 새로 받아 다시 불러온 경우면 보던 위치에서 이어간다.
+                            const v = e.currentTarget;
+                            const resume = resumeRef.current;
+                            resumeRef.current = null;
+                            fixUnknownDuration(v, resume?.time ?? 0);
+                            if (resume?.play) v.play().catch(() => {});
+                          }}
+                          onError={(e) => handleVideoError(e.currentTarget)}
                           className="absolute inset-0 w-full h-full object-contain bg-black"
                         />
                       ) : (

@@ -20,6 +20,7 @@
 """
 from __future__ import annotations
 
+import mimetypes
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
@@ -212,7 +213,9 @@ def stream_video(
     if not path.is_relative_to(upload_dir) or not path.is_file():
         raise HTTPException(404, "영상 파일을 찾을 수 없습니다.")
 
-    return streaming.range_response(path, request, media_type="video/webm")
+    # 촬영본은 webm, "영상 업로드하기"로 올린 파일은 mp4 등이라 확장자로 정한다.
+    media_type = mimetypes.guess_type(path.name)[0] or "video/webm"
+    return streaming.range_response(path, request, media_type=media_type)
 
 
 def _authorize_playback(
