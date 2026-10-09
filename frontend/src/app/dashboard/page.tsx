@@ -1,16 +1,16 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { Suspense, useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
-  Play, Pause, Volume2, Maximize,
+  Play, Pause,
   CheckCircle, AlertCircle, TrendingUp,
-  BarChart2, Mic, Activity, Award, Check, Clock, Video,
+  BarChart2, Mic, Activity, Award, Clock, Video,
   Folder, FolderOpen, ChevronRight, ArrowLeft, Plus, Trash2, Upload, X, FileText, MessageSquare, Columns, ThumbsUp, Lightbulb, Pencil, LogOut
 } from 'lucide-react';
 import {
-  LineChart, Line, Bar, XAxis, YAxis,
-  CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+  Line, Bar, XAxis, YAxis,
+  CartesianGrid, Tooltip, ResponsiveContainer,
   ComposedChart
 } from 'recharts';
 import InteractiveScript, { TimestampText, fmtTime, ScriptData, VideoChunk } from './InteractiveScript';
@@ -385,7 +385,7 @@ function GrowthTrendChart({ sessions }: { sessions: TopicSession[] }) {
   );
 }
 
-export default function PresentationAnalysisDashboard() {
+function PresentationAnalysisDashboard() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -418,7 +418,6 @@ export default function PresentationAnalysisDashboard() {
     else router.push(url);
   };
 
-  const [activeSttIndex, setActiveSttIndex] = useState(1);
   const [activeSegmentIndex, setActiveSegmentIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
 
@@ -687,8 +686,6 @@ export default function PresentationAnalysisDashboard() {
   // Compare Analysis State
   const [isPlayingCompare1, setIsPlayingCompare1] = useState(false);
   const [isPlayingCompare2, setIsPlayingCompare2] = useState(false);
-  const [activeCompareStt1, setActiveCompareStt1] = useState(0);
-  const [activeCompareStt2, setActiveCompareStt2] = useState(0);
   const [activeCompareSegmentIndex, setActiveCompareSegmentIndex] = useState(0);
 
   // Modals State
@@ -1602,7 +1599,7 @@ export default function PresentationAnalysisDashboard() {
   
                                 {item.type === 'filler' && (
                                   <>
-                                    {item.text.split(item.highlight!).map((part, idx, arr) => (
+                                    {(item.text ?? '').split(item.highlight!).map((part, idx, arr) => (
                                       <React.Fragment key={`filler-${idx}`}>
                                         {part}
                                         {idx < arr.length - 1 && (
@@ -1666,7 +1663,7 @@ export default function PresentationAnalysisDashboard() {
   
                                 {item.type === 'filler' && (
                                   <>
-                                    {item.text.split(item.highlight!).map((part, idx, arr) => (
+                                    {(item.text ?? '').split(item.highlight!).map((part, idx, arr) => (
                                       <React.Fragment key={`filler-${idx}`}>
                                         {part}
                                         {idx < arr.length - 1 && (
@@ -1825,7 +1822,7 @@ export default function PresentationAnalysisDashboard() {
             <div className="h-full flex flex-col items-center justify-center text-slate-400">
               <FolderOpen className="w-16 h-16 mb-4 text-slate-300" />
               <p className="text-lg font-bold text-slate-500">선택된 발표 세션이 없습니다.</p>
-              <p className="text-sm mt-2">좌측 패널 '발표 세션 목록'에서 프로젝트 폴더를 열고 발표 연습을 선택해주세요.</p>
+              <p className="text-sm mt-2">좌측 패널 ‘발표 세션 목록’에서 프로젝트 폴더를 열고 발표 연습을 선택해주세요.</p>
             </div>
           ) : null}
         </div>
@@ -2025,17 +2022,11 @@ export default function PresentationAnalysisDashboard() {
   );
 }
 
-// Subcomponent for feedback items
-function FeedbackItem({ icon, title, content }: { icon: React.ReactNode, title: string, content: string }) {
+// useSearchParams 를 쓰는 화면은 Suspense 로 감싸야 운영 빌드(next build)가 통과한다.
+export default function Page() {
   return (
-    <div className="flex gap-4 p-5 rounded-2xl bg-white shadow-sm border border-slate-100 hover:border-blue-100 hover:shadow-md transition-all duration-200">
-      <div className="mt-0.5 shrink-0 bg-slate-50 p-2 rounded-xl border border-slate-100">
-        {icon}
-      </div>
-      <div>
-        <h4 className="text-[16px] font-extrabold text-slate-800 mb-1.5">{title}</h4>
-        <p className="text-[15px] text-slate-600 font-medium leading-relaxed">{content}</p>
-      </div>
-    </div>
+    <Suspense fallback={null}>
+      <PresentationAnalysisDashboard />
+    </Suspense>
   );
 }

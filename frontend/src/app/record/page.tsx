@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { getPendingSlide } from "../slideStore";
 import { ArrowLeft, Circle, Square, Sparkles, Loader2, AlertCircle, RotateCcw, CheckCircle2, Upload } from "lucide-react";
@@ -39,7 +39,7 @@ function pickMime() {
   return "";
 }
 
-export default function RecordPage() {
+function RecordPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const projectId = searchParams.get("project");
@@ -738,5 +738,14 @@ export default function RecordPage() {
         </div>
       )}
     </div>
+  );
+}
+
+// useSearchParams 를 쓰는 화면은 Suspense 로 감싸야 운영 빌드(next build)가 통과한다.
+export default function Page() {
+  return (
+    <Suspense fallback={null}>
+      <RecordPage />
+    </Suspense>
   );
 }
