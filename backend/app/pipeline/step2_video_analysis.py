@@ -108,7 +108,11 @@ _PROMPT = """\
 def _upload_and_wait(client, video_path):
     """청크 영상을 Gemini File API에 업로드하고 처리 완료까지 대기."""
     logger.info("업로드 중: %s", video_path.name)
-    video_file = client.files.upload(path=str(video_path))
+    # google-genai 0.x 는 path=, 1.x 이상은 file= 로 인자 이름이 바뀜 → 둘 다 지원.
+    try:
+        video_file = client.files.upload(file=str(video_path))
+    except TypeError:
+        video_file = client.files.upload(path=str(video_path))
 
     while video_file.state == "PROCESSING":
         time.sleep(3)

@@ -20,6 +20,7 @@
 """
 from __future__ import annotations
 
+import mimetypes
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
@@ -173,7 +174,7 @@ def create_video_ticket_route(
     """`<video>` 태그에 붙일 단기 재생 티켓을 발급한다.
 
     `<video src="...">` 는 브라우저가 직접 요청하므로 Authorization 헤더를 실을 수 없다.
-    그래서 **이 세션 영상에만, 5분간** 유효한 별도 토큰을 발급해 쿼리스트링으로 넘긴다.
+    그래서 **이 세션 영상에만, 30분간** 유효한 별도 토큰을 발급해 쿼리스트링으로 넘긴다.
     (access 토큰을 URL 에 실으면 안 되는 이유는 app/core/security.py 주석 참고)
 
     티켓 발급 자체는 일반 인증이 필요하므로, 남의 세션 티켓은 애초에 못 받는다.
@@ -212,7 +213,9 @@ def stream_video(
     if not path.is_relative_to(upload_dir) or not path.is_file():
         raise HTTPException(404, "영상 파일을 찾을 수 없습니다.")
 
-    return streaming.range_response(path, request, media_type="video/webm")
+    # 촬영본은 webm, "영상 업로드하기"로 올린 파일은 mp4 등이라 확장자로 정한다.
+    media_type = mimetypes.guess_type(path.name)[0] or "video/webm"
+    return streaming.range_response(path, request, media_type=media_type)
 
 
 def _authorize_playback(

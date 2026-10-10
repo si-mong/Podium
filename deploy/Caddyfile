@@ -1,0 +1,12 @@
+# Let's Encrypt 인증서를 자동으로 발급·갱신한다. API_DOMAIN 의 DNS 가 이 서버를 가리켜야 한다.
+{$API_DOMAIN} {
+	encode gzip
+
+	reverse_proxy api:8000 {
+		# 분석 API 는 응답까지 수 분이 걸릴 수 있다 (동기 처리).
+		# 비동기 처리(status 폴링)로 바꾸기 전까지는 넉넉하게 기다린다.
+		transport http {
+			response_header_timeout 20m
+		}
+	}
+}

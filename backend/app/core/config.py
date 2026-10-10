@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     # App
     app_name: str = "Podium"
     debug: bool = False
+    # 쉼표로 구분한 허용 origin 목록. 배포 시 .env 에 프론트 도메인을 넣는다.
+    # 예: CORS_ORIGINS=https://podium.vercel.app,https://podium.example.com
+    cors_origins: str = "http://localhost:3000,http://localhost:8001"
 
     # Database
     database_url: str = "postgresql+psycopg://podium:podium@localhost:5432/podium"
@@ -35,6 +38,10 @@ class Settings(BaseSettings):
     # 그 외에는 faster-whisper(CTranslate2). 자세한 비교는
     # app/pipeline/step3_voice_analysis.py 모듈 주석 참고.
     whisper_model: str = "hf:rearleg/SeloWhisper-ko-disfluency"
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
 
 settings = Settings()

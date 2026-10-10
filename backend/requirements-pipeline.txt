@@ -28,4 +28,5 @@ pdfplumber==0.11.4
 
 # STEP 2 VLM (Gemini)
 google-genai==0.3.0
+requests==2.34.2   # step2_video_analysis 에서 직접 import
 python-dotenv==1.0.1

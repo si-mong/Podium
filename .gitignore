@@ -258,3 +258,6 @@ docs/STEP5-팀원전달사항.md
 
 # 음성 테스트 업로드/결과물 (용량 큼, GitHub 제외)
 backend/vlm_test/voice_uploads/
+
+# 배포 가이드 (로컬 전용)
+deploy/README.md

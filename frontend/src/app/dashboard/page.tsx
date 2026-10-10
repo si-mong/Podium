@@ -1,16 +1,16 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { Suspense, useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
-  Play, Pause, Volume2, Maximize,
+  Play, Pause,
   CheckCircle, AlertCircle, TrendingUp,
-  BarChart2, Mic, Activity, Award, Check, Clock, Video,
+  BarChart2, Mic, Activity, Award, Clock, Video,
   Folder, FolderOpen, ChevronRight, ArrowLeft, Plus, Trash2, Upload, X, FileText, MessageSquare, Columns, ThumbsUp, Lightbulb, Pencil, LogOut
 } from 'lucide-react';
 import {
-  LineChart, Line, Bar, XAxis, YAxis,
-  CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+  Line, Bar, XAxis, YAxis,
+  CartesianGrid, Tooltip, ResponsiveContainer,
   ComposedChart
 } from 'recharts';
 import InteractiveScript, { TimestampText, fmtTime, ScriptData, VideoChunk } from './InteractiveScript';
@@ -385,7 +385,7 @@ function GrowthTrendChart({ sessions }: { sessions: TopicSession[] }) {
   );
 }
 
-export default function PresentationAnalysisDashboard() {
+function PresentationAnalysisDashboard() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -418,7 +418,6 @@ export default function PresentationAnalysisDashboard() {
     else router.push(url);
   };
 
-  const [activeSttIndex, setActiveSttIndex] = useState(1);
   const [activeSegmentIndex, setActiveSegmentIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
 
@@ -478,7 +477,7 @@ export default function PresentationAnalysisDashboard() {
     fetchTopics();
   }, []);
 
-  // 로그아웃: 서버에 refresh 토큰 폐기를 알리고(실패해도 무시), 저장된 토큰을 지운 뒤 로그인 화면으로.
+  // 로그아웃: 서버에 refresh 토큰 폐기를 알리고(실패해도 무시), 저장된 토큰을 지운 뒤 첫 화면(랜딩)으로.
   const logout = async () => {
     const refreshToken = getRefreshToken();
     if (refreshToken) {
@@ -489,7 +488,7 @@ export default function PresentationAnalysisDashboard() {
       }).catch(() => {});
     }
     clearTokens();
-    router.replace('/login');
+    router.replace('/');
   };
 
   // 선택된 세션의 실제 데이터 — 영상 경로, 동작 분석(STEP2), 음성 요약·스크립트(STEP3), 구간·피드백(STEP4·5)
@@ -564,10 +563,55 @@ export default function PresentationAnalysisDashboard() {
     };
   }, [activeSessionId]);
 
-  // 파일 이름은 DB 경로의 마지막 부분을 쓴다 (촬영본은 full_video.webm, 업로드본은 full_video.mp4 등).
-  // Windows 에서 저장된 경로는 "12\full_video.webm" 처럼 역슬래시라서 / 와 \ 둘 다로 자른다.
-  const videoFileName = sessionVideoPath ? sessionVideoPath.split(/[\\/]/).pop() : null;
-  const videoSrc = videoFileName ? `${API_BASE}/media/${activeSessionId}/${videoFileName}` : null;
+  // 영상 재생 티켓 — <video src> 는 Authorization 헤더를 못 실어서, 이 세션 영상에만 30분간 통하는
+  // 티켓을 받아 주소 뒤에 붙인다 (백엔드 POST /sessions/{id}/video/ticket).
+  const [videoTicket, setVideoTicket] = useState<string | null>(null);
+  const ticketIssuedAt = useRef(0);
+  // 티켓을 새로 받아 영상을 다시 불러올 때, 보던 위치·재생 상태를 이어가기 위해 잠시 담아둔다.
+  const resumeRef = useRef<{ time: number; play: boolean } | null>(null);
+
+  const fetchVideoTicket = async (sessionId: string): Promise<string | null> => {
+    try {
+      const res = await apiFetch(`/sessions/${sessionId}/video/ticket`, { method: 'POST' });
+      if (!res.ok) return null;
+      const data: { ticket: string } = await res.json();
+      ticketIssuedAt.current = Date.now();
+      return data.ticket;
+    } catch {
+      return null;
+    }
+  };
+
+  const hasVideo = !!sessionVideoPath;
+  useEffect(() => {
+    let cancelled = false;
+    setVideoTicket(null);
+    resumeRef.current = null;
+    if (!activeSessionId || !hasVideo) return;
+    fetchVideoTicket(activeSessionId).then((ticket) => {
+      if (!cancelled) setVideoTicket(ticket);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSessionId, hasVideo]);
+
+  const videoSrc =
+    hasVideo && videoTicket
+      ? `${API_BASE}/sessions/${activeSessionId}/video?ticket=${encodeURIComponent(videoTicket)}`
+      : null;
+
+  // 티켓은 30분이면 만료된다. 오래 보다가 다른 구간으로 이동하면 새 요청이 401 로 실패해 영상이 멈추므로,
+  // 그때 티켓을 새로 받아 같은 위치에서 이어서 재생한다.
+  const handleVideoError = async (v: HTMLVideoElement) => {
+    if (!activeSessionId) return;
+    // 방금 받은 티켓인데도 실패하면 만료 문제가 아니다 — 다시 받아도 같으니 멈춘다 (무한 반복 방지).
+    if (Date.now() - ticketIssuedAt.current < 10_000) return;
+    const sessionId = activeSessionId;
+    resumeRef.current = { time: v.currentTime, play: isPlaying };
+    const ticket = await fetchVideoTicket(sessionId);
+    if (ticket && sessionId === activeSessionId) setVideoTicket(ticket);
+  };
 
   // 영상을 sec 초로 옮긴다 (play=true 면 바로 재생).
   // 영상 정보(길이 등)가 아직 안 왔으면 오는 즉시 옮긴다 — 안 그러면 이동이 무시돼 0초부터 재생된다.
@@ -583,12 +627,15 @@ export default function PresentationAnalysisDashboard() {
   };
 
   // 브라우저 카메라로 찍은 webm 은 파일에 길이 정보가 없어 duration 이 Infinity 로 나오고 이동이 안 될 수 있다.
-  // 맨 끝으로 한 번 이동시켜 브라우저가 길이를 계산하게 한 뒤 처음으로 되돌린다.
-  const fixUnknownDuration = (v: HTMLVideoElement) => {
-    if (Number.isFinite(v.duration)) return;
+  // 맨 끝으로 한 번 이동시켜 브라우저가 길이를 계산하게 한 뒤 startAt(기본 처음)으로 되돌린다.
+  const fixUnknownDuration = (v: HTMLVideoElement, startAt = 0) => {
+    if (Number.isFinite(v.duration)) {
+      if (startAt > 0) v.currentTime = startAt;
+      return;
+    }
     const back = () => {
       v.removeEventListener('timeupdate', back);
-      v.currentTime = 0;
+      v.currentTime = startAt;
     };
     v.addEventListener('timeupdate', back);
     v.currentTime = 1e7;
@@ -639,8 +686,6 @@ export default function PresentationAnalysisDashboard() {
   // Compare Analysis State
   const [isPlayingCompare1, setIsPlayingCompare1] = useState(false);
   const [isPlayingCompare2, setIsPlayingCompare2] = useState(false);
-  const [activeCompareStt1, setActiveCompareStt1] = useState(0);
-  const [activeCompareStt2, setActiveCompareStt2] = useState(0);
   const [activeCompareSegmentIndex, setActiveCompareSegmentIndex] = useState(0);
 
   // Modals State
@@ -866,9 +911,9 @@ export default function PresentationAnalysisDashboard() {
       {/* Sidebar Navigation */}
       <aside className="w-[280px] bg-white border-r border-slate-200 flex flex-col flex-shrink-0 z-20 shadow-sm">
         <div className="h-20 flex items-center px-6 border-b border-slate-100 shrink-0">
-          {/* 로고를 누르면 세션 관리(첫 메뉴)의 폴더 목록으로 */}
+          {/* 로고를 누르면 홈 화면으로 */}
           <button
-            onClick={() => goTo({ view: 'sessions', folder: null })}
+            onClick={() => router.push('/home')}
             className="flex items-center gap-2.5 group"
           >
             <div className="bg-blue-600 p-2 rounded-xl shadow-sm shadow-blue-200 group-hover:bg-blue-700 transition-colors">
@@ -1306,7 +1351,15 @@ export default function PresentationAnalysisDashboard() {
                           onPlay={() => setIsPlaying(true)}
                           onPause={() => setIsPlaying(false)}
                           onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
-                          onLoadedMetadata={(e) => fixUnknownDuration(e.currentTarget)}
+                          onLoadedMetadata={(e) => {
+                            // 티켓을 새로 받아 다시 불러온 경우면 보던 위치에서 이어간다.
+                            const v = e.currentTarget;
+                            const resume = resumeRef.current;
+                            resumeRef.current = null;
+                            fixUnknownDuration(v, resume?.time ?? 0);
+                            if (resume?.play) v.play().catch(() => {});
+                          }}
+                          onError={(e) => handleVideoError(e.currentTarget)}
                           className="absolute inset-0 w-full h-full object-contain bg-black"
                         />
                       ) : (
@@ -1546,7 +1599,7 @@ export default function PresentationAnalysisDashboard() {
   
                                 {item.type === 'filler' && (
                                   <>
-                                    {item.text.split(item.highlight!).map((part, idx, arr) => (
+                                    {(item.text ?? '').split(item.highlight!).map((part, idx, arr) => (
                                       <React.Fragment key={`filler-${idx}`}>
                                         {part}
                                         {idx < arr.length - 1 && (
@@ -1610,7 +1663,7 @@ export default function PresentationAnalysisDashboard() {
   
                                 {item.type === 'filler' && (
                                   <>
-                                    {item.text.split(item.highlight!).map((part, idx, arr) => (
+                                    {(item.text ?? '').split(item.highlight!).map((part, idx, arr) => (
                                       <React.Fragment key={`filler-${idx}`}>
                                         {part}
                                         {idx < arr.length - 1 && (
@@ -1769,7 +1822,7 @@ export default function PresentationAnalysisDashboard() {
             <div className="h-full flex flex-col items-center justify-center text-slate-400">
               <FolderOpen className="w-16 h-16 mb-4 text-slate-300" />
               <p className="text-lg font-bold text-slate-500">선택된 발표 세션이 없습니다.</p>
-              <p className="text-sm mt-2">좌측 패널 '발표 세션 목록'에서 프로젝트 폴더를 열고 발표 연습을 선택해주세요.</p>
+              <p className="text-sm mt-2">좌측 패널 ‘발표 세션 목록’에서 프로젝트 폴더를 열고 발표 연습을 선택해주세요.</p>
             </div>
           ) : null}
         </div>
@@ -1969,17 +2022,11 @@ export default function PresentationAnalysisDashboard() {
   );
 }
 
-// Subcomponent for feedback items
-function FeedbackItem({ icon, title, content }: { icon: React.ReactNode, title: string, content: string }) {
+// useSearchParams 를 쓰는 화면은 Suspense 로 감싸야 운영 빌드(next build)가 통과한다.
+export default function Page() {
   return (
-    <div className="flex gap-4 p-5 rounded-2xl bg-white shadow-sm border border-slate-100 hover:border-blue-100 hover:shadow-md transition-all duration-200">
-      <div className="mt-0.5 shrink-0 bg-slate-50 p-2 rounded-xl border border-slate-100">
-        {icon}
-      </div>
-      <div>
-        <h4 className="text-[16px] font-extrabold text-slate-800 mb-1.5">{title}</h4>
-        <p className="text-[15px] text-slate-600 font-medium leading-relaxed">{content}</p>
-      </div>
-    </div>
+    <Suspense fallback={null}>
+      <PresentationAnalysisDashboard />
+    </Suspense>
   );
 }
