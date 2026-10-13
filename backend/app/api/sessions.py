@@ -309,6 +309,26 @@ def end_session(
 # STEP 2: VLM 동작 분석 (별도 호출, /end 이후)
 # ---------------------------------------------------------------------------
 
+def _to_video_timelines(timelines: dict | None, chunk_start: float) -> dict:
+    """VLM 이 준 제스처 시각("MM:SS")을 전체 영상 기준 "M:SS" 로 바꾼다.
+
+    Gemini 는 잘라낸 청크(약 20초)만 보기 때문에 시각도 청크 시작을 0:00 으로 답한다.
+    예) 1:30 에 시작하는 청크의 "00:17" → 실제로는 "1:47"
+    """
+    out = {}
+    for key, times in (timelines or {}).items():
+        converted = []
+        for t in times or []:
+            try:
+                m, s = str(t).split(":")
+                sec = int(chunk_start + int(m) * 60 + int(s))
+            except ValueError:
+                continue   # "MM:SS" 형식이 아니면 버린다
+            converted.append(f"{sec // 60}:{sec % 60:02d}")
+        out[key] = converted
+    return out
+
+
 @router.post(
     "/sessions/{session_id}/analyze/motion",
     response_model=MotionAnalysisResult,
@@ -372,7 +392,7 @@ def analyze_motion(
             eye_contact=item.get("eye_contact"),
             gesture=item.get("gesture"),
             gesture_counts=item.get("gesture_counts"),
-            gesture_timelines=item.get("gesture_timelines"),
+            gesture_timelines=_to_video_timelines(item.get("gesture_timelines"), chunk.start_sec),
             notes=item.get("notes"),
         ))
 
