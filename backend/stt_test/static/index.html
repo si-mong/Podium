@@ -355,24 +355,27 @@ function metricsHtml(m) {
     `<div class="m"><span>${KO[k]||k}</span><b>${v}</b></div>`).join("") + `</div>`;
 }
 
-/** 발화 구간의 여집합 중 minSec 이상 = 무음. `vad.py:silence_regions` 와 같은 계산.
+/** 발화 구간의 여집합 중 minSec 이상 = 무음. `vad.py:silence_regions` 와 같은 계산
+ *  (앞뒤 edgeSec 안쪽은 잘라내고 판정).
  *  speech_regions 는 이미 응답에 들어있어 서버 재호출 없이 즉시 재계산된다. */
-function computeSilence(speech, dur, minSec) {
+function computeSilence(speech, dur, minSec, edgeSec = 7.0) {
   const out = []; let cursor = 0;
+  const add = (a, b) => {
+    a = Math.max(a, edgeSec); b = Math.min(b, dur - edgeSec);
+    if (b - a >= minSec) out.push({ t_start: a, t_end: b, duration: b - a });
+  };
   for (const r of speech) {
-    if (r.t_start - cursor >= minSec) out.push({
-      t_start: cursor, t_end: r.t_start, duration: r.t_start - cursor });
+    add(cursor, r.t_start);
     cursor = Math.max(cursor, r.t_end);
   }
-  if (dur - cursor >= minSec) out.push({
-    t_start: cursor, t_end: dur, duration: dur - cursor });
+  add(cursor, dur);
   return out;
 }
 
 /** 현재 슬라이더 값 기준의 무음 목록 + 재계산된 요약 지표 */
 function silenceView(R) {
   const dur = R.metrics.total_duration || 1;
-  if (silMin === null) silMin = R.diagnostics.min_silence_sec ?? 0.7;
+  if (silMin === null) silMin = R.diagnostics.min_silence_sec ?? 2.0;
   const list = computeSilence(R.diagnostics.speech_regions || [], dur, silMin);
   const total = list.reduce((a, x) => a + x.duration, 0);
   return {
