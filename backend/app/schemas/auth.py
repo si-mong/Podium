@@ -97,4 +97,5 @@ class UserRead(BaseModel):
 
     user_id: int
     email: str
+    is_admin: bool
     created_at: datetime

@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.api import auth, projects, sessions
+from app.api import admin, auth, projects, sessions
 from app.core.config import settings
 
 
@@ -31,6 +31,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(projects.router)
 app.include_router(sessions.router)
+app.include_router(admin.router)
 # 업로드 영상은 로그인 확인을 거치는 GET /sessions/{id}/video (+ 재생 티켓) 로만 내려준다.
 # 예전의 공개 /media 경로는 세션 번호만 바꾸면 남의 영상이 보여서 없앴다.
 

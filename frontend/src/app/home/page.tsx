@@ -6,7 +6,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  BarChart2, Video, Sparkles, MessageSquare, FolderOpen, ChevronRight, Loader2, Mic, Eye, LogOut,
+  BarChart2, Video, Sparkles, MessageSquare, FolderOpen, ChevronRight, Loader2, Mic, Eye, LogOut, ShieldCheck,
 } from "lucide-react";
 import { API_BASE, apiFetch } from "@/utils/api";
 import { clearTokens, getRefreshToken, isLoggedIn } from "@/utils/auth";
@@ -41,6 +41,7 @@ export default function HomePage() {
   const router = useRouter();
   const [projects, setProjects] = useState<ApiProject[] | null>(null);
   const [error, setError] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     if (!isLoggedIn()) {
@@ -58,6 +59,11 @@ export default function HomePage() {
         setError(true);
       }
     })();
+    // 관리자에게만 상단에 "관리자" 버튼을 보인다. 실패해도 홈 화면엔 영향 없음.
+    apiFetch("/auth/me")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((me) => setIsAdmin(Boolean(me?.is_admin)))
+      .catch(() => {});
   }, [router]);
 
   // 로그아웃: 서버에 refresh 토큰 폐기를 알리고(실패해도 무시), 저장된 토큰을 지운 뒤 첫 화면(랜딩)으로.
@@ -91,6 +97,15 @@ export default function HomePage() {
             <h1 className="text-xl font-extrabold text-slate-800 tracking-tight">발표 영상 분석</h1>
           </div>
           <div className="flex items-center gap-2">
+            {isAdmin && (
+              <button
+                onClick={() => router.push("/admin")}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-50 hover:text-blue-700 transition-colors"
+              >
+                <ShieldCheck className="w-4 h-4" />
+                관리자
+              </button>
+            )}
             <button
               onClick={() => router.push("/dashboard")}
               className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-50 hover:text-blue-700 transition-colors"

@@ -57,6 +57,17 @@ def get_current_user_id(
     return user_id
 
 
+def require_admin(
+    user_id: int = Depends(get_current_user_id),
+    db: DbSession = Depends(get_db),
+) -> int:
+    """관리자만 통과. 일반 회원은 403 — 로그인은 됐지만 권한이 없는 경우다."""
+    user = db.get(User, user_id)
+    if user is None or not user.is_admin:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "관리자만 사용할 수 있습니다.")
+    return user_id
+
+
 def get_owned_project(
     db: DbSession,
     project_id: int,
