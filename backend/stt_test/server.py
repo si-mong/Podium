@@ -307,55 +307,66 @@ def step5_page() -> FileResponse:
 
 @app.get("/run")
 def run_page() -> FileResponse:
-    """실제 세션(DB) 전체(STEP1~4) 실행 테스트 페이지.
+    """전체 파이프라인(STEP1~5) 실행 테스트 페이지.
 
     다른 devtools 페이지와 달리 로컬 job 파일이 아니라 **본 API 서버를 직접 호출해서
-    DB 에 저장**한다 — STEP5 가 읽는 seed 데이터를 만드는 용도. 브라우저가 본 API(:8000)를
-    바로 호출하므로(파일 업로드 때문에 서버사이드 중계 대신 직접 호출) CORS 허용 필요
-    (app/main.py 의 allow_origins 에 :8001 추가돼 있음).
+    DB 에 저장**한다. 본 앱(record 페이지)과 같은 순서로 돌리고 단계별 소요 시간을 잰다.
+    브라우저가 본 API(:8000)를 바로 호출하므로(파일 업로드 때문에 서버사이드 중계 대신
+    직접 호출) CORS 허용 필요 — config.py 의 기본 CORS_ORIGINS 에 :8001 포함.
+    로그인은 /shared/auth.js (본 API 계정).
     """
     return FileResponse(STATIC_DIR / "run.html")
 
 
+def _auth(authorization: str | None) -> dict:
+    """브라우저가 보낸 로그인 토큰(/shared/auth.js)을 본 API 로 그대로 넘긴다.
+    본 API 의 세션 API 는 로그인이 필요해서, 토큰 없이 중계하면 401 이 난다."""
+    return {"Authorization": authorization} if authorization else {}
+
+
 @app.get("/api/step5/trend")
-async def api_step5_trend(session_id: int) -> dict:
+async def api_step5_trend(session_id: int, authorization: str | None = Header(None)) -> dict:
     """본 API 서버의 /sessions/{id}/segments/trend 를 그대로 중계."""
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            r = await client.get(f"{MAIN_API_BASE}/sessions/{session_id}/segments/trend")
+            r = await client.get(f"{MAIN_API_BASE}/sessions/{session_id}/segments/trend", headers=_auth(authorization))
     except httpx.ConnectError:
         raise HTTPException(
             502, f"본 API 서버({MAIN_API_BASE})에 연결할 수 없습니다. "
                  "uvicorn app.main:app --port 8000 을 먼저 실행하세요.")
+    if r.status_code == 401:
+        raise HTTPException(401, "로그인이 필요합니다 (페이지 위 로그인 상자).")
     if r.status_code == 404:
-        raise HTTPException(404, "세션을 찾을 수 없습니다 (session_id 확인).")
+        raise HTTPException(404, "세션을 찾을 수 없습니다 (session_id 확인 — 로그인한 계정의 세션만 보입니다).")
     r.raise_for_status()
     return r.json()
 
 
 @app.get("/api/step5/segment-feedback")
-async def api_step5_segment_feedback_get(session_id: int) -> dict:
+async def api_step5_segment_feedback_get(session_id: int, authorization: str | None = Header(None)) -> dict:
     """본 API 서버의 GET /sessions/{id}/segment-feedback 를 그대로 중계 (저장된 구간별 결과)."""
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            r = await client.get(f"{MAIN_API_BASE}/sessions/{session_id}/segment-feedback")
+            r = await client.get(f"{MAIN_API_BASE}/sessions/{session_id}/segment-feedback", headers=_auth(authorization))
     except httpx.ConnectError:
         raise HTTPException(502, f"본 API 서버({MAIN_API_BASE})에 연결할 수 없습니다.")
+    if r.status_code == 401:
+        raise HTTPException(401, "로그인이 필요합니다 (페이지 위 로그인 상자).")
     if r.status_code == 404:
-        raise HTTPException(404, "세션을 찾을 수 없습니다 (session_id 확인).")
+        raise HTTPException(404, "세션을 찾을 수 없습니다 (session_id 확인 — 로그인한 계정의 세션만 보입니다).")
     r.raise_for_status()
     return r.json()
 
 
 @app.post("/api/step5/segment-feedback")
-async def api_step5_segment_feedback_run(session_id: int) -> dict:
+async def api_step5_segment_feedback_run(session_id: int, authorization: str | None = Header(None)) -> dict:
     """본 API 서버의 POST /sessions/{id}/analyze/segment-feedback 를 그대로 중계.
 
     구간 수만큼 Gemini 를 호출(동시 4개)하므로 타임아웃을 넉넉히 둔다.
     """
     try:
         async with httpx.AsyncClient(timeout=600) as client:
-            r = await client.post(f"{MAIN_API_BASE}/sessions/{session_id}/analyze/segment-feedback")
+            r = await client.post(f"{MAIN_API_BASE}/sessions/{session_id}/analyze/segment-feedback", headers=_auth(authorization))
     except httpx.ConnectError:
         raise HTTPException(502, f"본 API 서버({MAIN_API_BASE})에 연결할 수 없습니다.")
     if r.status_code >= 400:

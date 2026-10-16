@@ -6,6 +6,9 @@
 // 2단 구조:
 //   1단 모듈 바   STEP 2 / STEP 3 — **모든 페이지에서 동일**
 //   2단 서브 메뉴  현재 모듈의 하위 페이지. 하위 페이지가 없는 모듈은 이 줄이 생략됨.
+//
+// 페이지 폭·여백도 여기서 통일한다(LAYOUT_CSS). 페이지마다 body 폭(900/1400px)·
+// 좌우 여백(0/18px)이 달라 메뉴 위치가 페이지를 옮길 때마다 흔들렸다.
 (function () {
   const MODULES = [
     {
@@ -35,7 +38,7 @@
       ],
     },
     {
-      base: "/voice/run", text: "STEP1~4 통합",
+      base: "/voice/run", text: "전체 파이프라인",
       groups: [],
     },
     {
@@ -44,8 +47,15 @@
     },
   ];
 
-  // 페이지마다 body 폭·색이 달라 토큰을 못 쓰므로 투명도/테두리 기반으로 칠한다.
-  const CSS = `
+  // 모든 테스트 페이지 공통 레이아웃 — 페이지 CSS 보다 우선하도록 !important.
+  const LAYOUT_CSS = `
+    html { overflow-y: scroll; }   /* 스크롤바 유무로 가운데 정렬이 흔들리지 않게 */
+    body { box-sizing: border-box !important; max-width: 1400px !important;
+      margin: 0 auto !important; padding: 24px !important; }
+  `;
+
+  // 페이지마다 body 색이 달라 토큰을 못 쓰므로 투명도/테두리 기반으로 칠한다.
+  const CSS = LAYOUT_CSS + `
     .pd-bar { display:flex; align-items:center; gap:10px; flex-wrap:wrap;
       padding:0 0 10px; font:13px/1.6 -apple-system, BlinkMacSystemFont,
       "Apple SD Gothic Neo", "Segoe UI", sans-serif; }
@@ -77,12 +87,14 @@
   const inModule = base => path() === norm(base) || location.pathname.startsWith(norm(base) + "/");
   const isHere = url => path() === norm(url);
 
+  // 스타일은 메뉴를 그리기 전에 바로 넣는다 — 레이아웃이 뒤늦게 바뀌며 화면이 튀지 않게.
+  if (!document.getElementById("pd-nav-style")) {
+    const st = document.createElement("style");
+    st.id = "pd-nav-style"; st.textContent = CSS;
+    (document.head || document.documentElement).appendChild(st);
+  }
+
   function render() {
-    if (!document.getElementById("pd-nav-style")) {
-      const st = document.createElement("style");
-      st.id = "pd-nav-style"; st.textContent = CSS;
-      document.head.appendChild(st);
-    }
     const mount = document.getElementById("nav-mount");
     if (!mount) return;
 

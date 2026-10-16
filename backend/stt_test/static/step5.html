@@ -4,6 +4,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <script>window.APP_BASE="/voice";</script>
 <script src="/shared/base.js"></script>
+<script src="/shared/auth.js"></script>
 <script defer src="/shared/nav.js"></script>
 <title>STEP 5 — 종합 피드백 테스트</title>
 <style>
@@ -47,6 +48,7 @@
   <code>/sessions/&#123;id&#125;/segments/trend</code> 를 그대로 가져옵니다.</div>
 
 <div class="panel">
+  <div id="auth" style="margin-bottom:10px"></div>
   <div class="row">
     <label>세션 ID</label>
     <input type="number" id="sessionId" placeholder="예: 12" min="1">
@@ -74,6 +76,7 @@
 <div id="sfOut"></div>
 
 <script>
+PodiumAuth.mount(document.getElementById("auth"));
 const $ = s => document.querySelector(s);
 const esc = t => (t ?? "").toString().replace(/&/g,"&amp;").replace(/</g,"&lt;");
 
@@ -104,7 +107,7 @@ async function load() {
   $("#out").innerHTML = "";
 
   try {
-    const r = await fetch(`/api/step5/trend?session_id=${encodeURIComponent(id)}`);
+    const r = await fetch(`/api/step5/trend?session_id=${encodeURIComponent(id)}`, {headers: PodiumAuth.authHeader()});
     const d = await r.json();
     if (!r.ok) throw new Error(d.detail || `요청 실패 (${r.status})`);
     render(d);
@@ -207,7 +210,7 @@ if ($("#sessionId").value) loadSavedSegFeedback($("#sessionId").value);
 
 async function loadSavedSegFeedback(id) {
   try {
-    const r = await fetch(`/api/step5/segment-feedback?session_id=${encodeURIComponent(id)}`);
+    const r = await fetch(`/api/step5/segment-feedback?session_id=${encodeURIComponent(id)}`, {headers: PodiumAuth.authHeader()});
     const d = await r.json();
     if (!r.ok) return;
     if (d.segments.some(s => s.feedback)) {
@@ -229,7 +232,7 @@ async function runSegFeedback() {
   $("#sfOut").innerHTML = "";
 
   try {
-    const r = await fetch(`/api/step5/segment-feedback?session_id=${encodeURIComponent(id)}`, {method: "POST"});
+    const r = await fetch(`/api/step5/segment-feedback?session_id=${encodeURIComponent(id)}`, {method: "POST", headers: PodiumAuth.authHeader()});
     const d = await r.json();
     if (!r.ok) throw new Error(d.detail || `요청 실패 (${r.status})`);
     renderSegFeedback(d.segments);

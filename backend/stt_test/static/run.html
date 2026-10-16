@@ -4,306 +4,398 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <script>window.APP_BASE="/voice";</script>
 <script src="/shared/base.js"></script>
+<script src="/shared/auth.js"></script>
 <script defer src="/shared/nav.js"></script>
-<title>STEP1~4 통합 실행</title>
+<title>전체 파이프라인 테스트</title>
 <style>
   :root { color-scheme: light dark; --line:#8883; }
   * { box-sizing: border-box; }
-  body { font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", sans-serif;
-         margin: 0; padding: 24px; max-width: 900px; margin-inline: auto; }
+  body { font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", sans-serif; }
   h1 { font-size: 19px; margin: 0 0 2px; }
   h2 { font-size: 14px; margin: 0 0 10px; }
   .sub { opacity: .6; font-size: 13px; margin-bottom: 18px; }
+  .grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+  @media (max-width: 1000px) { .grid { grid-template-columns: 1fr; } }
   .panel { border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 14px; }
   .panel.dim { opacity: .45; pointer-events: none; }
   .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   button { font: inherit; padding: 6px 14px; border-radius: 7px; border: 1px solid var(--line);
-           background: transparent; cursor: pointer; }
+           background: transparent; color: inherit; cursor: pointer; }
   button:hover:not(:disabled) { border-color: #4a7dff; }
   button:disabled { opacity: .4; cursor: default; }
   button.primary { background: #4a7dff; color: #fff; border-color: #4a7dff; }
   button.big { padding: 10px 20px; font-weight: 600; }
-  input[type=number], input[type=text], select {
+  input[type=number], input[type=text], input[type=email], input[type=password], select {
     font: inherit; padding: 6px 9px; border-radius: 7px; border: 1px solid var(--line);
     background: transparent; color: inherit; }
-  input[type=number] { width: 100px; }
-  input[type=text] { min-width: 260px; }
+  input[type=number] { width: 110px; }
+  select { min-width: 260px; }
   label.f { display: flex; flex-direction: column; gap: 4px; font-size: 12px; opacity: .8; }
   .hint { font-size: 12px; opacity: .6; }
   .warn { color: #ca8a04; }
   .err { color: #dc2626; }
   .ok { color: #16a34a; }
-  .step { display: flex; align-items: center; gap: 10px; padding: 10px 0;
-          border-top: 1px solid var(--line); }
-  .step:first-child { border-top: none; }
-  .step .n { flex: 0 0 22px; text-align: center; font-size: 12px; opacity: .5; }
-  .step .body { flex: 1; }
-  .step .name { font-weight: 600; font-size: 13px; }
-  .step .status { font-size: 12px; opacity: .65; margin-top: 2px; }
-  .badge { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 8px;
-           border-radius: 20px; margin-right: 6px; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 10px; }
+  .tabs button.on { background: #4a7dff; color: #fff; border-color: #4a7dff; }
+  table.steps { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .steps th { text-align: left; font-size: 11px; font-weight: 600; opacity: .55; padding: 0 8px 6px; }
+  .steps td { padding: 9px 8px; border-top: 1px solid var(--line); vertical-align: top; }
+  .steps td.time { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .steps .name { font-weight: 600; }
+  .steps .what { font-size: 12px; opacity: .6; }
+  .steps .detail { font-size: 12px; opacity: .8; word-break: break-all; }
+  .steps tr.total td { font-weight: 600; }
+  .badge { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 20px; white-space: nowrap; }
   .badge.wait { background: #8882; }
+  .badge.skip { background: #8882; opacity: .6; }
   .badge.run { background: #4a7dff22; color: #4a7dff; }
   .badge.done { background: #16a34a22; color: #16a34a; }
   .badge.fail { background: #dc262622; color: #dc2626; }
+  .badge.warn { background: #ca8a0422; color: #ca8a04; }
   #log { font: 12px/1.6 ui-monospace, Menlo, monospace; white-space: pre-wrap;
-         background: #8881; border-radius: 8px; padding: 10px; max-height: 260px; overflow: auto; }
+         background: #8881; border-radius: 8px; padding: 10px; max-height: 320px; overflow: auto; }
   #sessionBadge { font: 12px/1.6 ui-monospace, Menlo, monospace; padding: 3px 10px;
          border-radius: 20px; border: 1px solid var(--line); }
+  a { color: #4a7dff; }
 </style>
-
 <div id="nav-mount"></div>
 
-<h1>STEP1~4 통합 실행</h1>
-<div class="sub">devtools 의 다른 페이지(STEP3/4 테스트)와 달리 <b>본 API 서버(:8000)를 직접 호출해서
-  실제 DB에 저장</b>합니다. STEP5 화면이 읽을 세션을 여기서 만드세요.</div>
+<h1>전체 파이프라인 테스트 (STEP 1~5)</h1>
+<div class="sub">본 앱과 같은 순서로 <b>본 API 서버(:8000)를 직접 호출</b>하고 결과를 <b>실제 DB에 저장</b>합니다.
+  단계별 소요 시간을 함께 기록합니다. 본 API 서버가 켜져 있어야 합니다.</div>
 
-<div class="panel">
-  <h2>1. 세션</h2>
-  <div class="row" style="margin-bottom:8px">
-    <label class="f">프로젝트 ID<input type="number" id="projectId" value="1" min="1"></label>
-    <button id="createSession">새 세션 생성</button>
-    <span class="hint">또는</span>
-    <label class="f">기존 세션 번호<input type="number" id="existingSession" min="1" placeholder="예: 18"></label>
-    <button id="useSession">이 번호로 이어서</button>
-  </div>
-  <div class="row">
-    <span class="hint">현재 세션:</span>
-    <span id="sessionBadge">없음</span>
-  </div>
-</div>
-
-<div class="panel dim" id="uploadPanel">
-  <h2>2. 영상 파일 업로드</h2>
-  <div class="row">
-    <input type="file" id="videoFile" accept="video/*">
-    <button class="primary" id="uploadBtn">업로드</button>
-    <span id="uploadStatus" class="hint"></span>
-  </div>
-  <div class="hint" style="margin-top:6px">같은 파일을 <code>/video</code>(영상분석용)와
-    <code>/chunks?chunk_index=0</code>(음성 추출용) 두 곳에 자동으로 올립니다.
-    이미 업로드된 기존 세션을 골랐다면 다시 안 올려도 됩니다.</div>
-</div>
-
-<div class="panel dim" id="runPanel">
-  <h2>3. 실행</h2>
-
-  <div class="row" style="margin-bottom:10px">
-    <label class="f">hotwords (선택, 쉼표구분)
-      <input type="text" id="keywords" placeholder="예: ETRI, 포항공대">
-    </label>
+<div class="grid">
+<div>
+  <div class="panel">
+    <h2>1. 로그인</h2>
+    <div id="auth"></div>
   </div>
 
-  <div class="row" style="margin-bottom:14px">
-    <button class="primary big" id="runAll">전체 실행 (STEP1→4)</button>
-    <span id="runAllStatus" class="hint"></span>
-  </div>
-
-  <div id="steps">
-    <div class="step" data-step="end">
-      <span class="n">1</span>
-      <div class="body">
-        <div class="name">전처리 <span class="hint">(청크 → full_audio.wav)</span></div>
-        <div class="status"><span class="badge wait">대기</span></div>
-      </div>
-      <button data-run="end">실행</button>
+  <div class="panel dim" id="setupPanel">
+    <h2>2. 무엇을 분석할지</h2>
+    <div class="tabs">
+      <button type="button" data-mode="new" class="on">새 영상 분석</button>
+      <button type="button" data-mode="existing">기존 세션 다시 실행</button>
     </div>
-    <div class="step" data-step="motion">
-      <span class="n">2</span>
-      <div class="body">
-        <div class="name">영상분석 <span class="hint">(STEP2, Gemini)</span></div>
-        <div class="status"><span class="badge wait">대기</span></div>
+
+    <div id="modeNew">
+      <div class="row" style="margin-bottom:10px">
+        <label class="f">프로젝트(폴더)
+          <select id="project"><option value="">불러오는 중…</option></select>
+        </label>
+        <label class="f">또는 새 프로젝트
+          <span class="row"><input type="text" id="newProjectTitle" placeholder="예: 파이프라인 테스트">
+          <button type="button" id="createProject">만들기</button></span>
+        </label>
       </div>
-      <button data-run="motion">실행</button>
+      <div class="row">
+        <label class="f">영상 파일<input type="file" id="videoFile" accept="video/*"></label>
+      </div>
+      <div class="hint" style="margin-top:6px">본 앱의 "영상 파일 올리기"와 같은 흐름입니다:
+        세션 생성 → <code>/video</code> 업로드 → 전처리(<code>/end</code>) → 분석.</div>
     </div>
-    <div class="step" data-step="voice">
-      <span class="n">3</span>
-      <div class="body">
-        <div class="name">음성분석 <span class="hint">(STEP3, 선택한 모델로 STT)</span></div>
-        <div class="status"><span class="badge wait">대기</span></div>
+
+    <div id="modeExisting" style="display:none">
+      <div class="row">
+        <label class="f">세션 번호<input type="number" id="existingSession" min="1" placeholder="예: 18"></label>
       </div>
-      <button data-run="voice">실행</button>
+      <div class="hint" style="margin-top:6px">이미 업로드된 세션을 전처리(STEP 1)부터 다시 돌립니다.
+        분석 단계(STEP 2~5)는 체크 해제한 것을 건너뜁니다. 다시 돌린 단계의 결과는 새 결과로 바뀝니다.</div>
     </div>
-    <div class="step" data-step="segments">
-      <span class="n">4</span>
-      <div class="body">
-        <div class="name">구간분리 <span class="hint">(STEP4, Gemini LLM)</span></div>
-        <div class="status"><span class="badge wait">대기</span></div>
-      </div>
-      <button data-run="segments">실행</button>
+
+    <div class="row" style="margin-top:12px">
+      <label class="f">음성 인식 키워드 (선택, 쉼표 구분)
+        <input type="text" id="keywords" placeholder="예: ETRI, 포항공대" style="min-width:260px">
+      </label>
+    </div>
+  </div>
+
+  <div class="panel dim" id="runPanel">
+    <div class="row">
+      <button class="primary big" id="runAll">전체 실행</button>
+      <span id="runAllStatus" class="hint"></span>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <span class="hint">현재 세션:</span>
+      <span id="sessionBadge">없음</span>
+      <span id="resultLinks"></span>
     </div>
   </div>
 </div>
 
-<div class="panel">
-  <h2>로그</h2>
-  <div id="log">(아직 없음)</div>
-</div>
+<div>
+  <div class="panel">
+    <h2>단계별 진행 · 소요 시간</h2>
+    <table class="steps">
+      <thead><tr><th></th><th>단계</th><th>상태</th><th style="text-align:right">시간</th></tr></thead>
+      <tbody id="stepRows"></tbody>
+    </table>
+  </div>
 
-<div class="panel" id="donePanel" style="display:none">
-  <h2>완료</h2>
-  <div id="doneLink"></div>
+  <div class="panel">
+    <h2>로그</h2>
+    <div id="log">(아직 없음)</div>
+  </div>
+</div>
 </div>
 
 <script>
 const $ = s => document.querySelector(s);
-const MAIN_API = "http://localhost:8000";
+const esc = t => (t ?? "").toString().replace(/&/g,"&amp;").replace(/</g,"&lt;");
+const api = (path, opts) => PodiumAuth.apiFetch(path, opts);
 
+// 단계 정의 — 본 앱(frontend/src/app/record/page.tsx)과 같은 순서·같은 실패 처리.
+//   required: 실패하면 뒤 단계를 멈춘다 / optional: 실패해도 계속 (앱도 경고만 남김)
+const STEPS = [
+  { key: "session",  name: "세션 생성",        what: "POST /projects/{id}/sessions/start", phase: "upload", required: true },
+  { key: "upload",   name: "영상 업로드",      what: "POST /sessions/{id}/video",          phase: "upload", required: true },
+  { key: "end",      name: "STEP 1 전처리",    what: "ffmpeg 음성 추출 · 길이 확인",        phase: "upload", required: true },
+  { key: "motion",   name: "STEP 2 영상 분석",  what: "Gemini VLM (음성 분석과 동시 실행)",  phase: "analyze", required: false },
+  { key: "voice",    name: "STEP 3 음성 분석",  what: "STT · 무음 · 필러 · 반복",           phase: "analyze", required: true },
+  { key: "segments", name: "STEP 4 구간 분리",  what: "Gemini 구간·라벨",                   phase: "analyze", required: true },
+  { key: "segfb",    name: "STEP 5 구간별 피드백", what: "OpenAI gpt-4.1 (구간마다 1회)",    phase: "analyze", required: false },
+  { key: "overall",  name: "STEP 5 종합 총평",  what: "OpenAI gpt-4.1",                    phase: "analyze", required: false },
+];
+
+let mode = "new";
 let sessionId = null;
+let projectId = null;
+let running = false;
+
+// ── 단계 표 ────────────────────────────────────────────────────────────────
+
+function renderRows() {
+  // 다시 그려도 체크 상태는 유지 (전체 실행 직전에 표를 초기화하므로)
+  const prev = Object.fromEntries([...document.querySelectorAll(".use")].map(c => [c.dataset.key, c.checked]));
+  $("#stepRows").innerHTML = STEPS.map(s => `
+    <tr data-step="${s.key}">
+      <td>${s.phase === "analyze"
+        ? `<input type="checkbox" class="use" data-key="${s.key}" ${prev[s.key] === false ? "" : "checked"} title="이 단계 실행 여부">` : ""}</td>
+      <td><div class="name">${esc(s.name)}</div><div class="what">${esc(s.what)}</div>
+          <div class="detail"></div></td>
+      <td class="st"><span class="badge wait">대기</span></td>
+      <td class="time">–</td>
+    </tr>`).join("") + `
+    <tr class="total"><td></td><td>합계 (실제 경과)</td><td></td><td class="time" id="totalTime">–</td></tr>`;
+}
+
+function setStep(key, state, { sec, detail } = {}) {
+  const tr = document.querySelector(`tr[data-step="${key}"]`);
+  const label = { wait: "대기", run: "실행 중…", done: "완료", fail: "실패", warn: "실패(계속 진행)", skip: "건너뜀" }[state];
+  tr.querySelector(".st").innerHTML = `<span class="badge ${state}">${label}</span>`;
+  if (sec !== undefined) tr.querySelector(".time").textContent = `${sec.toFixed(1)}초`;
+  if (detail !== undefined) tr.querySelector(".detail").textContent = detail;
+}
 
 function log(line, cls) {
   const el = $("#log");
   if (el.textContent === "(아직 없음)") el.textContent = "";
-  const ts = new Date().toLocaleTimeString("ko-KR", {hour12:false});
-  const span = document.createElement("div");
-  if (cls) span.className = cls;
-  span.textContent = `[${ts}] ${line}`;
-  el.appendChild(span);
+  const ts = new Date().toLocaleTimeString("ko-KR", { hour12: false });
+  const div = document.createElement("div");
+  if (cls) div.className = cls;
+  div.textContent = `[${ts}] ${line}`;
+  el.appendChild(div);
   el.scrollTop = el.scrollHeight;
 }
 
-function setStep(step, state, extra) {
-  const row = document.querySelector(`.step[data-step="${step}"] .status`);
-  const label = {wait:"대기", run:"실행중…", done:"완료", fail:"실패"}[state];
-  row.innerHTML = `<span class="badge ${state}">${label}</span>${extra ? esc(extra) : ""}`;
+// ── 로그인 · 프로젝트 ─────────────────────────────────────────────────────
+
+PodiumAuth.mount($("#auth"), loggedIn => {
+  $("#setupPanel").classList.toggle("dim", !loggedIn);
+  $("#runPanel").classList.toggle("dim", !loggedIn);
+  if (loggedIn) loadProjects();
+});
+
+async function loadProjects(selectId) {
+  const sel = $("#project");
+  try {
+    const r = await api("/projects");
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const list = await r.json();
+    sel.innerHTML = list.length
+      ? list.map(p => `<option value="${p.project_id}">${esc(p.title)} (#${p.project_id} · 세션 ${p.sessions.length}개)</option>`).join("")
+      : `<option value="">프로젝트가 없습니다 — 새로 만드세요</option>`;
+    if (selectId) sel.value = String(selectId);
+  } catch (e) {
+    sel.innerHTML = `<option value="">불러오기 실패: ${esc(e.message)}</option>`;
+  }
 }
 
-function esc(t) { return (t ?? "").toString().replace(/&/g,"&amp;").replace(/</g,"&lt;"); }
+$("#createProject").onclick = async () => {
+  const title = $("#newProjectTitle").value.trim();
+  if (!title) return alert("프로젝트 이름을 입력하세요.");
+  const r = await api("/projects", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title }),
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) return log(`프로젝트 생성 실패: ${d.detail || r.status}`, "err");
+  log(`프로젝트 생성 → #${d.project_id} ${title}`, "ok");
+  $("#newProjectTitle").value = "";
+  loadProjects(d.project_id);
+};
 
-function setSession(id) {
+document.querySelectorAll("[data-mode]").forEach(b => b.onclick = () => {
+  document.querySelectorAll("[data-mode]").forEach(x => x.classList.toggle("on", x === b));
+  mode = b.dataset.mode;
+  $("#modeNew").style.display = mode === "new" ? "" : "none";
+  $("#modeExisting").style.display = mode === "existing" ? "" : "none";
+});
+
+function setSession(id, pid) {
   sessionId = id;
+  if (pid) projectId = pid;
   $("#sessionBadge").textContent = `세션 #${id}`;
-  $("#uploadPanel").classList.remove("dim");
-  $("#runPanel").classList.remove("dim");
   history.replaceState(null, "", `?session=${id}`);
 }
 
-// ── 세션 준비 ──────────────────────────────────────────────────────────────
+function showLinks() {
+  const dash = projectId
+    ? `http://localhost:3000/dashboard?folder=${projectId}&session=${sessionId}`
+    : `http://localhost:3000/dashboard?session=${sessionId}`;
+  $("#resultLinks").innerHTML =
+    ` · <a href="${dash}" target="_blank">본 앱 대시보드에서 보기 ↗</a>` +
+    ` · <a href="/voice/step5?session=${sessionId}">STEP 5 테스트 페이지 →</a>`;
+}
 
-$("#createSession").onclick = async () => {
-  const projectId = $("#projectId").value;
-  if (!projectId) return alert("프로젝트 ID를 입력하세요.");
-  try {
-    const r = await fetch(`${MAIN_API}/projects/${projectId}/sessions/start`, {method: "POST"});
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.detail || `실패 (${r.status})`);
-    log(`세션 생성 완료 → #${d.session_id}`, "ok");
-    setSession(d.session_id);
-  } catch (e) {
-    log(`세션 생성 실패: ${e.message}`, "err");
+// ── 단계 실행 ────────────────────────────────────────────────────────────
+
+async function call(path, opts = { method: "POST" }) {
+  const r = await api(path, opts);
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(typeof d.detail === "string" ? d.detail : `HTTP ${r.status}`);
+  return d;
+}
+
+function summarize(key, d) {
+  switch (key) {
+    case "session":  return `세션 #${d.session_id}`;
+    case "upload":   return `${(d.size_bytes / 1e6).toFixed(1)}MB`;
+    case "end":      return `영상 길이 ${(d.total_duration_sec ?? 0).toFixed(1)}초`;
+    case "motion":   return `청크 ${d.analyzed_count}/${d.chunk_count}개 분석 · 본 길이 ${d.covered_sec?.toFixed?.(0)}초`;
+    case "voice":    return `${d.model} · 문장 ${d.sentence_count} · 무음 ${d.silence_count} · 필러 ${d.filler_count} · 반복 ${d.repetition_count} · ${d.speaking_rate_spm}음절/분`;
+    case "segments": return `${d.segment_count}개 구간: ` + d.segments.map(s => s.label).join(" → ");
+    case "segfb": {
+      const failed = (d.segments || []).filter(s => s.error).length;
+      return `구간 ${(d.segments || []).length}개 중 ${failed ? `${failed}개 실패` : "모두 성공"}`;
+    }
+    case "overall":  return (d.overall_summary || "").slice(0, 80) + ((d.overall_summary || "").length > 80 ? "…" : "");
   }
-};
+  return "";
+}
 
-$("#useSession").onclick = () => {
-  const id = $("#existingSession").value;
-  if (!id) return alert("세션 번호를 입력하세요.");
-  log(`기존 세션 #${id} 사용`, "ok");
-  setSession(id);
-};
-
-// URL의 ?session= 으로 복귀 시 자동 채움
-const params = new URLSearchParams(location.search);
-if (params.get("session")) setSession(params.get("session"));
-
-// ── 업로드 ────────────────────────────────────────────────────────────────
-
-$("#uploadBtn").onclick = async () => {
-  const file = $("#videoFile").files[0];
-  if (!file) return alert("파일을 선택하세요.");
-  if (!sessionId) return alert("세션을 먼저 준비하세요.");
-
-  $("#uploadBtn").disabled = true;
-  try {
-    $("#uploadStatus").textContent = "/video 업로드 중…";
-    const fd1 = new FormData();
-    fd1.append("file", file);
-    let r = await fetch(`${MAIN_API}/sessions/${sessionId}/video`, {method: "POST", body: fd1});
-    let d = await r.json();
-    if (!r.ok) throw new Error(`/video 실패: ${d.detail || r.status}`);
-    log(`/video 업로드 완료 (${(d.size_bytes/1e6).toFixed(1)}MB)`, "ok");
-
-    $("#uploadStatus").textContent = "/chunks 업로드 중…";
-    const fd2 = new FormData();
-    fd2.append("file", file);
-    r = await fetch(`${MAIN_API}/sessions/${sessionId}/chunks?chunk_index=0`, {method: "POST", body: fd2});
-    d = await r.json();
-    if (!r.ok) throw new Error(`/chunks 실패: ${d.detail || r.status}`);
-    log(`/chunks 업로드 완료 (${(d.size_bytes/1e6).toFixed(1)}MB)`, "ok");
-    $("#uploadStatus").textContent = "업로드 완료";
-  } catch (e) {
-    log(`업로드 실패: ${e.message}`, "err");
-    $("#uploadStatus").textContent = "실패: " + e.message;
-  }
-  $("#uploadBtn").disabled = false;
-};
-
-// ── 개별 단계 실행 ────────────────────────────────────────────────────────
-
-async function runStep(step) {
-  if (!sessionId) { alert("세션을 먼저 준비하세요."); return false; }
-  setStep(step, "run");
+// 한 단계 실행 → 성공 시 응답, 실패 시 null. 시간은 브라우저에서 잰 왕복 시간.
+async function runStep(key, fn) {
+  const step = STEPS.find(s => s.key === key);
+  setStep(key, "run", { detail: "" });
+  log(`${step.name} 시작`);
   const t0 = performance.now();
   try {
-    let url, opts = {method: "POST"};
-    if (step === "end") {
-      url = `${MAIN_API}/sessions/${sessionId}/end`;
-    } else if (step === "motion") {
-      url = `${MAIN_API}/sessions/${sessionId}/analyze/motion`;
-    } else if (step === "voice") {
-      const kw = $("#keywords").value;
-      const qs = new URLSearchParams();
-      if (kw) qs.set("keywords", kw);
-      url = `${MAIN_API}/sessions/${sessionId}/analyze/voice?${qs}`;
-    } else if (step === "segments") {
-      url = `${MAIN_API}/sessions/${sessionId}/analyze/segments`;
-    }
-    log(`${step} 시작…`);
-    const r = await fetch(url, opts);
-    const d = await r.json();
-    const sec = ((performance.now() - t0) / 1000).toFixed(1);
-    if (!r.ok) throw new Error(d.detail || `HTTP ${r.status}`);
-    setStep(step, "done", ` (${sec}초)`);
-    log(`${step} 완료 (${sec}초): ${JSON.stringify(d)}`, "ok");
-    return true;
+    const d = await fn();
+    const sec = (performance.now() - t0) / 1000;
+    const detail = summarize(key, d);
+    setStep(key, "done", { sec, detail });
+    log(`${step.name} 완료 (${sec.toFixed(1)}초) ${detail}`, "ok");
+    if (key === "segments" && d.warnings?.length) log(`  구간 분리 경고: ${d.warnings.join(" / ")}`, "warn");
+    if (key === "segfb") (d.segments || []).filter(s => s.error).forEach(s => log(`  구간 실패: ${s.error}`, "warn"));
+    return d;
   } catch (e) {
-    const sec = ((performance.now() - t0) / 1000).toFixed(1);
-    setStep(step, "fail", ` — ${e.message}`);
-    log(`${step} 실패 (${sec}초): ${e.message}`, "err");
-    return false;
+    const sec = (performance.now() - t0) / 1000;
+    setStep(key, step.required ? "fail" : "warn", { sec, detail: e.message });
+    log(`${step.name} 실패 (${sec.toFixed(1)}초): ${e.message}`, step.required ? "err" : "warn");
+    return null;
   }
 }
 
-document.querySelectorAll("[data-run]").forEach(btn => {
-  btn.onclick = () => runStep(btn.dataset.run);
-});
-
-// ── 전체 실행 ─────────────────────────────────────────────────────────────
+const use = key => document.querySelector(`.use[data-key="${key}"]`)?.checked !== false;
 
 $("#runAll").onclick = async () => {
-  if (!sessionId) return alert("세션을 먼저 준비하세요.");
-  $("#runAll").disabled = true;
-  $("#donePanel").style.display = "none";
-
-  $("#runAllStatus").textContent = "1/4 전처리 중…";
-  if (!(await runStep("end"))) { $("#runAll").disabled = false; return; }
-
-  // STEP2(영상)·STEP3(음성)는 서로 의존하지 않으므로 동시 실행 — 대기 시간 단축.
-  $("#runAllStatus").textContent = "2~3/4 영상분석 + 음성분석 동시 실행 중… (수 분 소요)";
-  const [motionOk, voiceOk] = await Promise.all([runStep("motion"), runStep("voice")]);
-  if (!voiceOk) {
-    $("#runAllStatus").textContent = "실패 — 음성분석 없이는 구간분리 불가";
-    $("#runAll").disabled = false;
-    return;
+  if (running) return;
+  if (mode === "new") {
+    if (!$("#project").value) return alert("프로젝트를 고르거나 새로 만드세요.");
+    if (!$("#videoFile").files[0]) return alert("영상 파일을 선택하세요.");
+  } else if (!$("#existingSession").value) {
+    return alert("세션 번호를 입력하세요.");
   }
-  if (!motionOk) log("영상분석은 실패했지만 음성분석은 성공 — 구간분리는 계속 진행(제스처 값만 빔)", "warn");
 
-  $("#runAllStatus").textContent = "4/4 구간분리 중…";
-  if (!(await runStep("segments"))) { $("#runAll").disabled = false; return; }
+  running = true;
+  $("#runAll").disabled = true;
+  renderRows();
+  $("#resultLinks").innerHTML = "";
+  const t0 = performance.now();
+  const tick = setInterval(() => {
+    $("#totalTime").textContent = `${((performance.now() - t0) / 1000).toFixed(0)}초 경과`;
+  }, 1000);
+  const status = t => ($("#runAllStatus").textContent = t);
 
-  $("#runAllStatus").textContent = "전체 완료";
-  $("#donePanel").style.display = "";
-  $("#doneLink").innerHTML =
-    `<a href="/voice/step5?session=${sessionId}">STEP5 종합피드백에서 세션 #${sessionId} 보기 →</a>`;
-  $("#runAll").disabled = false;
+  try {
+    // ── 업로드 · 전처리 ──
+    if (mode === "new") {
+      const file = $("#videoFile").files[0];
+      const pid = $("#project").value;
+      status("세션 생성 · 업로드 중…");
+      const s = await runStep("session", () => call(`/projects/${pid}/sessions/start`));
+      if (!s) return status("실패 — 세션을 만들지 못했습니다");
+      setSession(s.session_id, pid);
+
+      const fd = new FormData();
+      fd.append("file", file, file.name);   // 백엔드가 파일 이름의 확장자로 저장 형식을 정한다
+      if (!await runStep("upload", () => call(`/sessions/${sessionId}/video`, { method: "POST", body: fd })))
+        return status("실패 — 업로드");
+      status("STEP 1 전처리 중…");
+      if (!await runStep("end", () => call(`/sessions/${sessionId}/end`))) return status("실패 — 전처리");
+    } else {
+      const r = await api(`/sessions/${$("#existingSession").value}`);
+      if (!r.ok) { log(`세션 #${$("#existingSession").value} 을 찾을 수 없습니다 (내 계정의 세션인지 확인)`, "err"); return status("실패 — 세션 없음"); }
+      const s = await r.json();
+      setSession(s.session_id, s.project_id);
+      ["session", "upload"].forEach(k => setStep(k, "skip", { detail: "기존 세션 사용" }));
+      // 분석 API 는 세션 상태가 preprocessed/analyzed 일 때만 받는다. 이미 끝난 세션(segmented)도
+      // 다시 돌릴 수 있게 전처리를 한 번 더 한다 (/end 는 상태 제한이 없고 몇 초면 끝남).
+      status("STEP 1 전처리 중…");
+      if (!await runStep("end", () => call(`/sessions/${sessionId}/end`))) return status("실패 — 전처리");
+    }
+
+    // ── STEP 2 · 3 동시 ──
+    status("STEP 2 영상 + STEP 3 음성 분석 중… (수 분 걸릴 수 있음)");
+    const kw = $("#keywords").value.trim();
+    const voicePath = `/sessions/${sessionId}/analyze/voice` + (kw ? `?${new URLSearchParams({ keywords: kw })}` : "");
+    const skip = k => (setStep(k, "skip"), Promise.resolve({ skipped: true }));
+    const [, voice] = await Promise.all([
+      use("motion") ? runStep("motion", () => call(`/sessions/${sessionId}/analyze/motion`)) : skip("motion"),
+      use("voice")  ? runStep("voice",  () => call(voicePath)) : skip("voice"),
+    ]);
+    if (!voice) return status("실패 — 음성 분석 없이는 구간 분리를 할 수 없습니다");
+
+    // ── STEP 4 ──
+    if (use("segments")) {
+      status("STEP 4 구간 분리 중…");
+      if (!await runStep("segments", () => call(`/sessions/${sessionId}/analyze/segments`)))
+        return status("실패 — 구간 분리");
+    } else setStep("segments", "skip");
+
+    // ── STEP 5 (실패해도 계속) ──
+    status("STEP 5 피드백 생성 중…");
+    if (use("segfb")) await runStep("segfb", () => call(`/sessions/${sessionId}/analyze/segment-feedback`));
+    else setStep("segfb", "skip");
+    if (use("overall")) await runStep("overall", () => call(`/sessions/${sessionId}/analyze/overall-feedback`));
+    else setStep("overall", "skip");
+
+    status("전체 완료");
+    log(`전체 완료 — 총 ${((performance.now() - t0) / 1000).toFixed(1)}초`, "ok");
+  } finally {
+    clearInterval(tick);
+    $("#totalTime").textContent = `${((performance.now() - t0) / 1000).toFixed(1)}초`;
+    if (sessionId) showLinks();
+    running = false;
+    $("#runAll").disabled = false;
+  }
 };
+
+renderRows();
+// ?session= 으로 들어오면 "기존 세션 다시 실행" 으로 채워 둔다 (STEP 5 페이지 등에서 넘어올 때)
+const qs = new URLSearchParams(location.search).get("session");
+if (qs) {
+  document.querySelector('[data-mode="existing"]').click();
+  $("#existingSession").value = qs;
+}
 </script>
