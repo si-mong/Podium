@@ -58,15 +58,27 @@ RETRY_WAIT_SEC = 5
 # 하나의 논의가 잘게 쪼개진다. 그런 내용은 해당 맥락의 구간에 흡수시킨다.
 # 2026-09-23: 12종 → 6종 축소. 실측에서 「배경설명→배경설명→주제소개」,
 # 「결론→인사」처럼 **같은 이야기가 라벨만 달라 쪼개지는** 경우가 많았다.
-# 큰 틀의 구간만 남기고, 다른 라벨로 귀속 가능한 것은 흡수시킨다.
+# 2026-10-16: 6종 → 9종. 라벨이 없으니 발표의 중심인 개념·배경 설명까지 다른 라벨로
+# 뭉개졌고, 기술 발표 외 분야(사례 중심 발표 등)를 담을 자리가 없었다.
+# 다시 잘게 쪼개지지 않도록 「배경」「핵심개념」은 **발표 전체 주제에 대한 설명일 때만**
+# 붙이게 하고(프롬프트 규칙 6), 짧으면 이웃에 흡수한다(STRICT_LABEL_MIN_SEC).
+# 「주제 소개」는 따로 두지 않는다 — 대개 몇 문장이고 인사와 붙어 나와 쪼개짐의 원인이었다.
 LABELS = [
-    "도입",          # 인사, 자기소개, 주제 소개, 배경·맥락, 선행 사례
+    "도입",          # 인사, 자기소개, 주제·목차 안내
+    "배경",          # 현황, 맥락, 필요성, 선행 사례 — 발표 전체 주제에 대한 것만
+    "핵심개념",      # 발표 전체를 이해하는 데 필요한 개념·이론·용어 — 발표 전체 주제에 대한 것만
     "문제제시",      # 해결하려는 문제, 동기
-    "해결방안",      # 제안하는 접근·방법 (개념·원리, 시스템구조, 구현 포함)
+    "해결방안",      # 제안하는 접근·방법 (원리, 시스템구조, 구현 포함)
+    "사례",          # 사례 분석, 근거 자료 — 사례가 발표의 중심 내용일 때
     "시연",          # 데모, 화면 설명
     "결과",          # 성과, 수치, 실험 결과, 해석
     "마무리",        # 요약, 정리, 한계, 향후계획, 결론, 마무리 인사
 ]
+
+# 쪼개짐 위험이 큰 라벨은 최소 길이를 따로 둔다. 이보다 짧으면 독립 구간으로 보지 않고
+# 이웃 구간에 흡수하며, 라벨은 **이웃 쪽**을 따른다 (짧은 개념 설명 = 곁들인 설명).
+STRICT_LABELS = {"배경", "핵심개념"}
+STRICT_LABEL_MIN_SEC = 20.0
 
 # ⚠️ "기타" 라벨은 두지 않는다. 주제가 잠시 곁길로 새는 일이 흔한데 그때마다
 #    구간이 쪼개지면 분리가 지나치게 빈번해진다. **주제가 바뀌는 시작점**을
@@ -93,6 +105,13 @@ PROMPT = """당신은 발표 영상을 분석하는 도우미입니다.
 5. 각 구간에 아래 라벨 중 **가장 가까운 것 하나**를 고르세요.
    순서는 정해져 있지 않고, 같은 라벨이 여러 번 나와도 됩니다.
    목록에 없는 라벨을 새로 만들지 마세요.
+6. 「배경」「핵심개념」은 아래 두 조건을 **모두** 만족할 때만 쓰세요.
+   - 발표 **전체 주제**에 대한 배경·개념이다. (특정 방법이나 결과를 말하다가 그 안에서
+     쓰인 기술·용어를 설명하는 것은 해당하지 않습니다 — 규칙 4대로 그 구간에 포함)
+   - 그 설명이 빠지면 **발표 전체**를 이해하기 어려워진다.
+   조건이 애매하면 독립 구간으로 만들지 말고 앞뒤 구간에 포함시키세요.
+7. 「사례」는 사례·근거 자료를 소개하는 것이 **발표의 중심 내용**일 때만 쓰세요.
+   다른 내용을 뒷받침하려고 짧게 든 예시는 그 내용의 구간에 포함시키세요.
 
 ## 라벨 목록
 {labels}
@@ -196,15 +215,23 @@ def _dur(seg, sentences) -> float:
     return sentences[seg.end_idx]["t_end"] - sentences[seg.start_idx]["t_start"]
 
 
-def _merge_short(segs, sentences, min_sec):
-    """min_sec 보다 짧은 구간을 이웃에 흡수. 라벨·제목은 **긴 쪽**을 따른다.
+def _min_sec_for(seg, min_sec, strict_min_sec):
+    return max(min_sec, strict_min_sec) if seg.label in STRICT_LABELS else min_sec
+
+
+def _merge_short(segs, sentences, min_sec, strict_min_sec=STRICT_LABEL_MIN_SEC):
+    """기준보다 짧은 구간을 이웃에 흡수. 라벨·제목은 **긴 쪽**을 따른다.
+
+    기준은 보통 `min_sec`, STRICT_LABELS(배경·핵심개념)는 `strict_min_sec`.
+    STRICT 라벨이 자기 기준에 못 미쳐 흡수될 때는 길이와 무관하게 **이웃 라벨**을 따른다
+    — 짧은 개념 설명은 독립 구간이 아니라 이웃 이야기에 곁들인 설명으로 본다.
 
     LLM 이 지침을 무시하고 잘게 쪼개도 여기서 막힌다.
     """
     warns = []
     while len(segs) > 1:
         short = next((i for i, s in enumerate(segs)
-                      if _dur(s, sentences) < min_sec), None)
+                      if _dur(s, sentences) < _min_sec_for(s, min_sec, strict_min_sec)), None)
         if short is None:
             break
         # 이웃 중 더 짧은 쪽과 합쳐 한쪽만 비대해지는 것을 막는다
@@ -216,7 +243,10 @@ def _merge_short(segs, sentences, min_sec):
             other = (short - 1 if _dur(segs[short - 1], sentences)
                      <= _dur(segs[short + 1], sentences) else short + 1)
         a, b = sorted((short, other))
-        keep = segs[a] if _dur(segs[a], sentences) >= _dur(segs[b], sentences) else segs[b]
+        if _dur(segs[short], sentences) >= min_sec:
+            keep = segs[other]   # STRICT 기준에만 걸린 경우 → 이웃 라벨
+        else:
+            keep = segs[a] if _dur(segs[a], sentences) >= _dur(segs[b], sentences) else segs[b]
         merged = Segment(label=keep.label, title=keep.title,
                          start_idx=segs[a].start_idx, end_idx=segs[b].end_idx)
         warns.append(f"짧은 구간({_dur(segs[short], sentences):.0f}초) 병합 → «{merged.label}»")
