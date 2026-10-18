@@ -14,9 +14,13 @@ from dataclasses import dataclass
 import numpy as np
 from faster_whisper.vad import VadOptions, get_speech_timestamps
 
-# 무음으로 집계할 최소 길이(초). 이보다 짧은 침묵은 음절 사이 자연스러운
-# 끊김(폐쇄음 등)이라 "발표에서의 멈춤" 으로 볼 수 없음.
-MIN_SILENCE_SEC = 0.7
+# 무음으로 집계할 최소 길이(초). 이보다 짧은 침묵은 호흡·문장 사이의 자연스러운
+# 쉼이라 "발표에서의 멈춤" 으로 볼 수 없음. (0.7초는 너무 촘촘해 2초로 상향)
+MIN_SILENCE_SEC = 2.0
+
+# 녹음 시작/끝에서 이 길이(초) 안의 무음은 무시. 녹화 버튼을 누르고 말을 시작하기까지,
+# 말을 마치고 녹화를 멈추기까지의 침묵은 발표 중 멈춤이 아님.
+EDGE_IGNORE_SEC = 7.0
 
 # --- VAD 파라미터 (faster-whisper 기본값을 그대로 쓰면 안 되는 이유) ---
 # faster-whisper 의 기본값은 min_silence_duration_ms=2000, speech_pad_ms=400 인데
@@ -73,16 +77,25 @@ def silence_regions(
     speech: list[Region],
     total_duration: float,
     min_silence_sec: float = MIN_SILENCE_SEC,
+    edge_ignore_sec: float = EDGE_IGNORE_SEC,
 ) -> list[Region]:
-    """발화 구간의 여집합 중 `min_silence_sec` 이상인 것 = 무음 구간."""
+    """발화 구간의 여집합 중 `min_silence_sec` 이상인 것 = 무음 구간.
+
+    앞뒤 `edge_ignore_sec` 안쪽은 잘라내고 남은 길이로 판정한다.
+    """
+    lo, hi = edge_ignore_sec, total_duration - edge_ignore_sec
     gaps: list[Region] = []
+
+    def add(t0: float, t1: float) -> None:
+        t0, t1 = max(t0, lo), min(t1, hi)
+        if t1 - t0 >= min_silence_sec:
+            gaps.append(Region(t0, t1))
+
     cursor = 0.0
     for r in speech:
-        if r.t_start - cursor >= min_silence_sec:
-            gaps.append(Region(cursor, r.t_start))
+        add(cursor, r.t_start)
         cursor = max(cursor, r.t_end)
-    if total_duration - cursor >= min_silence_sec:
-        gaps.append(Region(cursor, total_duration))
+    add(cursor, total_duration)
     return gaps
 
 
