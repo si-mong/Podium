@@ -45,7 +45,7 @@ export default function LandingPage() {
             <div className="bg-blue-600 p-2 rounded-xl shadow-sm shadow-blue-200">
               <BarChart2 className="w-6 h-6 text-white" />
             </div>
-            <h1 className="text-xl font-extrabold text-slate-800 tracking-tight">발표 영상 분석</h1>
+            <h1 className="text-xl font-extrabold text-slate-800 tracking-tight">Podium</h1>
           </div>
           <div className="flex items-center gap-2">
             <Link
