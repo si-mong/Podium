@@ -820,7 +820,8 @@ def _feedback_to_dict(fb: Feedback | None) -> dict | None:
     # 예전 방식(fb_* 텍스트)으로만 저장된 행은 새 형식이 없으므로 "없음"으로 본다
     if fb is None or (fb.strengths is None and fb.improvements is None):
         return None
-    return {"strengths": fb.strengths or [], "improvements": fb.improvements or []}
+    # rating 은 나중에 추가된 칸이라 예전에 분석한 구간은 None (화면에서 스티커를 안 그림)
+    return {"rating": fb.rating, "strengths": fb.strengths or [], "improvements": fb.improvements or []}
 
 
 @router.post("/sessions/{session_id}/analyze/segment-feedback")
@@ -856,6 +857,7 @@ def analyze_segment_feedback(
             row = db.get(Feedback, seg["segment_id"]) or Feedback(segment_id=seg["segment_id"])
             row.strengths = f.get("strengths") or []
             row.improvements = f.get("improvements") or []
+            row.rating = f.get("rating")
             db.add(row)
             item["feedback"] = _feedback_to_dict(row)
         else:
@@ -899,7 +901,8 @@ def analyze_overall_feedback(
     db: DbSession = Depends(get_db),
     user_id: int = Depends(get_current_user_id),
 ):
-    """Gemini 를 한 번만 호출해 발표 전체 총평(4~5줄)을 받아 session_summaries.llm_feedback 에 저장한다.
+    """GPT 를 한 번만 호출해 발표 전체 총평(핵심 한 줄 + 짧은 부가 설명)을 받아
+    session_summaries.llm_feedback 에 저장한다.
 
     STEP 4(POST /sessions/{id}/analyze/segments)가 먼저 끝나 있어야 한다.
     재호출하면 기존 총평은 새 결과로 바뀐다. session_summaries 행은 STEP 4가 이미 만들어뒀을
@@ -921,7 +924,8 @@ def analyze_overall_feedback(
     db.add(summary)
     db.commit()
 
-    return {"session_id": session_id, "overall_summary": result.get("overall_summary")}
+    return {"session_id": session_id, "headline": result.get("headline"),
+            "overall_summary": result.get("overall_summary")}
 
 
 @router.get("/sessions/{session_id}/overall-feedback")
@@ -930,11 +934,15 @@ def get_overall_feedback(
     db: DbSession = Depends(get_db),
     user_id: int = Depends(get_current_user_id),
 ):
-    """저장된 종합 피드백 조회 (재실행 없이). 아직 없으면 overall_summary: null."""
+    """저장된 종합 피드백 조회 (재실행 없이). 아직 없으면 overall_summary: null.
+
+    headline(핵심 한 줄)은 2026-10-18에 추가돼서, 그 전에 분석한 세션은 headline: null.
+    """
     get_owned_session(db, session_id, user_id)
     summary = db.get(SessionSummary, session_id)
-    overall = (summary.llm_feedback or {}).get("overall_summary") if summary and summary.llm_feedback else None
-    return {"session_id": session_id, "overall_summary": overall}
+    llm = (summary.llm_feedback or {}) if summary else {}
+    return {"session_id": session_id, "headline": llm.get("headline"),
+            "overall_summary": llm.get("overall_summary")}
 
 
 @router.get("/sessions/{session_id}/segments/trend", response_model=SegmentTrendResult)

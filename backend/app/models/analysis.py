@@ -172,6 +172,9 @@ class Feedback(Base):
     # 위 fb_* 텍스트 칸은 목록을 담기에 맞지 않아 별도 JSONB 칸으로 추가함.
     strengths: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     improvements: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    # STEP 5 구간 등급 — "잘함" / "보통" / "개선필요" 중 하나 (화면 오른쪽 위 스티커).
+    # 이 칸이 생기기 전에 분석한 구간은 None.
+    rating: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
     segment: Mapped["Segment"] = relationship(back_populates="feedback")
 

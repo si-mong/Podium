@@ -77,8 +77,17 @@ interface ApiSegment {
   title: string;
   t_start: number;
   t_end: number;
-  feedback: { strengths: string[]; improvements: string[] } | null; // 아직 없으면 null
+  // 아직 없으면 null. rating 은 나중에 추가돼서 예전에 분석한 구간은 null
+  feedback: { rating: SegmentRating | null; strengths: string[]; improvements: string[] } | null;
 }
+
+// 구간 등급(STEP 5 GPT 판정) — 구간별 피드백 카드 오른쪽 위 스티커
+type SegmentRating = '잘함' | '보통' | '개선필요';
+const RATING_STYLES: Record<SegmentRating, string> = {
+  '잘함': 'bg-green-100 text-green-700 border-green-200',
+  '보통': 'bg-slate-100 text-slate-600 border-slate-200',
+  '개선필요': 'bg-amber-100 text-amber-700 border-amber-200',
+};
 
 // 구간별 지표 — GET /sessions/{id}/segments/trend 의 points
 interface TrendPoint {
@@ -499,7 +508,8 @@ function PresentationAnalysisDashboard() {
   const [script, setScript] = useState<ScriptData | null>(null);
   const [segments, setSegments] = useState<ApiSegment[]>([]);
   const [trend, setTrend] = useState<TrendPoint[]>([]);
-  const [overallFeedback, setOverallFeedback] = useState<string | null>(null); // GET /sessions/{id}/overall-feedback
+  const [overallFeedback, setOverallFeedback] = useState<string | null>(null); // GET /sessions/{id}/overall-feedback — 부가 설명
+  const [overallHeadline, setOverallHeadline] = useState<string | null>(null); // 같은 응답의 핵심 한 줄 (예전 세션은 null)
   const [currentTime, setCurrentTime] = useState(0); // 영상의 현재 재생 위치(초)
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -518,6 +528,7 @@ function PresentationAnalysisDashboard() {
       setSegments([]);
       setTrend([]);
       setOverallFeedback(null);
+      setOverallHeadline(null);
       return;
     }
 
@@ -531,7 +542,7 @@ function PresentationAnalysisDashboard() {
         getJson<ScriptData>(`${base}/script`),
         getJson<{ segments: ApiSegment[] }>(`${base}/segment-feedback`),
         getJson<{ points: TrendPoint[] }>(`${base}/segments/trend`),
-        getJson<{ overall_summary: string | null }>(`${base}/overall-feedback`),
+        getJson<{ headline: string | null; overall_summary: string | null }>(`${base}/overall-feedback`),
       ]);
       if (cancelled) return;
 
@@ -541,6 +552,7 @@ function PresentationAnalysisDashboard() {
       setSegments(segmentData ? segmentData.segments : []);
       setTrend(trendData ? trendData.points : []);
       setOverallFeedback(overallData ? overallData.overall_summary : null);
+      setOverallHeadline(overallData ? overallData.headline : null);
 
       // 동작 분석: 제스처 합계(상단 카드)와 조각 목록(스크립트에 표시)
       setVideoChunks(analysis ? analysis.analyses : []);
@@ -919,7 +931,7 @@ function PresentationAnalysisDashboard() {
             <div className="bg-blue-600 p-2 rounded-xl shadow-sm shadow-blue-200 group-hover:bg-blue-700 transition-colors">
               <BarChart2 className="w-6 h-6 text-white" />
             </div>
-            <h1 className="text-xl font-extrabold text-slate-800 tracking-tight group-hover:text-blue-700 transition-colors">발표 영상 분석</h1>
+            <h1 className="text-xl font-extrabold text-slate-800 tracking-tight group-hover:text-blue-700 transition-colors">Podium</h1>
           </button>
         </div>
         
@@ -1436,6 +1448,14 @@ function PresentationAnalysisDashboard() {
                             onClick={() => selectSegment(idx)}
                             className={`p-6 rounded-2xl border transition-all cursor-pointer ${activeSegmentIndex === idx ? 'bg-blue-50/50 border-blue-300 shadow-sm ring-2 ring-blue-500/20' : 'bg-slate-50 border-slate-200 hover:bg-slate-100 hover:border-slate-300'}`}
                           >
+                            {/* 맨 윗줄: 왼쪽 "현재 선택됨" / 오른쪽 등급 스티커.
+                                높이를 고정해서 선택이 바뀌어도 카드 내용이 위아래로 움직이지 않게 한다 */}
+                            <div className="flex items-center justify-between min-h-[28px] mb-2">
+                              {activeSegmentIndex === idx ? <span className="text-xs font-bold text-blue-600 bg-blue-100 px-2.5 py-1 rounded-md">현재 선택됨</span> : <span />}
+                              {seg.feedback?.rating && (
+                                <span className={`text-xs font-extrabold px-3 py-1 rounded-full border ${RATING_STYLES[seg.feedback.rating]}`}>{seg.feedback.rating}</span>
+                              )}
+                            </div>
                             <div className="flex items-start gap-2 mb-4">
                               <div className={`w-3.5 h-3.5 mt-1.5 rounded-full shadow-sm shrink-0 ${SEGMENT_COLORS[idx % SEGMENT_COLORS.length]}`}></div>
                               {/* 구간 이름과 시간·제목을 한 묶음으로 — 카드가 좁아서 줄이 바뀌어도 둘의 시작 위치가 맞는다 */}
@@ -1443,7 +1463,6 @@ function PresentationAnalysisDashboard() {
                                 <h4 className="font-extrabold text-slate-800 text-[16px]">{segmentName(seg)}</h4>
                                 <span className="font-extrabold text-slate-800 text-[16px]">{fmtTime(seg.t_start)}~{fmtTime(seg.t_end)} · {seg.title}</span>
                               </div>
-                              {activeSegmentIndex === idx && <span className="shrink-0 text-xs font-bold text-blue-600 bg-blue-100 px-2.5 py-1 rounded-md">현재 선택됨</span>}
                             </div>
 
                             {seg.feedback ? (
@@ -1490,16 +1509,22 @@ function PresentationAnalysisDashboard() {
                     )}
                   </div>
 
-                  {/* Bottom: Overall AI Feedback — 구간별 피드백 아래, 발표 전체를 한 문단(4~5줄)으로 요약 */}
+                  {/* Bottom: Overall AI Feedback — 구간별 피드백 아래. 핵심 한 줄(크게) + 부가 설명 짧은 문단.
+                      예전 세션은 headline 이 없어서 부가 설명 문단만 보인다 */}
                   <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
                     <h3 className="font-extrabold text-slate-800 text-lg flex items-center gap-2 mb-6">
                       <span className="bg-blue-100 text-blue-600 p-1.5 rounded-xl"><Award className="w-5 h-5"/></span>
                       종합 피드백
                     </h3>
                     {overallFeedback ? (
-                      <p className="text-slate-700 font-medium leading-relaxed">
-                        <TimestampText text={overallFeedback} onSeek={(sec) => seekVideo(sec)} />
-                      </p>
+                      <div>
+                        {overallHeadline && (
+                          <p className="text-lg font-extrabold text-slate-800 mb-3">{overallHeadline}</p>
+                        )}
+                        <p className="text-slate-600 text-[14px] font-medium leading-relaxed">
+                          <TimestampText text={overallFeedback} onSeek={(sec) => seekVideo(sec)} />
+                        </p>
+                      </div>
                     ) : (
                       <div className="rounded-xl bg-slate-50 border border-dashed border-slate-200 py-8 px-4 text-center text-sm text-slate-400 font-medium">
                         종합 피드백이 없습니다. 구간별 분석까지 끝난 세션에서 표시됩니다.

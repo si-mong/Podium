@@ -171,6 +171,7 @@ def _generate_validated(client, prompt: str, allowed: set[str], tag: str) -> dic
 #                      경계에 걸친 조각은 양쪽 구간에 다 들어간다)
 #   - voice_timeline : 이 구간 안에서 **시작하는** 무음·필러·반복 (STEP4 집계와 같은 기준)
 # 결과(strengths / improvements 목록)는 feedbacks 테이블의 같은 이름 JSONB 칸에 저장한다.
+# 구간 등급(rating: 잘함/보통/개선필요)은 feedbacks.rating 칸에 저장한다 — 화면의 스티커용.
 # ═══════════════════════════════════════════════════════════════════════════
 
 SEGMENT_PROMPT = """당신은 발표 코칭 전문가입니다.
@@ -214,9 +215,20 @@ SEGMENT_PROMPT = """당신은 발표 코칭 전문가입니다.
 10. filler_count·repetition_count·silence_ratio·speaking_rate_label·pointing·explanatory_gesture·
     video_analysis·voice_timeline 처럼 **영문 소문자와 _ 로 된 데이터 이름은 하나도 쓰지 마세요.**
     "필러 횟수", "무음 비율", "발화 속도", "가리키기 제스처", "영상 분석 결과"처럼 발표자가 읽는 말로 쓰세요.
+11. 이 구간의 전체 등급(rating)을 "잘함", "보통", "개선필요" 중 **하나만** 고르세요.
+    화면에 스티커로 표시되어 발표자가 구간을 한눈에 비교하는 용도입니다.
+    - 잘함: 개선점이 없거나 사소한 것(필러 1~2회 등)뿐이고, 전달에 방해가 없었다.
+    - 보통: 전달은 되었지만 고치면 좋아질 문제가 한두 개 있었다.
+    - 개선필요: 긴 침묵, 연속된 필러·반복, 산만한 동작처럼 흐름이 끊길 정도의 문제가 있었다.
+    잘한 점·개선점 내용과 등급이 서로 맞게 고르세요(개선점이 크면 "잘함"을 주지 마세요).
+12. 느낌·감상 표현을 쓰지 마세요 (신뢰감, 인상적, 듣기 편한, 생동감, 자연스러운, 적극적인 등).
+    대신 관찰된 사실(언제·몇 번·몇 초)과, 개선점이라면 다음 발표에서 할 **구체적인 행동**을 쓰세요.
+    나쁜 예: "자연스러운 손짓을 더해 전달력을 높이세요."
+    좋은 예: "1:20~1:45에 설명 제스처가 없었습니다. 핵심 단어를 말할 때 손으로 화면을 가리키세요."
 
 ## 출력 형식 (JSON, 다른 텍스트 없이)
 {{
+  "rating": "잘함 / 보통 / 개선필요 중 하나",
   "strengths": ["근거 시각(time_label)을 포함한 잘한 점", "..."],
   "improvements": ["근거 시각(time_label)을 포함한 개선점과 제안", "..."]
 }}
@@ -283,6 +295,20 @@ def _ensure_timestamps(fb: dict, seg_time_label: str) -> dict:
     return fb
 
 
+RATINGS = ("잘함", "보통", "개선필요")
+
+
+def _ensure_rating(fb: dict) -> dict:
+    """rating 이 세 값 중 하나가 아니면 "보통"으로 바꾼다.
+
+    GPT 가 "좋음"처럼 다른 말을 쓰거나 빼먹으면 화면에서 스티커 색을 못 고르므로 코드가 보장한다.
+    """
+    if fb.get("rating") not in RATINGS:
+        logger.warning("STEP 5 등급 값이 이상함(%r) → 보통으로 바꿈", fb.get("rating"))
+        fb["rating"] = "보통"
+    return fb
+
+
 def _run_one_segment(client, seg: dict, outline: list[dict],
                      video_analysis: list[dict], voice_timeline: dict) -> dict:
     videos, voice = _slice_for_segment(seg, video_analysis, voice_timeline)
@@ -303,6 +329,7 @@ def _run_one_segment(client, seg: dict, outline: list[dict],
     except RuntimeError as exc:
         return {"segment_id": seg["segment_id"], "error": str(exc)}
     fb = _ensure_timestamps(fb, labeled["segment"]["time_label"])
+    fb = _ensure_rating(fb)
     return {"segment_id": seg["segment_id"], "feedback": fb}
 
 
@@ -334,8 +361,10 @@ def run_segments(segments: list[dict], video_analysis: list[dict],
 # ═══════════════════════════════════════════════════════════════════════════
 # 종합 피드백 (발표 전체 총평)
 #
-# 구간별 분석과 달리 GPT 를 **한 번만** 호출해서 발표 전체를 한 문단으로 요약한다.
-# 구간별처럼 항목마다 시각을 강제하지 않는다 — 총평은 4~5줄로 짧아야 해서 문장마다
+# 구간별 분석과 달리 GPT 를 **한 번만** 호출해서 발표 전체를 요약한다.
+# 2026-10-18: 긴 문단은 한눈에 안 읽혀서 "핵심 한 줄(headline) + 짧은 부가 설명(overall_summary)"
+# 으로 바꿨다. 부가 설명 키 이름은 예전 세션과 맞추려고 overall_summary 그대로 둔다.
+# 구간별처럼 항목마다 시각을 강제하지 않는다 — 총평은 짧아야 해서 문장마다
 # 시각을 넣으면 오히려 읽기 어려워진다. 다만 시각을 언급하는 경우엔 구간별과 같은 검증
 # (_generate_validated) 을 거쳐 데이터에 없는 시각을 지어내지 못하게 막는다.
 # ═══════════════════════════════════════════════════════════════════════════
@@ -351,9 +380,19 @@ OVERALL_PROMPT = """당신은 발표 코칭 전문가입니다.
    에서 구간마다 반복되거나 눈에 띄는 동작·시선 습관이 있으면 총평에 함께 녹이세요.
    gesture_timelines 는 그 습관이 발생한 시각(예: "0:14") 배열이니, 특정 동작을 짚고
    싶으면 대표로 한 시각을 골라 함께 써도 됩니다(지침 5의 시각 규칙을 그대로 따르세요).
-3. 잘한 점과 개선할 점을 자연스럽게 엮어서 **하나의 총평 문단**으로 쓰세요. 목록이 아니라
-   이어지는 글입니다.
-4. 길이는 **4~5줄(약 200~280자)** 로 쓰세요. 그보다 길게 쓰지 마세요.
+3. 결과는 **핵심 한 줄(headline)** 과 **부가 설명(overall_summary)** 두 부분으로 나눠 쓰세요.
+   - headline: 발표 전체에서 가장 잘한 점 하나와 가장 고칠 점 하나를 묶은 한 문장
+     (약 20~35자, 시각 없이). 예: "말 속도는 안정적이지만, 손 제스처와 시선 처리를 고쳐봐요"
+     잘한 점과 고칠 점은 **서로 다른 항목**이어야 합니다. 같은 항목(예: 시선)을 앞에서
+     칭찬하고 뒤에서 고치라고 쓰지 마세요.
+     나쁜 예: "자세와 시선은 안정적이지만, 손 제스처와 시선 분배를 개선하세요"
+   - overall_summary: headline 의 근거와 고치는 방법을 담은 **짧은 문단** (목록이 아니라
+     이어지는 글, 2~3문장, 약 100~180자). 잘한 점의 근거 1개, 고칠 점마다 근거와 구체적인 행동을 쓰세요.
+4. 느낌·감상 표현을 쓰지 마세요 (신뢰감, 인상적, 듣기 편한, 생동감, 자연스러운, 적극적인 등).
+   대신 관찰된 사실(어느 구간·몇 번·몇 초)과 다음 발표에서 할 **구체적인 행동**을 쓰세요.
+   "대부분의 구간", "후반부"처럼 흐리게 쓰지 말고 구간 라벨이나 시각으로 짚으세요.
+   나쁜 예: "자연스러운 손짓을 더해 전달력을 높이면 더욱 생동감 있는 발표가 될 것입니다."
+   좋은 예: "본론(1:20~3:40)에서 설명 제스처가 0번이었으니, 핵심 단어를 말할 때 손으로 화면을 가리키세요."
 5. 시각을 언급해도 되지만 강제는 아닙니다. 언급할 경우 반드시 데이터의 time_label 이나
    gesture_timelines 의 값을 "0:12~0:16" 또는 "0:14"처럼 그대로 쓰고, 계산하거나 지어내지 마세요.
 6. filler_count·silence_ratio·speaking_rate_label 같은 영문 소문자와 _ 로 된 데이터
@@ -364,7 +403,8 @@ OVERALL_PROMPT = """당신은 발표 코칭 전문가입니다.
 
 ## 출력 형식 (JSON, 다른 텍스트 없이)
 {{
-  "overall_summary": "4~5줄 분량의 총평 문단"
+  "headline": "핵심 한 줄",
+  "overall_summary": "2~3문장의 부가 설명 문단"
 }}
 
 ## outline (발표 전체 구간 목록)
@@ -376,12 +416,12 @@ OVERALL_PROMPT = """당신은 발표 코칭 전문가입니다.
 
 
 def run_overall(segments: list[dict], video_analysis: list[dict], voice_timeline: dict) -> dict:
-    """발표 전체를 한 번 호출해서 총평(overall_summary) 하나를 받는다.
+    """발표 전체를 한 번 호출해서 핵심 한 줄(headline)과 부가 설명(overall_summary)을 받는다.
 
     segments: run_segments 와 같은 입력(segment_id 포함, 구간 순서). video_analysis·voice_timeline 은
     인자로는 받지만 이번엔 프롬프트에 넣지 않는다 — 총평은 구간별 지표(segments 안에 이미 집계돼
     있음)만으로 충분하고, 원본 이벤트까지 다 보내면 총평치고 너무 장황해진다.
-    반환: {"overall_summary": "..."}
+    반환: {"headline": "...", "overall_summary": "..."}
     """
     client = _make_client()
 
