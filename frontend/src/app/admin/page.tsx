@@ -1,14 +1,17 @@
 "use client";
 
-// 관리자 화면(/admin) — 외부 API(Gemini/OpenAI) 연결 점검.
+// 관리자 화면(/admin) — 외부 API(Gemini/OpenAI/Modal) 연결 점검.
 // 분석이 실패했을 때 우리 코드 문제인지, 모델 제공자 쪽 문제인지를 영상 없이 바로 가린다.
 // 관리자가 아니면 홈으로 돌려보낸다 (실제 차단은 백엔드 require_admin 이 한다).
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { BarChart2, ChevronLeft, Loader2, CheckCircle2, XCircle, Play, ShieldCheck } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, Play, ShieldCheck } from "lucide-react";
 import { apiFetch, errorMessage } from "@/utils/api";
 import { isLoggedIn } from "@/utils/auth";
+import { AdminHeader } from "./adminShared";
+
+const PROVIDER_LABEL: Record<string, string> = { gemini: "Gemini", openai: "OpenAI", modal: "Modal GPU" };
 
 interface TargetInfo {
   target: string;
@@ -78,30 +81,14 @@ export default function AdminPage() {
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans">
-      <header className="h-20 bg-white/80 backdrop-blur-md border-b border-slate-200 sticky top-0 z-10">
-        <div className="max-w-5xl mx-auto h-full px-6 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="bg-blue-600 p-2 rounded-xl shadow-sm shadow-blue-200">
-              <BarChart2 className="w-6 h-6 text-white" />
-            </div>
-            <h1 className="text-xl font-extrabold text-slate-800 tracking-tight">관리자</h1>
-          </div>
-          <button
-            onClick={() => router.push("/home")}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-50 hover:text-blue-700 transition-colors"
-          >
-            <ChevronLeft className="w-4 h-4" />
-            홈으로
-          </button>
-        </div>
-      </header>
+      <AdminHeader />
 
-      <main className="max-w-5xl mx-auto px-6 py-12 space-y-6">
+      <main className="max-w-6xl mx-auto px-6 py-10 space-y-6">
         <div className="flex items-end justify-between gap-4">
           <div>
             <h2 className="text-2xl font-extrabold text-slate-800 tracking-tight">모듈 연결 점검</h2>
             <p className="text-sm text-slate-500 mt-1">
-              각 단계가 쓰는 모델에 짧은 요청을 보내 응답 여부와 응답 시간을 확인해요.
+              각 단계가 쓰는 모델에 짧은 요청을 보내 응답 여부와 응답 시간을 확인해요. Modal 은 배포 여부만 확인하고 GPU 는 켜지 않아요.
             </p>
           </div>
           <button
@@ -135,8 +122,13 @@ export default function AdminPage() {
                   <div className="flex-1 min-w-0">
                     <div className="font-bold text-slate-800">{t.label}</div>
                     <div className="text-sm text-slate-500 mt-0.5">
-                      {t.provider === "gemini" ? "Gemini" : "OpenAI"} · <code className="text-slate-600">{t.model}</code>
-                      {!t.key_configured && <span className="ml-2 text-red-600 font-semibold">API 키 없음</span>}
+                      {PROVIDER_LABEL[t.provider] ?? t.provider} · <code className="text-slate-600">{t.model}</code>
+                      {!t.key_configured && (
+                        <span className="ml-2 text-red-600 font-semibold">{t.provider === "modal" ? "Modal 토큰 없음" : "API 키 없음"}</span>
+                      )}
+                      {t.provider === "modal" && !t.model.startsWith("modal:") && (
+                        <span className="ml-2 text-amber-700 font-semibold">지금은 서버에서 직접 실행 중 (WHISPER_MODEL 이 modal: 아님)</span>
+                      )}
                     </div>
                     {r && (
                       <div className={`text-sm mt-2 ${r.ok ? "text-emerald-700" : "text-red-700"} break-all`}>
@@ -166,13 +158,6 @@ export default function AdminPage() {
                 </div>
               );
             })}
-            <div className="p-5">
-              <div className="font-bold text-slate-800">STEP 3 음성 분석 (STT)</div>
-              <div className="text-sm text-slate-500 mt-0.5">
-                서버에서 직접 실행 · <code className="text-slate-600">{overview.whisper_model}</code>
-                <span className="ml-2 text-slate-400">— 샘플 실행·소요 시간 측정은 다음 단계에서 추가 예정</span>
-              </div>
-            </div>
           </div>
         )}
       </main>

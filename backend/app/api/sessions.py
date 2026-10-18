@@ -55,6 +55,28 @@ from app.schemas.session import (
     VoiceSummary,
 )
 from app.services import storage, streaming
+from app.services.analysis_log import tracked
+
+
+def _settings():
+    from app.core.config import settings
+    return settings
+
+
+# 실행 기록(analysis_events)에 남길 단계별 모델 이름. 파이프라인 모듈은 무거워서 실행 시점에 읽는다.
+def _step2_model():
+    from app.pipeline import step2_video_analysis
+    return step2_video_analysis.MODEL
+
+
+def _step4_model():
+    from app.pipeline import step4_segmentation
+    return step4_segmentation.MODEL
+
+
+def _step5_model():
+    from app.pipeline import step5_feedback
+    return step5_feedback.MODEL
 
 
 CHUNK_DURATION_SEC = 30
@@ -247,6 +269,7 @@ def _authorize_playback(
 # ---------------------------------------------------------------------------
 
 @router.post("/sessions/{session_id}/end", response_model=PreprocessResult)
+@tracked("preprocess", model=lambda: "ffmpeg")
 def end_session(
     session_id: int,
     db: DbSession = Depends(get_db),
@@ -333,6 +356,7 @@ def _to_video_timelines(timelines: dict | None, chunk_start: float) -> dict:
     "/sessions/{session_id}/analyze/motion",
     response_model=MotionAnalysisResult,
 )
+@tracked("motion", model=_step2_model)
 def analyze_motion(
     session_id: int,
     db: DbSession = Depends(get_db),
@@ -570,6 +594,7 @@ def _settings_upload_dir():
 # ---------------------------------------------------------------------------
 
 @router.post("/sessions/{session_id}/analyze/voice", response_model=VoiceAnalysisResult)
+@tracked("voice", model=lambda: _settings().whisper_model)
 def analyze_voice(
     session_id: int,
     keywords: str = "",
@@ -638,6 +663,7 @@ def analyze_voice(
 # ---------------------------------------------------------------------------
 
 @router.post("/sessions/{session_id}/analyze/segments", response_model=SegmentationResult)
+@tracked("segments", model=_step4_model)
 def analyze_segments(
     session_id: int,
     db: DbSession = Depends(get_db),
@@ -798,6 +824,7 @@ def _feedback_to_dict(fb: Feedback | None) -> dict | None:
 
 
 @router.post("/sessions/{session_id}/analyze/segment-feedback")
+@tracked("segment_feedback", model=_step5_model)
 def analyze_segment_feedback(
     session_id: int,
     db: DbSession = Depends(get_db),
@@ -866,6 +893,7 @@ def get_segment_feedback(
 
 
 @router.post("/sessions/{session_id}/analyze/overall-feedback")
+@tracked("overall_feedback", model=_step5_model)
 def analyze_overall_feedback(
     session_id: int,
     db: DbSession = Depends(get_db),

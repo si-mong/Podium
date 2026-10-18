@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -7,6 +8,17 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api import admin, auth, projects, sessions
 from app.core.config import settings
+
+# 우리 코드(app.*)의 로그는 INFO 부터 출력한다. uvicorn 은 자기 로거만 설정해서, 그대로 두면
+# 단계 진행("STEP 3 시작")·관리자 열람 기록 같은 INFO 로그가 전부 버려지고 WARNING 이상만 보였다.
+# 외부 라이브러리(httpx 등)의 INFO 는 그대로 숨긴다.
+_app_logger = logging.getLogger("app")
+if not _app_logger.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(logging.Formatter("%(levelname)s:%(name)s:%(message)s"))
+    _app_logger.addHandler(_handler)
+    _app_logger.setLevel(logging.INFO)
+    _app_logger.propagate = False
 
 
 @asynccontextmanager
