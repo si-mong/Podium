@@ -19,6 +19,7 @@ faster-whisper(CTranslate2)는 `eot` 보다 큰 토큰 id 를 특수/타임스�
 from __future__ import annotations
 
 import re
+import threading
 import time
 from pathlib import Path
 
@@ -50,16 +51,46 @@ def _load_model(model_id: str, device: str | None = None):
     from transformers import WhisperForConditionalGeneration, WhisperProcessor
 
     if device is None:
-        # 애플 실리콘이면 MPS 사용 (CPU 대비 수 배 빠름). 리눅스 배포에서는 cpu.
-        device = "mps" if torch.backends.mps.is_available() else "cpu"
+        # 애플 실리콘이면 MPS, NVIDIA GPU 면 CUDA (Modal 원격 실행), 그 외에는 cpu.
+        if torch.backends.mps.is_available():
+            device = "mps"
+        elif torch.cuda.is_available():
+            device = "cuda"
+        else:
+            device = "cpu"
     proc = WhisperProcessor.from_pretrained(model_id)
     model = WhisperForConditionalGeneration.from_pretrained(model_id).to(device).eval()
     return proc, model, device
 
 
+# 모델(약 3GB)은 프로세스당 한 번만 올려서 재사용한다.
+# 예전에는 분석마다 새로 올려서, 동시에 3건이 돌면 모델이 3개 올라가 8GB 서버가 죽을 수 있었다.
+# 디코딩도 한 번에 1건만 돌린다 — CPU 2코어에서 동시에 돌리면 각각 느려질 뿐이고,
+# 같은 모델 객체를 여러 스레드가 동시에 generate 하는 것도 피한다. 나머지 요청은 줄을 서서 기다린다.
+_cache: dict[tuple[str, str | None], tuple] = {}
+_cache_lock = threading.Lock()
+_decode_lock = threading.Lock()
+
+
+def get_model(model_id: str, device: str | None = None):
+    """(proc, model, device) 를 캐시에서 꺼내거나 처음이면 올린다. 두 번째 값은 로딩 초."""
+    key = (model_id, device)
+    with _cache_lock:
+        if key in _cache:
+            return _cache[key], 0.0
+        t0 = time.perf_counter()
+        _cache[key] = _load_model(model_id, device)
+        return _cache[key], round(time.perf_counter() - t0, 2)
+
+
 def _decode_window(proc, model, device, chunk: np.ndarray, offset: float,
                    language: str) -> list[Word]:
-    """30초 윈도우 하나를 디코딩해 Word 목록으로. 시각은 offset 만큼 이동."""
+    """30초 윈도우 하나를 디코딩해 Word 목록으로. 시각은 offset 만큼 이동.
+
+    ⚠️ 윈도우 여러 개를 한 번에 묶어 generate 하면 GPU 에서 빨라질 것 같지만, 단어 시각용
+       `return_token_timestamps` 가 인코더 attention 까지 전부 반환해서 묶음 4개만 돼도
+       그것만 20GB 를 넘는다 (L4 24GB 에서 메모리 부족). 그래서 하나씩 돌린다.
+    """
     import torch
 
     feats = proc(chunk, sampling_rate=TARGET_SR, return_tensors="pt").input_features
@@ -127,21 +158,30 @@ def transcribe_hf(
     device: str | None = None,
 ) -> SttResult:
     """transformers 로 전사. faster-whisper 경로와 같은 SttResult 를 돌려준다."""
-    t0 = time.perf_counter()
-    proc, model, dev = _load_model(model_id, device)
-    load_sec = round(time.perf_counter() - t0, 2)
-
     samples, sr = load_wav(wav_path)
+    return transcribe_samples(samples, sr, model_id, language=language, device=device)
+
+
+def transcribe_samples(
+    samples: np.ndarray,
+    sr: int,
+    model_id: str,
+    language: str = "ko",
+    device: str | None = None,
+) -> SttResult:
+    """이미 읽어 둔 오디오(16kHz mono float32)를 전사. Modal 원격 실행도 이 함수를 그대로 쓴다."""
+    (proc, model, dev), load_sec = get_model(model_id, device)
     step = int(WINDOW_SEC * sr)
 
-    t1 = time.perf_counter()
-    words: list[Word] = []
-    for i in range(0, len(samples), step):
-        chunk = samples[i:i + step]
-        if len(chunk) < sr * 0.5:      # 0.5초 미만 꼬리는 버림
-            break
-        words.extend(_decode_window(proc, model, dev, chunk, i / sr, language))
-    decode_sec = round(time.perf_counter() - t1, 2)
+    with _decode_lock:
+        t1 = time.perf_counter()
+        words: list[Word] = []
+        for i in range(0, len(samples), step):
+            chunk = samples[i:i + step]
+            if len(chunk) < sr * 0.5:      # 0.5초 미만 꼬리는 버림
+                break
+            words.extend(_decode_window(proc, model, dev, chunk, i / sr, language))
+        decode_sec = round(time.perf_counter() - t1, 2)
 
     # 문장 분리: 종결 부호 기준. faster-whisper 의 세그먼트에 대응하는 근사치.
     # 문장 텍스트에서는 비유창성 태그를 뺀다 (→ stt_sentences.text 가 평문).

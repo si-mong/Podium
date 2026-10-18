@@ -150,6 +150,10 @@ def transcribe(
     if model_size.startswith("hf:"):
         from app.pipeline.voice.stt_hf import transcribe_hf
         return transcribe_hf(wav_path, model_size[3:], language=language)
+    # `modal:` 접두사면 같은 transformers 디코딩을 Modal 서버리스 GPU 에서 실행 (stt_remote.py 참고).
+    if model_size.startswith("modal:"):
+        from app.pipeline.voice.stt_remote import transcribe_modal
+        return transcribe_modal(wav_path, model_size[6:], language=language)
 
     from faster_whisper import WhisperModel  # 무거우므로 lazy import
 

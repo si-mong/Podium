@@ -30,3 +30,6 @@ pdfplumber==0.11.4
 google-genai==0.3.0
 requests==2.34.2   # step2_video_analysis 에서 직접 import
 python-dotenv==1.0.1
+
+# STEP 3 STT 를 Modal 서버리스 GPU 에서 실행할 때 (WHISPER_MODEL=modal:...) — app/pipeline/voice/stt_remote.py
+modal==1.6.2
