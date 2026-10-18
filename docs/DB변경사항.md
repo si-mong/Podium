@@ -1,3 +1,27 @@
+# DB 변경사항 — feedbacks.rating 추가 (2026-10-18)
+
+> alembic 리비전 **`e7b2c5a9d013`** (이전: `d4f1a8c2b7e9`) · 브랜치 `feat/fe-dashboard`
+
+STEP 5 구간별 피드백 카드 오른쪽 위에 **등급 스티커**(잘함/보통/개선필요)를 표시하게 되면서 담을 컬럼이 필요했음.
+
+```bash
+cd backend && source .venv/bin/activate
+alembic upgrade head
+```
+
+| 테이블 | 컬럼 | 타입 |
+|---|---|---|
+| `feedbacks` | `rating` | `VARCHAR(16)` nullable |
+
+```
+rating   "잘함" / "보통" / "개선필요" 중 하나 — GPT 가 판정, 다른 값이 오면 코드가 "보통"으로 바꿈
+         (step5_feedback._ensure_rating). 이 컬럼 전에 분석한 구간은 NULL → 화면에서 스티커 안 그림
+```
+
+`GET /sessions/{id}/segment-feedback` 응답의 `feedback` 에 `rating` 키가 추가됨.
+
+---
+
 # DB 변경사항 — segments.label 추가 (2026-09-16)
 
 > alembic 리비전 **`3a2c868476b7`** (이전: `b2e93e11bdc0`) · 브랜치 `feat/pipeline-step3`

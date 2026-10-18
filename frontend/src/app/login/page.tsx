@@ -62,7 +62,7 @@ export default function LoginPage() {
           <div className="bg-blue-600 p-3 rounded-2xl shadow-sm shadow-blue-200 group-hover:bg-blue-700 transition-colors">
             <BarChart2 className="w-7 h-7 text-white" />
           </div>
-          <h1 className="text-xl font-extrabold text-slate-800 tracking-tight group-hover:text-blue-700 transition-colors">발표 영상 분석</h1>
+          <h1 className="text-xl font-extrabold text-slate-800 tracking-tight group-hover:text-blue-700 transition-colors">Podium</h1>
         </Link>
 
         {/* 로그인 카드 */}
