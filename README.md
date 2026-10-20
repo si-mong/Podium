@@ -77,20 +77,59 @@
 
 ## 팀
 
-충북대학교 2026 캡스톤디자인
+CBNU 2026 캡스톤디자인
 
-### 최은재 &nbsp;`PM` `Backend` `DB`
+<table>
 
-- DB 스키마 설계 및 마이그레이션 관리
-- 프로젝트 · 세션 · 분석 결과 REST API 설계 및 구현
-- AI 파이프라인 설계 및 구현
-- 서비스 배포 및 서버 환경 구성
+  <tr>
 
-### 홍진수 &nbsp;`Frontend`
+    <td width="50%" valign="top">
 
-- 서비스 화면 설계 및 UI 컴포넌트 구현
-- 분석 결과 · 회차별 추이 시각화
-- AI 파이프라인 설계 및 구현
+      <strong>최은재</strong><br/>
+
+      <sub>PM · Backend · Database</sub>
+
+      <br/><br/>
+
+      <ul>
+
+        <li>프로젝트 관리 및 일정 조율</li>
+
+        <li>DB 스키마 설계 및 마이그레이션 관리</li>
+
+        <li>프로젝트 · 세션 · 분석 결과 REST API 설계 및 구현</li>
+
+        <li>AI 파이프라인 설계 및 구현</li>
+
+        <li>서비스 배포 및 서버 환경 구성</li>
+
+      </ul>
+
+    </td>
+
+    <td width="50%" valign="top">
+
+      <strong>홍진수</strong><br/>
+
+      <sub>Frontend</sub>
+
+      <br/><br/>
+
+      <ul>
+
+        <li>서비스 화면 설계 및 UI 컴포넌트 구현</li>
+
+        <li>분석 결과 및 회차별 추이 시각화</li>
+
+        <li>AI 파이프라인 설계 및 구현</li>
+
+      </ul>
+
+    </td>
+
+  </tr>
+
+</table>
 
 ---
 
