@@ -323,23 +323,30 @@ function RecordPage() {
     setErrorMsg(null);
     setAnalysisFailed(false);
     try {
-      // STEP 2(영상)와 STEP 3(음성)은 서로 의존하지 않아 동시에 돌려서 시간을 줄인다.
-      setStepLabel("동작과 목소리를 분석하는 중이에요 (몇 분 정도 걸려요)");
-      log("동작과 목소리를 살펴보고 있어요...");
-      const [motion, voice] = await Promise.allSettled([
-        callStep("/analyze/motion"),
-        callStep("/analyze/voice"),
-      ]);
-      // 음성 결과 없이는 구간을 나눌 수 없어서 실패하면 멈춘다.
-      if (voice.status === "rejected") throw new Error(`음성 분석 실패: ${errText(voice.reason)}`);
+      // 순서: 음성 → 구간 분리 → 영상. 영상은 구간을 기준으로 잘라서 보내므로 구간 분리가 먼저 끝나야 한다.
+      setStepLabel("목소리를 분석하는 중이에요 (몇 분 정도 걸려요)");
+      log("목소리를 살펴보고 있어요...");
+      try {
+        await callStep("/analyze/voice");
+      } catch (err) {
+        // 음성 결과 없이는 구간을 나눌 수 없어서 실패하면 멈춘다.
+        throw new Error(`음성 분석 실패: ${errText(err)}`);
+      }
       log("목소리 분석을 마쳤어요.", "success");
-      // 영상 분석은 실패해도 계속 진행한다 (제스처 값만 비게 됨).
-      if (motion.status === "rejected") log("동작 분석에 문제가 있었지만, 나머지는 계속 진행할게요.", "warn");
-      else log("동작 분석을 마쳤어요.", "success");
 
       setStepLabel("발표 내용을 구간으로 나누는 중이에요");
       const seg = await callStep("/analyze/segments");
       log(`발표를 ${seg.segment_count}개 구간으로 나눴어요.`, "success");
+
+      setStepLabel("구간별로 동작을 분석하는 중이에요");
+      log("동작을 살펴보고 있어요...");
+      try {
+        await callStep("/analyze/motion-by-segment");
+        log("동작 분석을 마쳤어요.", "success");
+      } catch {
+        // 영상 분석은 실패해도 계속 진행한다 (제스처 값만 비게 됨).
+        log("동작 분석에 문제가 있었지만, 나머지는 계속 진행할게요.", "warn");
+      }
 
       // 구간별 피드백은 실패해도 앞 단계 결과는 볼 수 있으니 경고만 남기고 넘어간다.
       setStepLabel("구간별로 자세한 피드백을 만드는 중이에요");
