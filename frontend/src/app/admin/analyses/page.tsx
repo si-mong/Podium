@@ -11,11 +11,12 @@ import { isLoggedIn } from "@/utils/auth";
 import { AdminHeader, STEP_LABELS, STEP_ORDER, StatusBadge, StepDot, fmtDate, fmtMs, fmtSec } from "../adminShared";
 
 interface StepStat { step: string; runs: number; succeeded: number; partial: number; failed: number; running: number; avg_ms: number | null }
-interface Stats { days: number; sessions: number; completed: number; failed_sessions: number; steps: StepStat[] }
+interface Stats { days: number; sessions: number; completed: number; failed_sessions: number; avg_total_ms: number | null; steps: StepStat[] }
 interface StepRun { status: string; duration_ms: number | null; model: string | null; error: string | null; started_at: string }
 interface Item {
   session_id: number; session_no: number; project_title: string; user_email: string; status: string;
   created_at: string; duration_sec: number | null; last_run_at: string | null; has_failure: boolean;
+  total_ms: number | null; completed: boolean;
   steps: Record<string, StepRun>;
 }
 
@@ -111,11 +112,12 @@ export default function AdminAnalysesPage() {
 
         {stats && (
           <>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
               {[
                 { label: "분석한 세션", value: stats.sessions, unit: "개" },
                 { label: "끝까지 완료", value: stats.completed, unit: "개" },
                 { label: "완료율", value: successRate ?? "-", unit: successRate == null ? "" : "%" },
+                { label: "평균 총 소요", value: fmtMs(stats.avg_total_ms), unit: "" },
                 { label: "실패가 있었던 세션", value: stats.failed_sessions, unit: "개", danger: stats.failed_sessions > 0 },
               ].map((c) => (
                 <div key={c.label} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
@@ -208,6 +210,7 @@ export default function AdminAnalysesPage() {
                   <th className="px-5 py-3 font-semibold">회원</th>
                   <th className="px-5 py-3 font-semibold">프로젝트 · 회차</th>
                   <th className="px-5 py-3 font-semibold text-right">길이</th>
+                  <th className="px-5 py-3 font-semibold text-right">총 소요</th>
                   <th className="px-5 py-3 font-semibold">단계</th>
                   <th className="px-5 py-3 font-semibold">상태</th>
                 </tr>
@@ -215,7 +218,7 @@ export default function AdminAnalysesPage() {
               <tbody>
                 {items.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="px-5 py-10 text-center text-slate-400">조건에 맞는 세션이 없어요.</td>
+                    <td colSpan={7} className="px-5 py-10 text-center text-slate-400">조건에 맞는 세션이 없어요.</td>
                   </tr>
                 )}
                 {items.map((it) => {
@@ -232,6 +235,12 @@ export default function AdminAnalysesPage() {
                         {it.project_title} <span className="text-slate-400">· {it.session_no}회차</span>
                       </td>
                       <td className="px-5 py-3 text-right text-slate-600">{fmtSec(it.duration_sec)}</td>
+                      <td
+                        className={`px-5 py-3 text-right whitespace-nowrap ${it.completed ? "text-slate-800 font-semibold" : "text-slate-400"}`}
+                        title={it.completed ? "최근 분석: 전처리 시작 ~ 종합 피드백 종료" : "최근 분석이 끝까지 성공하지 않았어요"}
+                      >
+                        {it.total_ms == null ? (Object.keys(it.steps).length ? "진행 중" : "-") : fmtMs(it.total_ms)}
+                      </td>
                       <td className="px-5 py-3">
                         <div className="flex items-center gap-1.5">
                           {STEP_ORDER.map((k) => (
@@ -282,7 +291,8 @@ export default function AdminAnalysesPage() {
         )}
 
         <p className="text-xs text-slate-400">
-          단계 점: 초록 성공 · 노랑 일부 실패 · 빨강 실패 · 파랑 실행 중 · 빈 원 기록 없음. 실행 기록은 이 기능을 배포한 뒤부터 쌓여요.
+          단계 점: 초록 성공 · 노랑 일부 실패 · 빨강 실패 · 파랑 실행 중 · 빈 원 기록 없음. 총 소요는 가장 최근 분석의 첫 단계 시작부터 마지막 단계 종료까지예요
+          (동시에 도는 단계가 있어 단계 시간의 합과 다를 수 있어요). 실행 기록은 이 기능을 배포한 뒤부터 쌓여요.
         </p>
       </main>
     </div>

@@ -10,6 +10,41 @@ import { apiFetch, errorMessage } from "@/utils/api";
 import { isLoggedIn } from "@/utils/auth";
 import { AdminHeader, STEP_LABELS, StatusBadge, fmtDate, fmtMs, fmtSec } from "../../adminShared";
 
+const BAR_COLOR: Record<string, string> = {
+  succeeded: "bg-teal-500", partial: "bg-amber-400", failed: "bg-red-500", running: "bg-blue-400",
+};
+
+// 최근 분석 1회의 단계별 타임라인. 막대 위치 = 분석 시작 후 언제 시작했는지, 길이 = 걸린 시간.
+// 동작·음성처럼 동시에 도는 단계는 막대가 겹쳐 보인다.
+function RunTimeline({ run }: { run: Run }) {
+  const span = Math.max(
+    run.total_ms ?? 0,
+    ...run.steps.map((s) => s.offset_ms + (s.duration_ms ?? 0)),
+    1,
+  );
+  return (
+    <div className="space-y-2">
+      {run.steps.map((s) => {
+        const left = (s.offset_ms / span) * 100;
+        const width = Math.max(((s.duration_ms ?? 0) / span) * 100, 0.8);
+        return (
+          <div key={s.step} className="flex items-center gap-3 text-sm">
+            <span className="w-24 shrink-0 font-semibold text-slate-700">{STEP_LABELS[s.step] ?? s.step}</span>
+            <div className="relative flex-1 h-5 bg-slate-100 rounded-md overflow-hidden">
+              <div
+                className={`absolute top-0 h-full rounded-md ${BAR_COLOR[s.status] ?? "bg-slate-400"}`}
+                style={{ left: `${left}%`, width: `${width}%` }}
+                title={`${STEP_LABELS[s.step] ?? s.step}: ${fmtMs(s.duration_ms)}`}
+              />
+            </div>
+            <span className="w-20 shrink-0 text-right text-slate-600 whitespace-nowrap">{fmtMs(s.duration_ms)}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 interface Event {
   event_id: number; step: string; status: string; model: string | null; duration_ms: number | null;
   error: string | null; started_at: string; finished_at: string | null;
@@ -18,9 +53,13 @@ interface SegmentFb {
   segment_id: number; label: string; title: string; t_start: number; t_end: number;
   feedback: { strengths: string[]; improvements: string[] } | null;
 }
+interface Run {
+  started_at: string; total_ms: number | null; completed: boolean;
+  steps: { step: string; status: string; offset_ms: number; duration_ms: number | null }[];
+}
 interface Detail {
   session_id: number; session_no: number; project_title: string; project_trashed: boolean;
-  user_email: string; status: string; created_at: string; events: Event[];
+  user_email: string; status: string; created_at: string; run: Run | null; events: Event[];
   results: {
     voice_summary?: { filler_count: number | null; repetition_count: number | null; silence_ratio: number | null; avg_speaking_rate_spm: number | null } | null;
     overall?: { overall_summary: string | null } | null;
@@ -103,6 +142,24 @@ export default function AdminAnalysisDetailPage() {
                 {data.project_trashed && <span className="ml-2 text-amber-700 font-semibold">휴지통에 있는 프로젝트 (결과 생략)</span>}
               </p>
             </div>
+
+            {data.run && (
+              <Card title="최근 분석 소요 시간">
+                <div className="flex items-end gap-3 mb-5">
+                  <span className="text-3xl font-extrabold text-slate-800">
+                    {data.run.total_ms == null ? "진행 중" : fmtMs(data.run.total_ms)}
+                  </span>
+                  <span className="text-sm text-slate-500 mb-1">
+                    {new Date(data.run.started_at).toLocaleString("ko-KR")} 시작
+                    {!data.run.completed && data.run.total_ms != null && " · 종합 피드백까지 끝나지 않음"}
+                  </span>
+                </div>
+                <RunTimeline run={data.run} />
+                <p className="text-xs text-slate-400 mt-4">
+                  첫 단계 시작부터 마지막 단계 종료까지의 시간이에요. 동시에 도는 단계는 막대가 겹쳐 보여요.
+                </p>
+              </Card>
+            )}
 
             <Card title="실행 기록">
               {data.events.length === 0 ? (
