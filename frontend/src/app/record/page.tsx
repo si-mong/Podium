@@ -794,7 +794,7 @@ function RecordPage() {
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 text-center">
             <p className="text-slate-800 font-bold text-[15px] leading-relaxed whitespace-pre-line">
-              {"실수해도 괜찮아요 연습이니까요!\n재촬영 하지 말고 계속 촬영 진행해주세요!"}
+              {"실수해도 괜찮아요!\n재촬영 하지 말고 진행해주세요!"}
             </p>
             <button
               onClick={() => {

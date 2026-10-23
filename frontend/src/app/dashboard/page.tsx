@@ -1150,20 +1150,21 @@ function PresentationAnalysisDashboard() {
                       <div
                         key={topic.id}
                         onClick={() => editingTopicId !== topic.id && goTo({ folder: topic.id })}
-                        className="group relative bg-white rounded-2xl border border-slate-200 hover:border-blue-300 hover:shadow-md p-5 pt-7 flex flex-col items-center text-center cursor-pointer transition-all"
+                        // 흰 카드 없이 폴더 그림 + 이름만 (윈도우 바탕화면 폴더처럼). 마우스를 올리면 옅은 파란 배경
+                        className="group relative rounded-2xl p-3 pt-6 flex flex-col items-center text-center cursor-pointer transition-colors hover:bg-blue-50"
                       >
                         {/* 이름 변경 / 삭제 — 마우스를 올리면 보인다 */}
                         <div className="absolute top-2 right-2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
                           <button
                             onClick={(e) => startEditingTopic(e, topic)}
-                            className="text-slate-400 hover:text-blue-500 p-1.5 hover:bg-blue-50 rounded-lg transition-colors"
+                            className="text-slate-400 hover:text-blue-500 p-1.5 hover:bg-white rounded-lg transition-colors"
                             title="폴더 이름 변경"
                           >
                             <Pencil className="w-3.5 h-3.5" />
                           </button>
                           <button
                             onClick={(e) => askDeleteTopic(e, topic)}
-                            className="text-slate-400 hover:text-red-500 p-1.5 hover:bg-red-50 rounded-lg transition-colors"
+                            className="text-slate-400 hover:text-red-500 p-1.5 hover:bg-white rounded-lg transition-colors"
                             title="폴더 삭제"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -1171,7 +1172,7 @@ function PresentationAnalysisDashboard() {
                         </div>
 
                         {/* 폴더 아이콘 — 윈도우 폴더 모양 (마우스를 올리면 살짝 커짐) */}
-                        <FolderIcon className="w-20 h-auto mb-3 drop-shadow-sm group-hover:scale-105 transition-transform" />
+                        <FolderIcon className="w-28 h-auto mb-2 drop-shadow-sm group-hover:scale-105 transition-transform" />
                         {editingTopicId === topic.id ? (
                           <input
                             type="text"
