@@ -369,9 +369,8 @@ def api_step4_labels() -> dict:
     from app.pipeline import step4_segmentation as s4
     return {"labels": s4.LABELS,
             "policy": {"min_segment_sec": s4.MIN_SEGMENT_SEC,
-                       "target_sec_per_segment": s4.TARGET_SEC_PER_SEGMENT,
-                       "min_segments": s4.MIN_SEGMENTS,
-                       "max_segments": s4.MAX_SEGMENTS}}
+                       # [[이 길이(초) 미만, 최소 개수, 최대 개수], ...] — 마지막 줄의 길이는 null(그 이상)
+                       "count_rules": [list(r) for r in s4.SEGMENT_COUNT_RULES]}}
 
 
 @app.get("/api/step4/sources")
