@@ -99,12 +99,6 @@ interface TrendPoint {
   silence_ratio: number | null; // 0~1
 }
 
-// 구간 색 (구간 개수가 세션마다 달라서 순서대로 돌려 쓴다)
-const SEGMENT_COLORS = [
-  "bg-blue-500", "bg-indigo-500", "bg-purple-500", "bg-pink-500", "bg-orange-500",
-  "bg-teal-500", "bg-lime-500", "bg-rose-500", "bg-cyan-500",
-];
-
 // 구간 이름으로 보여줄 글자 — 분류 라벨(도입 등)이 있으면 그걸, 없으면 한 줄 요약 제목.
 const segmentName = (seg: { label: string | null; title: string }) => seg.label || seg.title;
 
@@ -930,53 +924,126 @@ function PresentationAnalysisDashboard() {
     goTo({ view: 'single', session: sessionId }); // 세션을 고르면 단일 분석 화면으로
   };
 
+  // 단일 분석 화면은 내용이 넓게 보이도록 왼쪽 사이드바 대신 상단 메뉴바를 쓴다.
+  const topNav = activeMenu === 'single';
+
+  // 메뉴 버튼 — 왼쪽 사이드바(세로)와 단일 분석의 상단 메뉴바(가로)가 같이 쓴다.
+  const renderMenuButton = (menu: typeof MENUS[number], horizontal: boolean) => {
+    const Icon = menu.icon;
+    const isActive = activeMenu === menu.id;
+    const isDisabled = !activeSessionId && menu.id !== 'sessions';
+
+    return (
+      <button
+        key={menu.id}
+        // "내 기록"은 어느 화면에서 누르든 폴더 목록(아이콘)으로 간다 — 열어 둔 폴더는 닫는다.
+        onClick={() => !isDisabled && goTo(menu.id === 'sessions' ? { view: 'sessions', folder: null } : { view: menu.id })}
+        disabled={isDisabled}
+        // 가로(상단 메뉴바): 글자 15px. 아이콘·여백은 넓은 화면(1700px 이상)에서만 크게(아이콘 24px),
+        // 그보다 좁으면(브라우저 100% 등) 한 줄에 다 들어가도록 작게(아이콘 20px)
+        className={`flex items-center rounded-xl transition-all text-left group
+          ${horizontal ? 'gap-2 px-3 py-2 min-[1700px]:gap-3 min-[1700px]:px-5 min-[1700px]:py-3 shrink-0' : 'w-full gap-3.5 px-4 py-3.5'}
+          ${isActive
+            ? 'bg-blue-50/80 text-blue-700 shadow-sm border border-blue-100'
+            : isDisabled
+              ? 'opacity-50 cursor-not-allowed text-slate-400'
+              : 'text-slate-600 hover:bg-slate-50 border border-transparent'}`}
+      >
+        <div className={`${horizontal ? 'p-1.5 min-[1700px]:p-2' : 'p-1.5'} rounded-lg transition-colors ${isActive ? 'bg-blue-100' : isDisabled ? 'bg-slate-50' : 'bg-slate-100 group-hover:bg-slate-200'}`}>
+          <Icon className={`${horizontal ? 'w-5 h-5 min-[1700px]:w-6 min-[1700px]:h-6' : 'w-4 h-4'} ${isActive ? 'text-blue-600' : 'text-slate-500'}`} />
+        </div>
+        <span className={`${horizontal ? 'text-[15px] whitespace-nowrap' : 'text-[15px]'} ${isActive ? 'font-bold' : 'font-semibold'}`}>
+          {menu.label}
+        </span>
+      </button>
+    );
+  };
+
+  // 아래 breadcrumb·logo 는 사이드바 화면과 상단 메뉴바(단일 분석)가 같이 쓴다.
+  // 상단 메뉴바일 때는 크게 (글자 1.1배: 14→15px, 로고 글자 20→22px / 아이콘·여백은 넓은 화면(1700px 이상)에서 1.5배).
+  // 1700px 보다 좁으면(브라우저 100% 등) 아이콘·여백을 줄이고, 폴더 이름과 휴지통·로그아웃 글자는 숨긴다(아이콘만).
+
+  // 지금 보고 있는 폴더 > 세션 표시
+  const breadcrumb = (
+    <div className={`flex items-center gap-3 font-medium bg-slate-100 rounded-full text-slate-600 border border-slate-200 z-10 min-w-0
+      ${topNav ? 'text-[15px] px-4 py-2 min-[1700px]:px-6 min-[1700px]:py-3' : 'text-sm px-4 py-2'}`}>
+      {activeTopicName && activeSessionName ? (
+        <>
+          {/* 폴더 이름을 누르면 "내 기록"에서 그 폴더(세션 목록 + 종합추이)를 연다 — 뒤로가기와 같은 효과 */}
+          <button
+            onClick={() => goTo({ view: 'sessions', folder: activeTopicId })}
+            className="flex items-center gap-3 hover:text-blue-600 transition-colors min-w-0"
+            title={`${activeTopicName} 폴더로 이동`}
+          >
+            <FolderOpen className={`${topNav ? 'w-5 h-5 min-[1700px]:w-6 min-[1700px]:h-6' : 'w-4 h-4'} text-slate-400 shrink-0`} />
+            <span className={`hover:underline truncate ${topNav ? 'hidden min-[1700px]:inline' : ''}`}>{activeTopicName}</span>
+          </button>
+          <ChevronRight className={`${topNav ? 'w-5 h-5' : 'w-3.5 h-3.5'} text-slate-300 shrink-0`} />
+          <span className={`text-blue-600 font-bold bg-blue-100 rounded-md whitespace-nowrap ${topNav ? 'px-3 py-0.5 min-[1700px]:px-4 min-[1700px]:py-1' : 'px-2.5 py-0.5'}`}>{activeSessionName}</span>
+        </>
+      ) : (
+        <span className="text-slate-400">선택된 세션이 없습니다</span>
+      )}
+    </div>
+  );
+
+  // 로고 — 누르면 홈 화면으로
+  const logo = (
+    <button
+      onClick={() => router.push('/home')}
+      className={`flex items-center group shrink-0 ${topNav ? 'gap-3 min-[1700px]:gap-4' : 'gap-2.5'}`}
+    >
+      <div className={`bg-blue-600 rounded-xl shadow-sm shadow-blue-200 group-hover:bg-blue-700 transition-colors ${topNav ? 'p-2 min-[1700px]:p-3' : 'p-2'}`}>
+        <BarChart2 className={`${topNav ? 'w-7 h-7 min-[1700px]:w-9 min-[1700px]:h-9' : 'w-6 h-6'} text-white`} />
+      </div>
+      <h1 className={`${topNav ? 'text-[22px]' : 'text-xl'} font-extrabold text-slate-800 tracking-tight group-hover:text-blue-700 transition-colors`}>Podium</h1>
+    </button>
+  );
+
   return (
-    <div className="flex h-screen bg-slate-50 font-sans overflow-hidden">
-      
-      {/* Sidebar Navigation */}
+    <div className={`flex h-screen bg-slate-50 font-sans overflow-hidden ${topNav ? 'flex-col' : ''}`}>
+
+      {/* 단일 분석 화면: 상단 메뉴바 (로고 · 메뉴 · 폴더>세션 · 휴지통 · 로그아웃) */}
+      {topNav && (
+        // 넓은 화면(1700px 이상): 높이 h-24, 로고와 메뉴 사이 gap-14 / 그보다 좁으면 h-20, gap-8 로 줄인다
+        <header className="h-20 min-[1700px]:h-24 bg-white border-b border-slate-200 shadow-sm z-20 shrink-0 flex items-center gap-8 min-[1700px]:gap-14 px-6 min-[1700px]:px-8">
+          {logo}
+          <nav className="flex items-center gap-2 min-w-0 overflow-x-auto">
+            {MENUS.map(menu => renderMenuButton(menu, true))}
+          </nav>
+          <div className="ml-auto flex items-center gap-2 min-[1700px]:gap-3 min-w-0">
+            {breadcrumb}
+            {/* 휴지통·로그아웃: 좁은 화면에서는 아이콘만 (마우스를 올리면 이름이 뜸) */}
+            <button
+              onClick={() => goTo({ view: 'trash' })}
+              className="flex items-center gap-2 px-3 py-2 min-[1700px]:px-4 min-[1700px]:py-3 rounded-xl text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition-colors text-[15px] font-semibold shrink-0"
+              title="휴지통"
+            >
+              <Trash2 className="w-5 h-5 min-[1700px]:w-6 min-[1700px]:h-6" />
+              <span className="hidden min-[1700px]:inline">휴지통</span>
+            </button>
+            <button
+              onClick={logout}
+              className="flex items-center gap-2 px-3 py-2 min-[1700px]:px-4 min-[1700px]:py-3 rounded-xl text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition-colors text-[15px] font-semibold shrink-0"
+              title="로그아웃"
+            >
+              <LogOut className="w-5 h-5 min-[1700px]:w-6 min-[1700px]:h-6" />
+              <span className="hidden min-[1700px]:inline">로그아웃</span>
+            </button>
+          </div>
+        </header>
+      )}
+
+      {/* Sidebar Navigation (단일 분석 화면에서는 위의 상단 메뉴바로 대신함) */}
+      {!topNav && (
       <aside className="w-[280px] bg-white border-r border-slate-200 flex flex-col flex-shrink-0 z-20 shadow-sm">
         <div className="h-20 flex items-center px-6 border-b border-slate-100 shrink-0">
-          {/* 로고를 누르면 홈 화면으로 */}
-          <button
-            onClick={() => router.push('/home')}
-            className="flex items-center gap-2.5 group"
-          >
-            <div className="bg-blue-600 p-2 rounded-xl shadow-sm shadow-blue-200 group-hover:bg-blue-700 transition-colors">
-              <BarChart2 className="w-6 h-6 text-white" />
-            </div>
-            <h1 className="text-xl font-extrabold text-slate-800 tracking-tight group-hover:text-blue-700 transition-colors">Podium</h1>
-          </button>
+          {logo}
         </div>
-        
+
         <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col pb-6">
           <nav className="p-4 space-y-1.5 shrink-0 mt-2">
-            {MENUS.map(menu => {
-              const Icon = menu.icon;
-              const isActive = activeMenu === menu.id;
-              const isDisabled = !activeSessionId && menu.id !== 'sessions';
-
-              return (
-                <button
-                  key={menu.id}
-                  // "내 기록"은 어느 화면에서 누르든 폴더 목록(아이콘)으로 간다 — 열어 둔 폴더는 닫는다.
-                  onClick={() => !isDisabled && goTo(menu.id === 'sessions' ? { view: 'sessions', folder: null } : { view: menu.id })}
-                  disabled={isDisabled}
-                  className={`w-full flex items-center gap-3.5 px-4 py-3.5 rounded-xl transition-all text-left group
-                    ${isActive 
-                      ? 'bg-blue-50/80 text-blue-700 shadow-sm border border-blue-100' 
-                      : isDisabled 
-                        ? 'opacity-50 cursor-not-allowed text-slate-400' 
-                        : 'text-slate-600 hover:bg-slate-50 border border-transparent'}`}
-                >
-                  <div className={`p-1.5 rounded-lg transition-colors ${isActive ? 'bg-blue-100' : isDisabled ? 'bg-slate-50' : 'bg-slate-100 group-hover:bg-slate-200'}`}>
-                    <Icon className={`w-4 h-4 ${isActive ? 'text-blue-600' : 'text-slate-500'}`} />
-                  </div>
-                  <span className={`text-[15px] ${isActive ? 'font-bold' : 'font-semibold'}`}>
-                    {menu.label}
-                  </span>
-                </button>
-              )
-            })}
+            {MENUS.map(menu => renderMenuButton(menu, false))}
           </nav>
         </div>
 
@@ -999,11 +1066,13 @@ function PresentationAnalysisDashboard() {
           </button>
         </div>
       </aside>
+      )}
 
       {/* Main Content Area */}
-      <main className="flex-1 flex flex-col min-w-0 bg-slate-50 relative">
-        
-        {/* Top Header bar */}
+      <main className="flex-1 flex flex-col min-w-0 min-h-0 bg-slate-50 relative">
+
+        {/* Top Header bar (단일 분석 화면에서는 상단 메뉴바가 대신해서 숨김) */}
+        {!topNav && (
         <header className="h-20 bg-white/80 backdrop-blur-md border-b border-slate-200 flex items-center justify-between px-8 flex-shrink-0 z-10 sticky top-0 relative">
           <div className="absolute left-1/2 -translate-x-1/2 flex justify-center w-full max-w-[50%] pointer-events-none">
             <h2 className="text-xl font-bold text-slate-800 text-center">
@@ -1011,26 +1080,9 @@ function PresentationAnalysisDashboard() {
             </h2>
           </div>
           <div></div>{/* Spacer for left side to keep justify-between working */}
-          <div className="flex items-center gap-3 text-sm font-medium bg-slate-100 px-4 py-2 rounded-full text-slate-600 border border-slate-200 z-10">
-            {activeTopicName && activeSessionName ? (
-              <>
-                {/* 폴더 이름을 누르면 "내 기록"에서 그 폴더(세션 목록 + 종합추이)를 연다 — 뒤로가기와 같은 효과 */}
-                <button
-                  onClick={() => goTo({ view: 'sessions', folder: activeTopicId })}
-                  className="flex items-center gap-3 hover:text-blue-600 transition-colors"
-                  title="이 폴더로 이동"
-                >
-                  <FolderOpen className="w-4 h-4 text-slate-400" />
-                  <span className="hover:underline">{activeTopicName}</span>
-                </button>
-                <ChevronRight className="w-3.5 h-3.5 text-slate-300" />
-                <span className="text-blue-600 font-bold bg-blue-100 px-2.5 py-0.5 rounded-md">{activeSessionName}</span>
-              </>
-            ) : (
-              <span className="text-slate-400">선택된 세션이 없습니다</span>
-            )}
-          </div>
+          {breadcrumb}
         </header>
+        )}
 
         {/* Scrollable Container for Content */}
         <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
@@ -1253,8 +1305,9 @@ function PresentationAnalysisDashboard() {
 
           {/* Analysis Views (Only show if a session is selected and we are not in 'sessions' tab) */}
           {activeMenu !== 'sessions' && activeMenu !== 'trash' && activeSessionId ? (
-            <div className="max-w-[1200px] mx-auto space-y-6 pb-12">
-              
+            // 단일 분석은 왼쪽·오른쪽 두 칸으로 놓으므로 더 넓게 쓴다
+            <div className={`${topNav ? 'max-w-[1600px]' : 'max-w-[1200px]'} mx-auto space-y-6 pb-12`}>
+
               {/* VIEW 3: Single Analysis */}
               {activeMenu === 'single' && (
                 <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 space-y-6">
@@ -1271,26 +1324,34 @@ function PresentationAnalysisDashboard() {
                     </div>
                   )}
 
+                  {/* 첫째 줄: 왼쪽 구간별 지표 분석 그래프 / 오른쪽 종합 피드백.
+                      화면 폭이 1200px 보다 좁으면(브라우저를 크게 확대했을 때 등) 두 칸이 비좁아져 글자가 잘리므로 위아래로 쌓는다.
+                      (둘째 줄 영상/스크립트도 같은 기준) */}
+                  <div className="grid grid-cols-1 min-[1200px]:grid-cols-2 gap-6 items-stretch">
                   {/* Top: Graphs by Segment */}
-                  <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-                    {/* 윗부분: 왼쪽(제목 + 지표 버튼) / 오른쪽(고른 지표의 총량 카드).
-                        예전엔 카드를 absolute 로 띄웠는데, 화면이 좁으면(브라우저 100% 등) 버튼 줄이 카드 밑으로
-                        들어가 가려졌다. 지금은 카드가 실제로 자리를 차지해서, 버튼은 카드 앞까지만 가고 줄바꿈된다. */}
-                    <div className="flex flex-col lg:flex-row lg:items-start gap-6 mb-8">
-                      <div className="flex-1 min-w-0">
-                        <h3 className="font-extrabold text-slate-800 text-lg flex items-center gap-2">
-                          <span className="bg-purple-100 text-purple-600 p-1.5 rounded-xl"><BarChart2 className="w-5 h-5"/></span>
-                          구간별 지표 분석 그래프
-                        </h3>
+                  <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 min-w-0">
+                    <h3 className="font-extrabold text-slate-800 text-lg flex items-center gap-2">
+                      <span className="bg-purple-100 text-purple-600 p-1.5 rounded-xl"><BarChart2 className="w-5 h-5"/></span>
+                      구간별 지표 분석 그래프
+                    </h3>
 
-                        {/* Metric Selection Buttons */}
+                    {/* 제목 아래: 왼쪽(지표 버튼 두 줄) / 오른쪽(고른 지표의 총량 카드).
+                        예전엔 카드를 absolute 로 띄웠는데, 화면이 좁으면(브라우저 100% 등) 버튼 줄이 카드 밑으로
+                        들어가 가려졌다. 지금은 카드가 실제로 자리를 차지해서, 버튼은 카드 앞까지만 가고 줄바꿈된다.
+                        items-stretch: 카드 높이를 왼쪽 버튼 두 줄을 합친 높이에 맞춘다.
+                        1700px 보다 좁은 화면에서는 버튼 글자(13px)·간격과 카드 폭(140px)·제목(13px)을 줄이고 카드 아이콘을 숨긴다.
+                        → 브라우저 100%(폭 약 1280px)에서 두 칸으로 놓여도 버튼 글자가 잘리지 않게. */}
+                    <div className="flex flex-row items-stretch gap-4 min-[1700px]:gap-6 mt-6 mb-8">
+                      <div className="flex-1 min-w-0">
+                        {/* Metric Selection Buttons — 6개를 3개씩 딱 두 줄로 (화면 폭과 상관없이).
+                            그래야 오른쪽 카드의 위·아래 끝이 첫째 줄 위·둘째 줄 아래와 맞는다 */}
                         {trendData.length > 0 && (
-                          <div className="flex flex-wrap gap-3 mt-6">
+                          <div className="grid grid-cols-3 gap-2 min-[1700px]:gap-3">
                             {SINGLE_METRICS_CONFIG.map(metric => (
                               <button
                                 key={metric.id}
                                 onClick={() => setActiveSingleMetric(metric.id)}
-                                className={`px-5 py-2.5 rounded-xl text-[14px] font-bold transition-all border ${
+                                className={`px-2 py-2.5 text-[13px] min-[1700px]:px-3 min-[1700px]:text-[14px] rounded-xl font-bold transition-all border whitespace-nowrap truncate ${
                                   activeSingleMetric === metric.id
                                     ? 'bg-slate-800 text-white border-slate-800 shadow-md shadow-slate-300'
                                     : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50 hover:text-slate-800'
@@ -1309,10 +1370,10 @@ function PresentationAnalysisDashboard() {
                         if (!activeStat) return null;
                         const Icon = activeStat.icon;
                         return (
-                          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 flex flex-col justify-between h-[110px] w-full lg:w-[260px] shrink-0">
+                          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 min-[1700px]:p-5 flex flex-col justify-between w-[140px] min-[1700px]:w-[200px] shrink-0">
                             <div className="flex justify-between items-start w-full gap-2">
-                              <p className="text-sm font-bold text-slate-500 mb-1 truncate">{activeStat.title}</p>
-                              <div className={`p-2 rounded-xl shrink-0 ${activeStat.bg}`}>
+                              <p className="text-[13px] min-[1700px]:text-sm font-bold text-slate-500 mb-1 truncate">{activeStat.title}</p>
+                              <div className={`hidden min-[1700px]:block p-2 rounded-xl shrink-0 ${activeStat.bg}`}>
                                 <Icon className={`w-5 h-5 ${activeStat.color}`} />
                               </div>
                             </div>
@@ -1373,8 +1434,35 @@ function PresentationAnalysisDashboard() {
                     )}
                   </div>
 
+                  {/* Overall AI Feedback — 핵심 한 줄(크게) + 부가 설명 짧은 문단.
+                      예전 세션은 headline 이 없어서 부가 설명 문단만 보인다 */}
+                  <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 min-w-0">
+                    <h3 className="font-extrabold text-slate-800 text-lg flex items-center gap-2 mb-6">
+                      <span className="bg-blue-100 text-blue-600 p-1.5 rounded-xl"><Award className="w-5 h-5"/></span>
+                      종합 피드백
+                    </h3>
+                    {overallFeedback ? (
+                      <div>
+                        {overallHeadline && (
+                          <p className="text-lg font-extrabold text-slate-800 mb-3">{overallHeadline}</p>
+                        )}
+                        {/* 행간 1.625 → 1.95 (1.2배), 자간 0 → 0.03em */}
+                        <p className="text-slate-600 text-[14px] font-medium leading-[1.95] tracking-[0.03em]">
+                          <TimestampText text={overallFeedback} onSeek={(sec) => seekVideo(sec)} />
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="rounded-xl bg-slate-50 border border-dashed border-slate-200 py-8 px-4 text-center text-sm text-slate-400 font-medium">
+                        종합 피드백이 없습니다. 구간별 분석까지 끝난 세션에서 표시됩니다.
+                      </div>
+                    )}
+                  </div>
+                  </div>
+
+                  {/* 둘째 줄: 왼쪽 영상(+ 구간 버튼) / 오른쪽 발표 스크립트 */}
+                  <div className="grid grid-cols-1 min-[1200px]:grid-cols-2 gap-6 items-stretch">
                   {/* Middle: Timeline & Video */}
-                  <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                  <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 min-w-0">
                     <div className="flex items-center justify-between mb-4">
                       <h3 className="font-extrabold text-slate-800 text-lg flex items-center gap-2">
                         <span className="bg-blue-100 text-blue-600 p-1.5 rounded-xl"><Video className="w-5 h-5"/></span>
@@ -1431,52 +1519,51 @@ function PresentationAnalysisDashboard() {
                               title={`${seg.title} (${fmtTime(seg.t_start)}~${fmtTime(seg.t_end)})`}
                               className={`flex-1 min-w-[110px] py-3 px-4 rounded-xl text-[15px] font-extrabold border transition-all ${activeSegmentIndex === idx ? 'bg-slate-800 text-white border-slate-800 shadow-md shadow-slate-300' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 hover:text-slate-800'}`}
                             >
-                              <div className="flex items-center justify-center gap-2.5">
-                                <div className={`w-3 h-3 rounded-full shadow-sm shrink-0 ${SEGMENT_COLORS[idx % SEGMENT_COLORS.length]}`}></div>
-                                {segmentName(seg)}
-                              </div>
+                              {segmentName(seg)}
                             </button>
                           ))}
-                        </div>
-
-                        {/* 총 스크립트 (인터랙티브: 문장/표시를 누르면 영상이 그 시점으로 이동, 구간 버튼을 누르면 그 구간 시작으로 이동) */}
-                        <div className="mt-5 bg-slate-50 rounded-xl p-5 border border-slate-100">
-                          <h4 className="font-extrabold text-slate-800 mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[15px]">
-                            <FileText className="w-4 h-4 text-blue-500" />
-                            {/* 분석 스크립트(필러·반복·무음·동작 표시) ↔ 원본 스크립트(문장만) 전환 */}
-                            <div className="flex bg-slate-200/70 rounded-lg p-0.5">
-                              {[{ plain: false, label: '분석 스크립트' }, { plain: true, label: '원본 스크립트' }].map((opt) => (
-                                <button
-                                  key={opt.label}
-                                  onClick={() => setScriptPlain(opt.plain)}
-                                  className={`px-3 py-1 rounded-md text-xs font-bold transition-colors ${
-                                    scriptPlain === opt.plain ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-                                  }`}
-                                >
-                                  {opt.label}
-                                </button>
-                              ))}
-                            </div>
-                            <span className="ml-auto text-xs font-medium text-slate-400">
-                              {scriptPlain ? '문장을 누르면 그 장면부터 재생됩니다' : '문장이나 표시를 누르면 그 장면부터 재생됩니다'}
-                            </span>
-                          </h4>
-                          <InteractiveScript
-                            script={script}
-                            videoChunks={videoChunks}
-                            currentTime={currentTime}
-                            isPlaying={isPlaying}
-                            onSeek={(sec) => seekVideo(sec)}
-                            plain={scriptPlain}
-                            segmentStarts={segments.map((s) => s.t_start)}
-                          />
                         </div>
                       </>
                     ) : (
                       <div className="mt-2 rounded-xl bg-slate-50 border border-dashed border-slate-200 py-8 px-4 text-center text-sm text-slate-400 font-medium">
-                        구간 분석 결과가 없습니다. 음성 분석과 구간 분리까지 끝난 세션에서 구간 타임라인과 스크립트가 표시됩니다.
+                        구간 분석 결과가 없습니다. 음성 분석과 구간 분리까지 끝난 세션에서 구간 타임라인이 표시됩니다.
                       </div>
                     )}
+                  </div>
+
+                  {/* 발표 스크립트 (인터랙티브: 문장/표시를 누르면 영상이 그 시점으로 이동, 구간 버튼을 누르면 그 구간 시작으로 이동) */}
+                  <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 min-w-0">
+                    <h3 className="font-extrabold text-slate-800 mb-4 flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <span className="bg-blue-100 text-blue-600 p-1.5 rounded-xl"><FileText className="w-5 h-5"/></span>
+                      {/* 분석 스크립트(필러·반복·무음·동작 표시) ↔ 원본 스크립트(문장만) 전환 */}
+                      <div className="flex bg-slate-200/70 rounded-lg p-0.5">
+                        {[{ plain: false, label: '분석 스크립트' }, { plain: true, label: '원본 스크립트' }].map((opt) => (
+                          <button
+                            key={opt.label}
+                            onClick={() => setScriptPlain(opt.plain)}
+                            // 글자 크기·굵기는 옆 카드 제목("구간별 영상 타임라인")과 같게 (text-lg, font-extrabold)
+                            className={`px-3 py-0.5 rounded-md text-lg font-extrabold transition-colors ${
+                              scriptPlain === opt.plain ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                            }`}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                      <span className="ml-auto text-xs font-medium text-slate-400">
+                        {scriptPlain ? '문장을 누르면 그 장면부터 재생됩니다' : '문장이나 표시를 누르면 그 장면부터 재생됩니다'}
+                      </span>
+                    </h3>
+                    <InteractiveScript
+                      script={script}
+                      videoChunks={videoChunks}
+                      currentTime={currentTime}
+                      isPlaying={isPlaying}
+                      onSeek={(sec) => seekVideo(sec)}
+                      plain={scriptPlain}
+                      segmentStarts={segments.map((s) => s.t_start)}
+                    />
+                  </div>
                   </div>
 
                   {/* Bottom: Segment AI Feedback */}
@@ -1546,29 +1633,6 @@ function PresentationAnalysisDashboard() {
                     ) : (
                       <div className="rounded-xl bg-slate-50 border border-dashed border-slate-200 py-8 px-4 text-center text-sm text-slate-400 font-medium">
                         구간별 피드백이 없습니다. 구간 분리와 구간별 분석이 끝난 세션에서 표시됩니다.
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Bottom: Overall AI Feedback — 구간별 피드백 아래. 핵심 한 줄(크게) + 부가 설명 짧은 문단.
-                      예전 세션은 headline 이 없어서 부가 설명 문단만 보인다 */}
-                  <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-                    <h3 className="font-extrabold text-slate-800 text-lg flex items-center gap-2 mb-6">
-                      <span className="bg-blue-100 text-blue-600 p-1.5 rounded-xl"><Award className="w-5 h-5"/></span>
-                      종합 피드백
-                    </h3>
-                    {overallFeedback ? (
-                      <div>
-                        {overallHeadline && (
-                          <p className="text-lg font-extrabold text-slate-800 mb-3">{overallHeadline}</p>
-                        )}
-                        <p className="text-slate-600 text-[14px] font-medium leading-relaxed">
-                          <TimestampText text={overallFeedback} onSeek={(sec) => seekVideo(sec)} />
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="rounded-xl bg-slate-50 border border-dashed border-slate-200 py-8 px-4 text-center text-sm text-slate-400 font-medium">
-                        종합 피드백이 없습니다. 구간별 분석까지 끝난 세션에서 표시됩니다.
                       </div>
                     )}
                   </div>
