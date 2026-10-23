@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_admin)])
 
-Target = Literal["step2_gemini", "step3_modal", "step4_gemini", "step5_openai"]
+Target = Literal["step2_gemini", "step3_modal", "step4_openai", "step5_openai"]
 
 # 점검 대상 → (단계 설명, 제공자, 모델). 모델은 각 단계 모듈의 상수를 그대로 읽어
 # 단계에서 모델을 바꾸면 점검도 자동으로 따라간다.
@@ -46,7 +46,7 @@ TARGETS: dict[str, tuple[str, str, str]] = {
     "step2_gemini": ("STEP 2 영상 분석", "gemini", step2_video_analysis.MODEL),
     # STEP 3 STT 는 WHISPER_MODEL 이 modal: 일 때 Modal 서버리스 GPU 에서 돈다 (stt_remote.py).
     "step3_modal": ("STEP 3 음성 인식 (STT)", "modal", settings.whisper_model),
-    "step4_gemini": ("STEP 4 구간 분리", "gemini", step4_segmentation.MODEL),
+    "step4_openai": ("STEP 4 구간 분리", "openai", step4_segmentation.MODEL),
     "step5_openai": ("STEP 5 피드백", "openai", step5_feedback.MODEL),
 }
 
