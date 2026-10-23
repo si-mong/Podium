@@ -25,7 +25,8 @@ from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
-MODEL = "gemini-2.5-flash"
+# 2026-10-23: Gemini(gemini-2.5-flash) → OpenAI gpt-4.1. STEP 5 피드백과 같은 모델·키를 쓴다.
+MODEL = "gpt-4.1"
 
 # ── 구간 크기 정책 ────────────────────────────────────────────────────────
 # PPT 목차 수준의 **큰 덩어리**를 원한다. 세부 화제가 바뀔 때마다 자르면 구간이
@@ -137,12 +138,12 @@ PROMPT = """당신은 발표 영상을 분석하는 도우미입니다.
 {labels}
 
 ## 출력 형식
-아래 JSON 배열만 출력하세요. 설명이나 마크다운은 쓰지 마세요.
+아래 형식의 JSON 객체만 출력하세요. 설명이나 마크다운은 쓰지 마세요.
 
-[
+{{"segments": [
   {{"label": "라벨", "title": "이 구간을 한 줄로 요약(20자 이내)", "start": 0, "end": 4}},
   ...
-]
+]}}
 
 ## 전사문
 {transcript}
@@ -364,8 +365,7 @@ def _stitch(segs, total_duration: float | None):
 def run(sentences: list[dict], total_duration: float | None = None,
         on_progress=None) -> SegmentResult:
     """문장 목록 → 구간. sentences 는 stt_sentences 형식(text/t_start/t_end)."""
-    from google import genai
-    from google.genai import types
+    from openai import OpenAI
 
     from app.core.config import settings
 
@@ -375,31 +375,35 @@ def run(sentences: list[dict], total_duration: float | None = None,
     # 환경변수는 settings 로 접근한다 (docs/CLAUDE.md 규칙).
     # os.getenv + load_dotenv 조합은 호출 위치에 따라 .env 를 못 찾는 경우가 있다 —
     # load_dotenv() 는 cwd 가 아니라 **호출한 파일 위치**에서 거슬러 올라가며 찾는다.
-    api_key = settings.gemini_api_key
+    api_key = settings.openai_api_key
     if not api_key:
-        raise RuntimeError("GEMINI_API_KEY 없음 (.env 확인)")
+        raise RuntimeError("OPENAI_API_KEY 없음 (.env 확인)")
 
     total_sec = total_duration or (sentences[-1]["t_end"] - sentences[0]["t_start"])
     lo, hi = target_count(total_sec)
     prompt = PROMPT.format(labels="\n".join(f"- {x}" for x in LABELS),
                            minutes=max(1, round(total_sec / 60)), lo=lo, hi=hi,
                            transcript=build_transcript(sentences))
-    client = genai.Client(api_key=api_key)
+    client = OpenAI(api_key=api_key)
 
     last_err = None
     for attempt in range(1, MAX_ATTEMPTS + 1):
         if on_progress:
             on_progress("llm", f"구간 분리 요청 ({attempt}/{MAX_ATTEMPTS})")
         try:
-            resp = client.models.generate_content(
+            # response_format=json_object 는 최상위가 객체여야 해서 {"segments": [...]} 로 받는다
+            # (프롬프트에 "JSON" 단어가 있어야 함)
+            resp = client.chat.completions.create(
                 model=MODEL,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    temperature=0.2,     # 분류 작업이라 낮게
-                ),
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"},
+                temperature=0.2,     # 분류 작업이라 낮게
             )
-            items = json.loads(resp.text)
+            raw = resp.choices[0].message.content or ""
+            data = json.loads(raw)
+            items = data.get("segments") if isinstance(data, dict) else data
+            if not isinstance(items, list):
+                raise ValueError(f"segments 배열이 없음: {raw[:200]}")
             segs, warns = _repair(items, len(sentences))
             if not segs:
                 raise ValueError("유효 구간 0개")
@@ -419,7 +423,7 @@ def run(sentences: list[dict], total_duration: float | None = None,
             _stitch(segs, total_duration)
 
             logger.info("STEP 4: 문장 %d개 → 구간 %d개", len(sentences), len(segs))
-            return SegmentResult(segments=segs, warnings=warns, raw=resp.text)
+            return SegmentResult(segments=segs, warnings=warns, raw=raw)
 
         except Exception as exc:  # noqa: BLE001 — 재시도 대상
             last_err = exc
