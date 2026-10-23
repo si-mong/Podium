@@ -104,7 +104,9 @@ const hue = s => [...s].reduce((a,c)=>a+c.charCodeAt(0),0) * 37 % 360;
 fetch("/api/step4/labels").then(r=>r.json()).then(d => {
   const p = d.policy;
   $("#policy").textContent =
-    `정책: 구간당 약 ${p.target_sec_per_segment}초 · 최소 ${p.min_segment_sec}초 · ${p.min_segments}~${p.max_segments}개 · 라벨 ${d.labels.length}종`;
+    `정책: 최소 ${p.min_segment_sec}초 · ` +
+    p.count_rules.map(([lim, lo, hi]) => `${lim ? `${lim / 60}분 미만` : "그 이상"} ${lo}~${hi}개`).join(" / ") +
+    ` · 라벨 ${d.labels.length}종`;
   $("#policy").title = d.labels.join(", ");
 });
 
