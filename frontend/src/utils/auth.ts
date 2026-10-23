@@ -1,6 +1,6 @@
 // 로그인 토큰 보관함 — 브라우저 localStorage 에 저장한다.
 //
-// 토큰 두 개 (백엔드 POST /auth/login 응답):
+// 토큰 두 개 (구글 로그인 후 POST /auth/oauth/exchange 응답):
 //   - access 토큰 : API 요청마다 "Authorization: Bearer ..." 로 붙이는 입장권. 60분짜리.
 //   - refresh 토큰: access 가 만료됐을 때 새 토큰을 받는 데만 쓴다. 14일짜리 (= 로그인 유지 기간).
 //

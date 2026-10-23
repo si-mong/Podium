@@ -55,10 +55,10 @@ export default function LandingPage() {
               로그인
             </Link>
             <Link
-              href="/signup"
+              href="/login"
               className="px-4 py-2 rounded-xl text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 transition-colors"
             >
-              회원가입
+              시작하기
             </Link>
           </div>
         </div>
@@ -81,7 +81,7 @@ export default function LandingPage() {
           </p>
           <div className="flex items-center justify-center gap-3 pt-2">
             <Link
-              href="/signup"
+              href="/login"
               className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold px-6 py-3.5 rounded-xl transition-colors shadow-sm shadow-blue-200"
             >
               무료로 시작하기
@@ -140,9 +140,9 @@ export default function LandingPage() {
         {/* 마무리 */}
         <section className="bg-blue-600 rounded-3xl p-10 text-center space-y-4 shadow-sm shadow-blue-200">
           <h3 className="text-2xl font-extrabold text-white">다음 발표, 미리 연습해 보세요</h3>
-          <p className="text-blue-100">가입하고 첫 발표 영상을 분석해 보세요.</p>
+          <p className="text-blue-100">구글 계정으로 바로 시작하고 첫 발표 영상을 분석해 보세요.</p>
           <Link
-            href="/signup"
+            href="/login"
             className="inline-flex items-center gap-2 bg-white hover:bg-blue-50 text-blue-700 text-sm font-bold px-6 py-3.5 rounded-xl transition-colors"
           >
             시작하기

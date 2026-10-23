@@ -1,10 +1,14 @@
-"""인증 라우터 — 회원가입 / 로그인 / 갱신 / 로그아웃.
+"""인증 라우터 — 로그인 / 갱신 / 로그아웃.
 
-  POST /auth/signup    -> 계정 생성
-  POST /auth/login     -> access + refresh 발급
+  GET  /auth/providers -> 사용할 수 있는 로그인 방식 (프론트가 버튼을 고를 때)
+  POST /auth/login     -> 이메일 + 비밀번호 로그인. **DEBUG(로컬 개발)에서만** 열린다
   POST /auth/refresh   -> refresh 로 새 쌍 발급 (기존 refresh 는 폐기 = 회전)
   POST /auth/logout    -> refresh 무효화
   GET  /auth/me        -> 현재 로그인한 사용자
+
+회원가입은 구글 로그인으로만 한다 (auth_google.py). 이메일 가입은 없앴다 — 이메일 소유 확인이
+없어서 아무 주소로나 가입할 수 있었기 때문. 비밀번호 로그인은 구글 설정 없이 로컬에서
+테스트할 수 있게 개발 환경에만 남겼다.
 
 토큰 구조와 회전 근거는 app/core/security.py 모듈 주석 참고.
 """
@@ -17,20 +21,19 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
 from app.api._deps import get_current_user_id
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import (
     REFRESH_TYPE,
     create_access_token,
     create_refresh_token,
     decode_token,
-    hash_password,
     verify_password,
 )
 from app.models import RefreshToken, User
 from app.schemas.auth import (
     LoginRequest,
     RefreshRequest,
-    SignupRequest,
     TokenPair,
     UserRead,
 )
@@ -39,22 +42,12 @@ from app.schemas.auth import (
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-@router.post("/signup", response_model=UserRead, status_code=201)
-def signup(body: SignupRequest, db: DbSession = Depends(get_db)):
-    """계정 생성. 토큰은 주지 않는다 — 이어서 /auth/login 을 호출할 것.
-
-    이메일 중복은 409 로 돌려준다. `users.email` 에 UNIQUE 제약이 걸려 있어
-    동시 요청이 겹쳐도 DB 가 최종 방어선이 된다.
-    """
-    email = body.email.lower()
-    if db.scalar(select(User).where(User.email == email)) is not None:
-        raise HTTPException(409, "이미 가입된 이메일입니다.")
-
-    user = User(email=email, password_hash=hash_password(body.password))
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    return user
+@router.get("/providers")
+def providers():
+    return {
+        "google": bool(settings.google_client_id and settings.google_client_secret),
+        "password": settings.debug,
+    }
 
 
 @router.post("/login", response_model=TokenPair)
@@ -64,8 +57,11 @@ def login(body: LoginRequest, db: DbSession = Depends(get_db)):
     이메일이 없든 비밀번호가 틀리든 **같은 401 문구**를 준다. 구분해서 알려주면
     "이 이메일은 가입돼 있다"는 사실이 새어나가 계정 열거에 쓰인다.
     """
+    if not settings.debug:
+        raise HTTPException(404, "이메일 로그인은 지원하지 않아요. 구글로 로그인해주세요.")
     user = db.scalar(select(User).where(User.email == body.email.lower()))
-    if user is None or not verify_password(body.password, user.password_hash):
+    # 구글로 만든 계정은 비밀번호가 없다(password_hash = NULL)
+    if user is None or not user.password_hash or not verify_password(body.password, user.password_hash):
         raise HTTPException(401, "이메일 또는 비밀번호가 올바르지 않습니다.")
 
     return _issue_pair(db, user.user_id)

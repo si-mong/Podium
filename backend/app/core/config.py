@@ -28,6 +28,15 @@ class Settings(BaseSettings):
     # refresh 토큰 수명 = 로그인 유지 기간. 이 기간이 지나면 다시 로그인해야 한다.
     jwt_refresh_expire_days: int = 14
 
+    # 구글 로그인 (Google Cloud 콘솔 → API 및 서비스 → 사용자 인증 정보 → OAuth 클라이언트 ID)
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    # 구글이 로그인 후 돌려보낼 주소를 만들 때 쓰는 이 API 서버의 외부 주소.
+    # 프록시(Caddy) 뒤라 요청에서 추론하면 http 로 잡히므로 명시한다.
+    api_public_url: str = "http://localhost:8000"
+    # 로그인이 끝나면 돌려보낼 프론트 주소
+    frontend_url: str = "http://localhost:3000"
+
     # Storage
     upload_dir: Path = Path("./uploads")
 
