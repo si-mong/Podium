@@ -14,7 +14,6 @@ import {
   ComposedChart
 } from 'recharts';
 import InteractiveScript, { TimestampText, fmtTime, ScriptData, VideoChunk } from './InteractiveScript';
-import { setPendingSlide } from '../slideStore';
 
 const videoThumbnail = "/dashboard-video-thumbnail.png";
 
@@ -108,6 +107,18 @@ const SEGMENT_COLORS = [
 
 // 구간 이름으로 보여줄 글자 — 분류 라벨(도입 등)이 있으면 그걸, 없으면 한 줄 요약 제목.
 const segmentName = (seg: { label: string | null; title: string }) => seg.label || seg.title;
+
+// "내 기록" 폴더 카드 아이콘 — 윈도우 탐색기 폴더처럼 생긴 노란 폴더 (직접 그린 SVG).
+// 뒤판(탭 달린 진한 노랑) + 안에 든 흰 종이 + 앞판(밝은 노랑) 세 겹.
+function FolderIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 64 52" className={className} aria-hidden="true">
+      <path d="M4 6a4 4 0 0 1 4-4h14.5a4 4 0 0 1 2.8 1.2L30 8h26a4 4 0 0 1 4 4v34a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4Z" fill="#E5A323" />
+      <rect x="9" y="12" width="46" height="20" rx="2" fill="#FFFFFF" />
+      <path d="M4 20a4 4 0 0 1 4-4h48a4 4 0 0 1 4 4v26a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4Z" fill="#FFC83D" />
+    </svg>
+  );
+}
 
 // --- Mock Data ---
 // (비교/성장 분석 화면은 아직 Mock. 단일 분석 화면은 실제 데이터로 바꿨다.)
@@ -221,10 +232,10 @@ const COMPARE_FEEDBACK = {
 };
 
 const MENUS = [
-  { id: 'sessions', label: '내 기록(발표 세션 목록)', icon: FolderOpen },
+  { id: 'sessions', label: '내 기록', icon: FolderOpen },
   { id: 'single', label: '단일 분석', icon: BarChart2 },
-  { id: 'compare', label: '비교 분석', icon: Columns },
-  { id: 'growth', label: '종합추이', icon: TrendingUp },
+  { id: 'compare', label: '비교분석(개발중)', icon: Columns },
+  { id: 'growth', label: '종합추이(개발중)', icon: TrendingUp },
 ];
 
 const COMPARE_METRICS = [
@@ -506,10 +517,14 @@ function PresentationAnalysisDashboard() {
   const [voiceSummary, setVoiceSummary] = useState<VoiceSummary | null>(null);
   const [videoChunks, setVideoChunks] = useState<VideoChunk[]>([]);
   const [script, setScript] = useState<ScriptData | null>(null);
+  const [scriptPlain, setScriptPlain] = useState(false); // 스크립트 보기: false = 분석 스크립트, true = 원본 스크립트(문장만)
   const [segments, setSegments] = useState<ApiSegment[]>([]);
   const [trend, setTrend] = useState<TrendPoint[]>([]);
   const [overallFeedback, setOverallFeedback] = useState<string | null>(null); // GET /sessions/{id}/overall-feedback — 부가 설명
   const [overallHeadline, setOverallHeadline] = useState<string | null>(null); // 같은 응답의 핵심 한 줄 (예전 세션은 null)
+  // 분석이 끝까지 안 된 세션인지 (분석 중에 새로고침·창 닫기를 했거나, 중간 단계가 실패하면 앞 단계 결과만 남는다).
+  // 마지막 단계인 구간 피드백·종합 피드백이 하나라도 없으면 "분석을 다시 진행해주세요" 안내를 띄운다.
+  const [analysisIncomplete, setAnalysisIncomplete] = useState(false);
   const [currentTime, setCurrentTime] = useState(0); // 영상의 현재 재생 위치(초)
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -519,6 +534,7 @@ function PresentationAnalysisDashboard() {
 
     setCurrentTime(0);
     setActiveSegmentIndex(0);
+    setAnalysisIncomplete(false); // 불러오는 동안은 안내를 숨긴다 (불러온 뒤에 판단)
     if (!activeSessionId) {
       setSessionVideoPath(null);
       setGestureTotals(null);
@@ -553,6 +569,11 @@ function PresentationAnalysisDashboard() {
       setTrend(trendData ? trendData.points : []);
       setOverallFeedback(overallData ? overallData.overall_summary : null);
       setOverallHeadline(overallData ? overallData.headline : null);
+
+      // 구간이 없거나, 피드백이 없는 구간이 있거나, 종합 피드백이 없으면 = 분석이 중간에 멈춘 세션
+      const segs = segmentData ? segmentData.segments : [];
+      const hasOverall = !!overallData && (overallData.headline !== null || overallData.overall_summary !== null);
+      setAnalysisIncomplete(segs.length === 0 || segs.some((s) => !s.feedback) || !hasOverall);
 
       // 동작 분석: 제스처 합계(상단 카드)와 조각 목록(스크립트에 표시)
       setVideoChunks(analysis ? analysis.analyses : []);
@@ -713,11 +734,7 @@ function PresentationAnalysisDashboard() {
   const [confirmDialog, setConfirmDialog] = useState<{ message: string; detail: string; onConfirm: () => void } | null>(null);
   const [targetTopicId, setTargetTopicId] = useState<string | null>(null);
 
-  // PDF는 아직 대응 API가 없어 Mock 유지. 영상은 /record 페이지에서 실시간 촬영으로 처리.
-  // 발표자료 PDF. "영상촬영하기"를 누르면 slideStore 에 담아 촬영 페이지로 넘긴다 (서버엔 저장 안 함).
-  const [uploadedPdf, setUploadedPdf] = useState<File | null>(null);
-  const [pdfError, setPdfError] = useState<string | null>(null);
-  const pdfInputRef = useRef<HTMLInputElement>(null);
+  // 영상은 /record 페이지에서 실시간 촬영으로 처리. 발표자료 PDF 도 촬영 페이지에서 고른다.
 
 
   // Helper to find currently selected topic and session names
@@ -829,7 +846,6 @@ function PresentationAnalysisDashboard() {
   const goToRecordPage = () => {
     if (!targetTopicId) return;
     const projectId = targetTopicId;
-    setPendingSlide(uploadedPdf); // PDF 를 골랐으면 촬영 화면에 슬라이드로 띄운다 (closeSessionModal 이 지우기 전에 담기)
     closeSessionModal();
     router.push(`/record?project=${projectId}`);
   };
@@ -838,7 +854,6 @@ function PresentationAnalysisDashboard() {
   const goToUploadPage = () => {
     if (!targetTopicId) return;
     const projectId = targetTopicId;
-    setPendingSlide(null); // 업로드 모드는 슬라이드를 안 띄운다
     closeSessionModal();
     router.push(`/record?project=${projectId}&mode=upload`);
   };
@@ -909,8 +924,6 @@ function PresentationAnalysisDashboard() {
   const closeSessionModal = () => {
     setIsSessionModalOpen(false);
     setTargetTopicId(null);
-    setUploadedPdf(null);
-    setPdfError(null);
   };
 
   const selectSession = (sessionId: string) => {
@@ -1157,7 +1170,8 @@ function PresentationAnalysisDashboard() {
                           </button>
                         </div>
 
-                        <Folder className="w-16 h-16 text-blue-500 fill-blue-100 mb-3" strokeWidth={1.5} />
+                        {/* 폴더 아이콘 — 윈도우 폴더 모양 (마우스를 올리면 살짝 커짐) */}
+                        <FolderIcon className="w-20 h-auto mb-3 drop-shadow-sm group-hover:scale-105 transition-transform" />
                         {editingTopicId === topic.id ? (
                           <input
                             type="text"
@@ -1243,6 +1257,19 @@ function PresentationAnalysisDashboard() {
               {/* VIEW 3: Single Analysis */}
               {activeMenu === 'single' && (
                 <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 space-y-6">
+                  {/* 분석이 중간에 멈춘 세션 안내 */}
+                  {analysisIncomplete && (
+                    <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl px-5 py-4">
+                      <AlertCircle className="w-5 h-5 mt-0.5 shrink-0" />
+                      <div>
+                        <p className="font-extrabold text-[15px]">분석을 다시 진행해주세요</p>
+                        <p className="text-sm font-medium mt-0.5">
+                          분석이 끝까지 진행되지 않았어요. 아래에는 분석된 곳까지만 보여요.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Top: Graphs by Segment */}
                   <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
                     {/* 윗부분: 왼쪽(제목 + 지표 버튼) / 오른쪽(고른 지표의 총량 카드).
@@ -1415,8 +1442,23 @@ function PresentationAnalysisDashboard() {
                         <div className="mt-5 bg-slate-50 rounded-xl p-5 border border-slate-100">
                           <h4 className="font-extrabold text-slate-800 mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[15px]">
                             <FileText className="w-4 h-4 text-blue-500" />
-                            총 스크립트
-                            <span className="ml-auto text-xs font-medium text-slate-400">문장이나 표시를 누르면 그 장면부터 재생됩니다</span>
+                            {/* 분석 스크립트(필러·반복·무음·동작 표시) ↔ 원본 스크립트(문장만) 전환 */}
+                            <div className="flex bg-slate-200/70 rounded-lg p-0.5">
+                              {[{ plain: false, label: '분석 스크립트' }, { plain: true, label: '원본 스크립트' }].map((opt) => (
+                                <button
+                                  key={opt.label}
+                                  onClick={() => setScriptPlain(opt.plain)}
+                                  className={`px-3 py-1 rounded-md text-xs font-bold transition-colors ${
+                                    scriptPlain === opt.plain ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                                  }`}
+                                >
+                                  {opt.label}
+                                </button>
+                              ))}
+                            </div>
+                            <span className="ml-auto text-xs font-medium text-slate-400">
+                              {scriptPlain ? '문장을 누르면 그 장면부터 재생됩니다' : '문장이나 표시를 누르면 그 장면부터 재생됩니다'}
+                            </span>
                           </h4>
                           <InteractiveScript
                             script={script}
@@ -1424,6 +1466,8 @@ function PresentationAnalysisDashboard() {
                             currentTime={currentTime}
                             isPlaying={isPlaying}
                             onSeek={(sec) => seekVideo(sec)}
+                            plain={scriptPlain}
+                            segmentStarts={segments.map((s) => s.t_start)}
                           />
                         </div>
                       </>
@@ -1448,21 +1492,17 @@ function PresentationAnalysisDashboard() {
                             onClick={() => selectSegment(idx)}
                             className={`p-6 rounded-2xl border transition-all cursor-pointer ${activeSegmentIndex === idx ? 'bg-blue-50/50 border-blue-300 shadow-sm ring-2 ring-blue-500/20' : 'bg-slate-50 border-slate-200 hover:bg-slate-100 hover:border-slate-300'}`}
                           >
-                            {/* 맨 윗줄: 왼쪽 "현재 선택됨" / 오른쪽 등급 스티커.
-                                높이를 고정해서 선택이 바뀌어도 카드 내용이 위아래로 움직이지 않게 한다 */}
-                            <div className="flex items-center justify-between min-h-[28px] mb-2">
-                              {activeSegmentIndex === idx ? <span className="text-xs font-bold text-blue-600 bg-blue-100 px-2.5 py-1 rounded-md">현재 선택됨</span> : <span />}
+                            {/* 맨 윗줄: 등급 스티커.
+                                높이를 고정해서 스티커가 없는 카드도 아래 내용 위치가 같게 한다 */}
+                            <div className="flex items-center min-h-[28px] mb-2">
                               {seg.feedback?.rating && (
                                 <span className={`text-xs font-extrabold px-3 py-1 rounded-full border ${RATING_STYLES[seg.feedback.rating]}`}>{seg.feedback.rating}</span>
                               )}
                             </div>
-                            <div className="flex items-start gap-2 mb-4">
-                              <div className={`w-3.5 h-3.5 mt-1.5 rounded-full shadow-sm shrink-0 ${SEGMENT_COLORS[idx % SEGMENT_COLORS.length]}`}></div>
-                              {/* 구간 이름과 시간·제목을 한 묶음으로 — 카드가 좁아서 줄이 바뀌어도 둘의 시작 위치가 맞는다 */}
-                              <div className="flex-1 min-w-0 flex flex-wrap items-baseline gap-x-4 gap-y-0.5">
-                                <h4 className="font-extrabold text-slate-800 text-[16px]">{segmentName(seg)}</h4>
-                                <span className="font-extrabold text-slate-800 text-[16px]">{fmtTime(seg.t_start)}~{fmtTime(seg.t_end)} · {seg.title}</span>
-                              </div>
+                            {/* 구간 이름과 시간·제목을 한 묶음으로 — 카드가 좁아서 줄이 바뀌어도 둘의 시작 위치가 맞는다 */}
+                            <div className="flex flex-wrap items-baseline gap-x-4 gap-y-0.5 mb-4">
+                              <h4 className="font-extrabold text-slate-800 text-[20px]">{segmentName(seg)}</h4>
+                              <span className="font-extrabold text-slate-800 text-[20px]">{fmtTime(seg.t_start)}~{fmtTime(seg.t_end)} · {seg.title}</span>
                             </div>
 
                             {seg.feedback ? (
@@ -1946,10 +1986,6 @@ function PresentationAnalysisDashboard() {
               </button>
             </div>
             <div className="p-6 space-y-5">
-              <p className="text-[14px] text-slate-500 font-medium">
-                영상촬영 시작 전에 발표자료 PDF 파일을 올려주세요. (PPT는 PDF로 저장해서 올려주세요)
-              </p>
-
               {/* Go to Recording Page */}
               <div>
                 <label className="block text-[14px] font-bold text-slate-700 mb-2">발표 영상 <span className="text-red-500">*</span></label>
@@ -1962,7 +1998,8 @@ function PresentationAnalysisDashboard() {
                     <Video className="w-6 h-6 text-blue-500" />
                   </div>
                   <p className="font-bold text-slate-700 text-[15px]">영상촬영하기</p>
-                  <p className="text-xs text-slate-400 mt-1">클릭하면 촬영 페이지로 이동합니다</p>
+                  <p className="text-xs text-slate-400 mt-1">클릭하면 촬영 페이지로 이동합니다.</p>
+                  <p className="text-xs text-slate-400 mt-0.5 whitespace-nowrap">(발표 자료 PDF는 촬영 페이지에서 올릴 수 있어요)</p>
                 </button>
 
                 {/* 영상 업로드하기 — 촬영 페이지를 업로드 모드(?mode=upload)로 연다 */}
@@ -1980,48 +2017,6 @@ function PresentationAnalysisDashboard() {
                   </div>
                 </button>
               </div>
-
-              {/* 발표자료 PDF — 고르면 "영상촬영하기" 때 촬영 화면에 슬라이드로 크게 띄운다 */}
-              <div>
-                <label className="block text-[14px] font-bold text-slate-700 mb-2">발표 자료(선택)</label>
-                <input
-                  ref={pdfInputRef}
-                  type="file"
-                  accept=".pdf,application/pdf"
-                  className="hidden"
-                  onChange={e => {
-                    const file = e.target.files?.[0];
-                    e.target.value = ''; // 같은 파일을 다시 골라도 onChange 가 불리게
-                    if (!file) return;
-                    if (!file.name.toLowerCase().endsWith('.pdf')) {
-                      setPdfError('PDF 파일만 올릴 수 있어요. PPT는 PDF로 저장해서 올려주세요.');
-                      return;
-                    }
-                    setPdfError(null);
-                    setUploadedPdf(file);
-                  }}
-                />
-                <div
-                  className={`border-2 border-dashed rounded-xl p-6 flex flex-col items-center justify-center cursor-pointer transition-colors
-                    ${uploadedPdf ? 'border-purple-500 bg-purple-50' : 'border-slate-300 bg-slate-50 hover:bg-slate-100'}`}
-                  onClick={() => pdfInputRef.current?.click()}
-                >
-                  {uploadedPdf ? (
-                    <>
-                      <FileText className="w-7 h-7 text-purple-500 mb-2" />
-                      <p className="font-bold text-purple-700">{uploadedPdf.name}</p>
-                      <p className="text-xs text-purple-400 mt-1">다른 파일로 바꾸려면 다시 클릭하세요</p>
-                    </>
-                  ) : (
-                    <div className="flex items-center gap-3 text-slate-500">
-                      <FileText className="w-5 h-5 text-slate-400" />
-                      <span className="font-semibold text-[14px]">클릭하여 PDF 자료 첨부 (촬영 화면에 슬라이드로 표시)</span>
-                    </div>
-                  )}
-                </div>
-                {pdfError && <p className="text-xs text-rose-600 font-semibold mt-2">{pdfError}</p>}
-              </div>
-
             </div>
             <div className="px-6 py-4 bg-slate-50 flex justify-end gap-3 rounded-b-2xl">
               <button

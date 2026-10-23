@@ -2,8 +2,7 @@
 
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { getPendingSlide } from "../slideStore";
-import { ArrowLeft, Circle, Square, Sparkles, Loader2, AlertCircle, RotateCcw, CheckCircle2, Upload } from "lucide-react";
+import { ArrowLeft, Circle, Square, Sparkles, Loader2, AlertCircle, RotateCcw, CheckCircle2, Upload, FileText } from "lucide-react";
 
 // API 호출은 apiFetch (로그인 토큰 자동 첨부, 만료 시 자동 갱신) — frontend/src/utils/api.ts
 import { apiFetch } from "@/utils/api";
@@ -90,17 +89,34 @@ function RecordPage() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null); // 고른 파일을 화면에서 미리 보기 위한 임시 주소
   const [dragOver, setDragOver] = useState(false);
 
-  // 발표자료 PDF (세션 추가 창에서 골랐을 때만). 있으면 슬라이드 크게 + 카메라 작게 화면으로 바뀐다.
+  // 발표자료 PDF (촬영 모드에서 촬영 시작 전에 고름, 선택). 있으면 슬라이드 크게 + 카메라 작게 화면으로 바뀐다.
+  // 서버에는 저장하지 않고 이 화면에서 보여주기만 한다.
+  const pdfInputRef = useRef<HTMLInputElement>(null);
+  const [slideFile, setSlideFile] = useState<File | null>(null);
   const [slideUrl, setSlideUrl] = useState<string | null>(null);
+  const [pdfError, setPdfError] = useState<string | null>(null);
   const hasSlide = !isUpload && slideUrl !== null;
 
+  // PDF 를 고르면 화면에 띄울 임시 주소를 만들고, 바꾸거나 빼거나 페이지를 떠나면 지운다 (메모리 정리).
   useEffect(() => {
-    const file = isUpload ? null : getPendingSlide();
-    if (!file) return;
-    const url = URL.createObjectURL(file);
+    if (!slideFile) {
+      setSlideUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(slideFile);
     setSlideUrl(url);
     return () => URL.revokeObjectURL(url);
-  }, [isUpload]);
+  }, [slideFile]);
+
+  const choosePdf = (file?: File) => {
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".pdf")) {
+      setPdfError("PDF 파일만 올릴 수 있어요. PPT는 PDF로 저장해서 올려주세요.");
+      return;
+    }
+    setPdfError(null);
+    setSlideFile(file);
+  };
 
   const log =(text: string, kind: LogKind = "info") => setLogs((prev) => [...prev, { text, kind }]);
 
@@ -673,6 +689,54 @@ function RecordPage() {
               <span className="text-sm font-bold text-slate-700">배경 흐리게</span>
               <span className="text-xs text-slate-400">촬영 영상의 배경을 흐리게 처리해요</span>
             </label>
+          )}
+
+          {/* 발표 자료 PDF (선택) — 촬영 시작 전에만 고르거나 바꿀 수 있다. 고르면 위에 슬라이드로 크게 뜬다 */}
+          {!isUpload && (phase === "idle" || phase === "error") && (
+            <div className={`pt-2 mb-4 ${!hasSlide ? "w-full lg:w-1/2 mx-auto" : ""}`}>
+              <input
+                ref={pdfInputRef}
+                type="file"
+                accept=".pdf,application/pdf"
+                className="hidden"
+                onChange={(e) => {
+                  choosePdf(e.target.files?.[0]);
+                  e.target.value = ""; // 같은 파일을 다시 골라도 onChange 가 불리게
+                }}
+              />
+              {slideFile ? (
+                <div className="flex items-center gap-2 bg-purple-50 border border-purple-200 rounded-xl px-3 py-2.5">
+                  <FileText className="w-4 h-4 text-purple-500 shrink-0" />
+                  <span className="text-sm font-bold text-purple-700 truncate">{slideFile.name}</span>
+                  <button
+                    onClick={() => pdfInputRef.current?.click()}
+                    className="ml-auto shrink-0 text-xs font-bold text-purple-600 hover:text-purple-800 px-2 py-1 rounded-lg hover:bg-purple-100 transition-colors"
+                  >
+                    바꾸기
+                  </button>
+                  <button
+                    onClick={() => setSlideFile(null)}
+                    className="shrink-0 text-xs font-bold text-slate-400 hover:text-rose-600 px-2 py-1 rounded-lg hover:bg-rose-50 transition-colors"
+                  >
+                    빼기
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => pdfInputRef.current?.click()}
+                  className="w-full border-2 border-dashed border-slate-300 bg-slate-50 hover:bg-slate-100 rounded-xl px-4 py-3 flex items-center justify-center gap-2 text-sm font-semibold text-slate-500 transition-colors"
+                >
+                  <FileText className="w-4 h-4 text-slate-400" />
+                  발표 자료 PDF 첨부 (선택) · 촬영 화면에 슬라이드로 보여요
+                </button>
+              )}
+              {pdfError ? (
+                <p className="text-xs text-rose-600 font-semibold mt-1.5">{pdfError}</p>
+              ) : (
+                !slideFile && <p className="text-xs text-slate-400 mt-1.5 text-center">PPT는 PDF로 저장해서 올려주세요</p>
+              )}
+            </div>
           )}
 
           {errorMsg && (

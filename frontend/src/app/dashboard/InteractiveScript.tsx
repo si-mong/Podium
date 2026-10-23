@@ -5,6 +5,8 @@
 //   - 영상이 재생되는 동안 지금 말하는 문장이 강조되고, 스크롤도 따라간다.
 //   - 구간 버튼을 눌러도(대시보드 쪽에서 영상을 그 구간 시작으로 옮겨주면) 같은 방식으로 따라간다.
 //   - 필러/반복/무음/동작 표시를 누르면 그 장면 1초 전부터 재생된다.
+//   - plain 이면 "원본 스크립트" — 필러/반복/무음/동작 표시 없이 문장만 보여준다 (위의 재생·강조·스크롤은 그대로).
+//   - 구간이 바뀌는 곳에 가로선을 긋는다 (두 스크립트 모두).
 // 데이터: GET /sessions/{id}/script (문장·무음·필러·반복) + GET /sessions/{id}/analysis (동작 분석)
 
 import React, { useEffect, useRef } from 'react';
@@ -101,6 +103,8 @@ interface Props {
   currentTime: number;         // 영상의 현재 재생 위치(초)
   isPlaying: boolean;
   onSeek: (sec: number) => void;
+  plain?: boolean;             // true = 원본 스크립트 (문장만)
+  segmentStarts?: number[];    // 각 구간의 시작 시각(초). 두 번째 구간부터 그 앞에 구분선을 긋는다.
 }
 
 /** 필러 한 개를 표시할 글. 모델 태그("<um>")나 음향 검출이면 어휘를 모르니 "필러"만. */
@@ -110,7 +114,8 @@ function fillerLabel(f: { text?: string | null }) {
 }
 
 // 세션 전체 스크립트로 줄을 만든다 (구간 필터 없음 — 처음부터 끝까지 다 보여준다).
-function buildRows(script: ScriptData, chunks: VideoChunk[]): Row[] {
+// plain 이면 문장 줄만 만들고 필러/반복/무음/동작은 붙이지 않는다.
+function buildRows(script: ScriptData, chunks: VideoChunk[], plain: boolean): Row[] {
   const rows: Row[] = script.sentences.map((s) => ({
     kind: 'sentence',
     t: s.t_start,
@@ -119,6 +124,7 @@ function buildRows(script: ScriptData, chunks: VideoChunk[]): Row[] {
     fillers: [],
     repetitions: [],
   }));
+  if (plain) return rows;
 
   // 필러·반복은 그것이 나온 시각에 말하던 문장(= 그 시각 이전에 시작한 마지막 문장) 아래에 붙인다.
   const owner = (t: number) => {
@@ -145,11 +151,19 @@ function buildRows(script: ScriptData, chunks: VideoChunk[]): Row[] {
   return rows.sort((a, b) => a.t - b.t);
 }
 
-export default function InteractiveScript({ script, videoChunks, currentTime, isPlaying, onSeek }: Props) {
+export default function InteractiveScript({ script, videoChunks, currentTime, isPlaying, onSeek, plain = false, segmentStarts = [] }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef<HTMLDivElement>(null);
 
-  const rows = script ? buildRows(script, videoChunks) : [];
+  const rows = script ? buildRows(script, videoChunks, plain) : [];
+
+  // 구분선을 그을 줄 번호 = 각 구간(첫 구간 제외)이 시작한 뒤 나오는 첫 줄.
+  // 구간 시작은 문장 시작 시각과 같아서 소수점 오차만 조금 봐준다.
+  const dividerBefore = new Set<number>();
+  for (const start of segmentStarts.slice(1)) {
+    const idx = rows.findIndex((r) => r.t >= start - 0.01);
+    if (idx > 0) dividerBefore.add(idx);
+  }
 
   // 지금 재생 중인 문장 = 시작 ≤ 현재 위치 < 끝
   const activeIndex = rows.findIndex((r) => r.kind === 'sentence' && r.t <= currentTime && currentTime < r.end);
@@ -161,7 +175,7 @@ export default function InteractiveScript({ script, videoChunks, currentTime, is
     const el = activeRef.current;
     if (!isPlaying || !box || !el) return;
     box.scrollTo({ top: el.offsetTop - box.clientHeight / 2 + el.clientHeight / 2, behavior: 'smooth' });
-  }, [activeIndex, isPlaying]);
+  }, [activeIndex, isPlaying, plain]);
 
   if (!script || script.sentences.length === 0) {
     return <p className="text-sm text-slate-400 font-medium py-6 text-center">이 세션에는 음성 분석(스크립트) 결과가 없습니다.</p>;
@@ -173,11 +187,14 @@ export default function InteractiveScript({ script, videoChunks, currentTime, is
     <div ref={containerRef} className="relative space-y-2 h-[400px] overflow-y-auto custom-scrollbar pr-2">
       {rows.map((row, i) => {
         const time = <span className="text-slate-400 font-bold shrink-0 w-12 pt-1 text-[13px]">{fmtTime(row.t)}</span>;
+        // 새 구간의 첫 줄이면 위쪽에 얇은 구분선 + 위아래 여백.
+        // 바깥 박스의 space-y-2 가 위 여백(margin-top)을 덮어쓰므로 !mt-5 로 강제한다.
+        const divider = dividerBefore.has(i) ? 'border-t border-slate-400 pt-5 !mt-5' : '';
 
         if (row.kind === 'sentence') {
           const isActive = i === activeIndex;
           return (
-            <div key={`s-${i}`} ref={isActive ? activeRef : null} className="flex gap-3 text-[14px]">
+            <div key={`s-${i}`} ref={isActive ? activeRef : null} className={`flex gap-3 text-[14px] ${divider}`}>
               {time}
               <div className="flex-1">
                 <button
@@ -220,7 +237,7 @@ export default function InteractiveScript({ script, videoChunks, currentTime, is
 
         if (row.kind === 'silence') {
           return (
-            <div key={`sil-${i}`} className="flex gap-3 text-[14px]">
+            <div key={`sil-${i}`} className={`flex gap-3 text-[14px] ${divider}`}>
               {time}
               <button
                 onClick={() => onSeek(Math.max(0, row.t - LEAD_SEC))}
@@ -233,10 +250,10 @@ export default function InteractiveScript({ script, videoChunks, currentTime, is
           );
         }
 
-        // 동작 분석 조각 (약 20초 단위 — 제스처 하나하나의 시각은 알 수 없고, 그 조각 안에서 센 횟수만 안다)
+        // 동작 분석 조각 (구간 기준 최대 1분 단위 — 제스처 하나하나의 시각은 알 수 없고, 그 조각 안에서 센 횟수만 안다)
         const counts = Object.entries(row.chunk.gesture_counts || {}).filter(([, n]) => n > 0);
         return (
-          <div key={`m-${i}`} className="flex gap-3 text-[14px]">
+          <div key={`m-${i}`} className={`flex gap-3 text-[14px] ${divider}`}>
             {time}
             <div className="flex flex-wrap items-center gap-1.5">
               <button
