@@ -25,7 +25,8 @@ from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
-MODEL = "gemini-2.5-flash"
+# 2026-10-23: Gemini(gemini-2.5-flash) → OpenAI gpt-4.1. STEP 5 피드백과 같은 모델·키를 쓴다.
+MODEL = "gpt-4.1"
 
 # ── 구간 크기 정책 ────────────────────────────────────────────────────────
 # PPT 목차 수준의 **큰 덩어리**를 원한다. 세부 화제가 바뀔 때마다 자르면 구간이
@@ -34,10 +35,28 @@ MODEL = "gemini-2.5-flash"
 # 두 겹으로 막는다:
 #   1) 프롬프트에 발표 길이 기준 목표 개수 제시 (LLM 이 크게 묶도록)
 #   2) 그래도 짧게 나오면 후처리로 이웃에 병합 (LLM 출력에 의존하지 않음)
-# 구간을 크게 만드는 수단은 **길이 제약이 아니라 라벨 설계와 흡수 규칙**이다.
+#   3) 그래도 목표 개수보다 많으면 가장 짧은 구간부터 이웃에 병합
 # 45초로 잡았더니 «주제소개 10초 → 배경설명 22초 → 문제제시 16초» 같은
-# 정상적인 흐름까지 통째로 뭉개졌다. 여기서는 부스러기만 걷어낸다.
-MIN_SEGMENT_SEC = 5.0      # 명백한 부스러기만 흡수 (정상 흐름은 10초대도 유효)
+# 정상적인 흐름까지 통째로 뭉개졌다.
+# 2026-10-23: 5초 → 20초. 실측에서 «도입 0~5초 → 배경 10~35초» 처럼 몇 초짜리
+# 도입이 따로 남았다. 20초 미만은 구간별 피드백을 줄 만한 분량이 아니라고 보고 흡수한다.
+MIN_SEGMENT_SEC = 20.0
+
+# 발표 길이별 구간 개수 (상한, 하한). 길어져도 너무 잘게 자르지 않도록 상한을 6 으로 묶는다.
+#   (이 길이 미만이면, 최소 개수, 최대 개수) — 마지막 줄은 그 이상 전부
+SEGMENT_COUNT_RULES = [
+    (4 * 60, 2, 4),
+    (7 * 60, 3, 6),
+    (None, 4, 6),
+]
+
+
+def target_count(total_sec: float) -> tuple[int, int]:
+    """발표 길이(초) → (최소, 최대) 구간 개수."""
+    for limit, lo, hi in SEGMENT_COUNT_RULES:
+        if limit is None or total_sec < limit:
+            return lo, hi
+    return SEGMENT_COUNT_RULES[-1][1:]
 
 # 같은 라벨이 다시 나오면 사이에 낀 구간까지 하나로 합친다.
 #   예: 한계 → 개념설명 → 한계  ⇒  하나의 «한계»
@@ -78,7 +97,7 @@ LABELS = [
 # 쪼개짐 위험이 큰 라벨은 최소 길이를 따로 둔다. 이보다 짧으면 독립 구간으로 보지 않고
 # 이웃 구간에 흡수하며, 라벨은 **이웃 쪽**을 따른다 (짧은 개념 설명 = 곁들인 설명).
 STRICT_LABELS = {"배경", "핵심개념"}
-STRICT_LABEL_MIN_SEC = 20.0
+STRICT_LABEL_MIN_SEC = 20.0   # 지금은 MIN_SEGMENT_SEC 와 같다. 더 엄격하게 하려면 이 값만 올린다
 
 # ⚠️ "기타" 라벨은 두지 않는다. 주제가 잠시 곁길로 새는 일이 흔한데 그때마다
 #    구간이 쪼개지면 분리가 지나치게 빈번해진다. **주제가 바뀌는 시작점**을
@@ -112,17 +131,19 @@ PROMPT = """당신은 발표 영상을 분석하는 도우미입니다.
    조건이 애매하면 독립 구간으로 만들지 말고 앞뒤 구간에 포함시키세요.
 7. 「사례」는 사례·근거 자료를 소개하는 것이 **발표의 중심 내용**일 때만 쓰세요.
    다른 내용을 뒷받침하려고 짧게 든 예시는 그 내용의 구간에 포함시키세요.
+8. 이 발표는 약 {minutes}분입니다. 구간은 **{lo}~{hi}개**로 나누세요. 발표가 길어도
+   {hi}개를 넘기지 말고, 20초가 안 되는 짧은 구간은 만들지 말고 앞뒤 구간에 포함시키세요.
 
 ## 라벨 목록
 {labels}
 
 ## 출력 형식
-아래 JSON 배열만 출력하세요. 설명이나 마크다운은 쓰지 마세요.
+아래 형식의 JSON 객체만 출력하세요. 설명이나 마크다운은 쓰지 마세요.
 
-[
+{{"segments": [
   {{"label": "라벨", "title": "이 구간을 한 줄로 요약(20자 이내)", "start": 0, "end": 4}},
   ...
-]
+]}}
 
 ## 전사문
 {transcript}
@@ -219,6 +240,34 @@ def _min_sec_for(seg, min_sec, strict_min_sec):
     return max(min_sec, strict_min_sec) if seg.label in STRICT_LABELS else min_sec
 
 
+def _shorter_neighbor(segs, sentences, i: int) -> int:
+    """i 번 구간과 합칠 이웃 — 더 짧은 쪽 (한쪽만 비대해지는 것을 막는다)."""
+    if i == 0:
+        return 1
+    if i == len(segs) - 1:
+        return i - 1
+    return i - 1 if _dur(segs[i - 1], sentences) <= _dur(segs[i + 1], sentences) else i + 1
+
+
+def _cap_count(segs, sentences, max_count: int):
+    """구간이 목표 상한보다 많으면 가장 짧은 구간부터 이웃(더 짧은 쪽)에 합친다.
+
+    라벨·제목은 **긴 쪽**을 따른다. LLM 이 개수 지침을 무시해도 여기서 막힌다.
+    같은 라벨 병합의 MAX_MERGE_RATIO 는 여기서 보지 않는다 — 개수 상한이 우선이다.
+    """
+    warns = []
+    while len(segs) > max(max_count, 1):
+        short = min(range(len(segs)), key=lambda k: _dur(segs[k], sentences))
+        other = _shorter_neighbor(segs, sentences, short)
+        a, b = sorted((short, other))
+        keep = segs[a] if _dur(segs[a], sentences) >= _dur(segs[b], sentences) else segs[b]
+        merged = Segment(label=keep.label, title=keep.title,
+                         start_idx=segs[a].start_idx, end_idx=segs[b].end_idx)
+        warns.append(f"구간 수 상한({max_count}개) 초과 → {_dur(segs[short], sentences):.0f}초 구간 병합 → «{merged.label}»")
+        segs = segs[:a] + [merged] + segs[b + 1:]
+    return segs, warns
+
+
 def _merge_short(segs, sentences, min_sec, strict_min_sec=STRICT_LABEL_MIN_SEC):
     """기준보다 짧은 구간을 이웃에 흡수. 라벨·제목은 **긴 쪽**을 따른다.
 
@@ -234,14 +283,7 @@ def _merge_short(segs, sentences, min_sec, strict_min_sec=STRICT_LABEL_MIN_SEC):
                       if _dur(s, sentences) < _min_sec_for(s, min_sec, strict_min_sec)), None)
         if short is None:
             break
-        # 이웃 중 더 짧은 쪽과 합쳐 한쪽만 비대해지는 것을 막는다
-        if short == 0:
-            other = 1
-        elif short == len(segs) - 1:
-            other = short - 1
-        else:
-            other = (short - 1 if _dur(segs[short - 1], sentences)
-                     <= _dur(segs[short + 1], sentences) else short + 1)
+        other = _shorter_neighbor(segs, sentences, short)
         a, b = sorted((short, other))
         if _dur(segs[short], sentences) >= min_sec:
             keep = segs[other]   # STRICT 기준에만 걸린 경우 → 이웃 라벨
@@ -323,8 +365,7 @@ def _stitch(segs, total_duration: float | None):
 def run(sentences: list[dict], total_duration: float | None = None,
         on_progress=None) -> SegmentResult:
     """문장 목록 → 구간. sentences 는 stt_sentences 형식(text/t_start/t_end)."""
-    from google import genai
-    from google.genai import types
+    from openai import OpenAI
 
     from app.core.config import settings
 
@@ -334,28 +375,35 @@ def run(sentences: list[dict], total_duration: float | None = None,
     # 환경변수는 settings 로 접근한다 (docs/CLAUDE.md 규칙).
     # os.getenv + load_dotenv 조합은 호출 위치에 따라 .env 를 못 찾는 경우가 있다 —
     # load_dotenv() 는 cwd 가 아니라 **호출한 파일 위치**에서 거슬러 올라가며 찾는다.
-    api_key = settings.gemini_api_key
+    api_key = settings.openai_api_key
     if not api_key:
-        raise RuntimeError("GEMINI_API_KEY 없음 (.env 확인)")
+        raise RuntimeError("OPENAI_API_KEY 없음 (.env 확인)")
 
+    total_sec = total_duration or (sentences[-1]["t_end"] - sentences[0]["t_start"])
+    lo, hi = target_count(total_sec)
     prompt = PROMPT.format(labels="\n".join(f"- {x}" for x in LABELS),
+                           minutes=max(1, round(total_sec / 60)), lo=lo, hi=hi,
                            transcript=build_transcript(sentences))
-    client = genai.Client(api_key=api_key)
+    client = OpenAI(api_key=api_key)
 
     last_err = None
     for attempt in range(1, MAX_ATTEMPTS + 1):
         if on_progress:
             on_progress("llm", f"구간 분리 요청 ({attempt}/{MAX_ATTEMPTS})")
         try:
-            resp = client.models.generate_content(
+            # response_format=json_object 는 최상위가 객체여야 해서 {"segments": [...]} 로 받는다
+            # (프롬프트에 "JSON" 단어가 있어야 함)
+            resp = client.chat.completions.create(
                 model=MODEL,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    temperature=0.2,     # 분류 작업이라 낮게
-                ),
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"},
+                temperature=0.2,     # 분류 작업이라 낮게
             )
-            items = json.loads(resp.text)
+            raw = resp.choices[0].message.content or ""
+            data = json.loads(raw)
+            items = data.get("segments") if isinstance(data, dict) else data
+            if not isinstance(items, list):
+                raise ValueError(f"segments 배열이 없음: {raw[:200]}")
             segs, warns = _repair(items, len(sentences))
             if not segs:
                 raise ValueError("유효 구간 0개")
@@ -363,7 +411,10 @@ def run(sentences: list[dict], total_duration: float | None = None,
             segs, swarns = _merge_same_label(segs, sentences,
                                              MAX_SANDWICH_GAP, MAX_MERGE_RATIO)
             segs, mwarns = _merge_short(segs, sentences, MIN_SEGMENT_SEC)
-            warns += swarns + mwarns
+            segs, cwarns = _cap_count(segs, sentences, hi)
+            warns += swarns + mwarns + cwarns
+            if len(segs) < lo:
+                warns.append(f"구간 {len(segs)}개 — 목표 {lo}~{hi}개보다 적음 (내용상 더 나누지 않음)")
 
             # ── 시각 매핑: LLM 이 아니라 우리 데이터에서 ──
             for s in segs:
@@ -372,7 +423,7 @@ def run(sentences: list[dict], total_duration: float | None = None,
             _stitch(segs, total_duration)
 
             logger.info("STEP 4: 문장 %d개 → 구간 %d개", len(sentences), len(segs))
-            return SegmentResult(segments=segs, warnings=warns, raw=resp.text)
+            return SegmentResult(segments=segs, warnings=warns, raw=raw)
 
         except Exception as exc:  # noqa: BLE001 — 재시도 대상
             last_err = exc
