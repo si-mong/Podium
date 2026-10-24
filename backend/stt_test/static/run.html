@@ -108,16 +108,8 @@
       </div>
       <button data-run="end">실행</button>
     </div>
-    <div class="step" data-step="motion">
-      <span class="n">2</span>
-      <div class="body">
-        <div class="name">영상분석 <span class="hint">(STEP2, Gemini)</span></div>
-        <div class="status"><span class="badge wait">대기</span></div>
-      </div>
-      <button data-run="motion">실행</button>
-    </div>
     <div class="step" data-step="voice">
-      <span class="n">3</span>
+      <span class="n">2</span>
       <div class="body">
         <div class="name">음성분석 <span class="hint">(STEP3, 선택한 모델로 STT)</span></div>
         <div class="status"><span class="badge wait">대기</span></div>
@@ -125,12 +117,20 @@
       <button data-run="voice">실행</button>
     </div>
     <div class="step" data-step="segments">
-      <span class="n">4</span>
+      <span class="n">3</span>
       <div class="body">
         <div class="name">구간분리 <span class="hint">(STEP4, Gemini LLM)</span></div>
         <div class="status"><span class="badge wait">대기</span></div>
       </div>
       <button data-run="segments">실행</button>
+    </div>
+    <div class="step" data-step="motion">
+      <span class="n">4</span>
+      <div class="body">
+        <div class="name">영상분석 <span class="hint">(STEP2, 구간 기준 최대 1분 청크, Gemini)</span></div>
+        <div class="status"><span class="badge wait">대기</span></div>
+      </div>
+      <button data-run="motion">실행</button>
     </div>
   </div>
 </div>
@@ -248,7 +248,7 @@ async function runStep(step) {
     if (step === "end") {
       url = `${MAIN_API}/sessions/${sessionId}/end`;
     } else if (step === "motion") {
-      url = `${MAIN_API}/sessions/${sessionId}/analyze/motion`;
+      url = `${MAIN_API}/sessions/${sessionId}/analyze/motion-by-segment`;
     } else if (step === "voice") {
       const kw = $("#keywords").value;
       const qs = new URLSearchParams();
@@ -287,18 +287,19 @@ $("#runAll").onclick = async () => {
   $("#runAllStatus").textContent = "1/4 전처리 중…";
   if (!(await runStep("end"))) { $("#runAll").disabled = false; return; }
 
-  // STEP2(영상)·STEP3(음성)는 서로 의존하지 않으므로 동시 실행 — 대기 시간 단축.
-  $("#runAllStatus").textContent = "2~3/4 영상분석 + 음성분석 동시 실행 중… (수 분 소요)";
-  const [motionOk, voiceOk] = await Promise.all([runStep("motion"), runStep("voice")]);
-  if (!voiceOk) {
+  // 순서: 음성 → 구간분리 → 영상. 영상은 구간을 기준으로 잘라 보내므로 구간분리가 먼저 끝나야 한다.
+  $("#runAllStatus").textContent = "2/4 음성분석 중… (수 분 소요)";
+  if (!(await runStep("voice"))) {
     $("#runAllStatus").textContent = "실패 — 음성분석 없이는 구간분리 불가";
     $("#runAll").disabled = false;
     return;
   }
-  if (!motionOk) log("영상분석은 실패했지만 음성분석은 성공 — 구간분리는 계속 진행(제스처 값만 빔)", "warn");
 
-  $("#runAllStatus").textContent = "4/4 구간분리 중…";
+  $("#runAllStatus").textContent = "3/4 구간분리 중…";
   if (!(await runStep("segments"))) { $("#runAll").disabled = false; return; }
+
+  $("#runAllStatus").textContent = "4/4 영상분석 중…";
+  if (!(await runStep("motion"))) log("영상분석은 실패 — 제스처 값만 빈 채로 STEP5 진행 가능", "warn");
 
   $("#runAllStatus").textContent = "전체 완료";
   $("#donePanel").style.display = "";

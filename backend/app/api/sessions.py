@@ -10,6 +10,8 @@
   POST /sessions/{id}/analyze/motion            -> STEP 2 VLM 동작 분석 (별도 호출)
   POST /sessions/{id}/analyze/voice             -> STEP 3 음성 분석 (별도 호출)
   POST /sessions/{id}/analyze/segments          -> STEP 4 구간 분리 + 집계
+  POST /sessions/{id}/analyze/motion-by-segment -> STEP 2 구간 기준 VLM 동작 분석 (segments 다음에 호출,
+                                                   /analyze/motion 을 대체)
   GET    /sessions/{id}/voice-summary           -> 세션 전체 음성 지표 (필러/반복/무음/말속도)
   GET    /sessions/{id}/script                  -> 인터랙티브 스크립트용 문장 + 무음/필러/반복 (시각 포함)
   GET    /sessions/{id}/video                   -> 영상 스트리밍 (Range 지원)
@@ -335,7 +337,7 @@ def end_session(
 def _to_video_timelines(timelines: dict | None, chunk_start: float) -> dict:
     """VLM 이 준 제스처 시각("MM:SS")을 전체 영상 기준 "M:SS" 로 바꾼다.
 
-    Gemini 는 잘라낸 청크(약 20초)만 보기 때문에 시각도 청크 시작을 0:00 으로 답한다.
+    Gemini 는 잘라낸 청크(20초~1분)만 보기 때문에 시각도 청크 시작을 0:00 으로 답한다.
     예) 1:30 에 시작하는 청크의 "00:17" → 실제로는 "1:47"
     """
     out = {}
@@ -421,6 +423,110 @@ def analyze_motion(
         ))
 
     session.status = "analyzed"
+    db.commit()
+
+    return MotionAnalysisResult(
+        session_id=session_id,
+        status=session.status,
+        chunk_count=len(plan),
+        analyzed_count=len(vlm_items),
+        covered_sec=round(sum(c.duration_sec for c in plan), 2),
+        json_output_path=str((storage.session_dir(session_id) / "vlm_analysis.json").relative_to(upload_dir)),
+    )
+
+
+# segment_analyses 중 영상에서 나오는 칸. segments 단계에선 영상 결과가 아직 없어 비어 있으므로
+# motion-by-segment 가 VLM 분석 뒤에 채운다.
+_VIDEO_AGG_KEYS = (
+    "gesture_counts", "positive_gesture_count", "negative_gesture_count",
+    "posture_counts", "eye_contact_counts", "motion_notes", "gesture_timelines",
+)
+
+
+@router.post(
+    "/sessions/{session_id}/analyze/motion-by-segment",
+    response_model=MotionAnalysisResult,
+)
+@tracked("motion", model=_step2_model)
+def analyze_motion_by_segment(
+    session_id: int,
+    db: DbSession = Depends(get_db),
+    user_id: int = Depends(get_current_user_id),
+):
+    """STEP 4 가 나눈 구간을 기준으로 영상을 잘라(청크 최대 1분) VLM 동작 분석 → video_analyses 에 저장.
+
+    **/analyze/segments 다음에** 호출한다. (위의 /analyze/motion 은 스마트 청킹이라 구간과 상관없이
+    잘랐고, 이 API 로 대체됨)
+
+    분석이 끝나면 구간별 영상 집계(segment_analyses 의 제스처·자세·시선·motion_notes)도 채운다.
+    segments 단계에선 영상 결과가 아직 없어 이 칸들이 비어 있기 때문. STEP 5 종합 피드백은
+    motion_notes 를 동작·시선 근거로 쓰므로 꼭 채워야 한다.
+
+    재호출 시 이 세션의 기존 video_analyses 행은 전부 지우고 새로 넣는다.
+    """
+    session = get_owned_session(db, session_id, user_id)
+
+    seg_rows = db.execute(
+        select(Segment, SegmentAnalysis)
+        .join(SegmentAnalysis, SegmentAnalysis.segment_id == Segment.segment_id)
+        .where(Segment.session_id == session_id)
+        .order_by(Segment.t_start)
+    ).all()
+    if not seg_rows:
+        raise HTTPException(
+            400, "segments 가 없습니다. 먼저 POST /sessions/{id}/analyze/segments 를 호출하세요.")
+
+    upload_dir = _settings_upload_dir()
+    if not session.full_video_path:
+        raise HTTPException(400, "full_video not uploaded; POST /sessions/{id}/video first")
+    video_path = upload_dir / session.full_video_path
+    if not video_path.exists():
+        raise HTTPException(400, f"full_video file missing: {session.full_video_path}")
+
+    # lazy import — google-genai 미설치 환경에서도 API 서버는 정상 기동.
+    from app.pipeline import step2_segment_chunking, step2_video_analysis, step4_aggregate
+
+    segments = [{"segment_id": seg.segment_id, "t_start": seg.t_start, "t_end": seg.t_end}
+                for seg, _ in seg_rows]
+    plan = step2_segment_chunking.plan_chunks(segments)
+    chunk_paths = step2_segment_chunking.extract_chunks(
+        video_path, plan, storage.session_dir(session_id) / "vlm_chunks")
+
+    result = step2_video_analysis.run(
+        session_id=session_id,
+        chunk_paths=chunk_paths,
+        output_dir=storage.session_dir(session_id),
+    )
+
+    # 재분석 시 이전 회차 행이 남지 않도록 통째로 교체.
+    db.query(VideoAnalysis).filter(VideoAnalysis.session_id == session_id).delete()
+
+    # plan[i] 와 vlm_items[i] 는 같은 청크 (run() 이 순서를 보장).
+    vlm_items = result.get("VLM_segment_result", [])
+    videos = []
+    for chunk, item in zip(plan, vlm_items):
+        video = {
+            "t_start": chunk.start_sec,
+            "t_end": chunk.end_sec,
+            "posture": item.get("posture"),
+            "eye_contact": item.get("eye_contact"),
+            "gesture": item.get("gesture"),
+            "gesture_counts": item.get("gesture_counts"),
+            "gesture_timelines": _to_video_timelines(item.get("gesture_timelines"), chunk.start_sec),
+            "notes": item.get("notes"),
+        }
+        db.add(VideoAnalysis(session_id=session_id, kind="segment", **video))
+        videos.append(video)
+
+    # 구간별 영상 집계 채우기 — step4_aggregate.aggregate() 를 그대로 불러 쓴다.
+    # 영상 칸만 가져다 쓰므로 문장·음성 자리엔 빈 값을 넘긴다 (음성 칸은 segments 단계 값 유지).
+    for seg, sa in seg_rows:
+        agg = step4_aggregate.aggregate(
+            {"t_start": seg.t_start, "t_end": seg.t_end}, [], {}, videos)
+        for key in _VIDEO_AGG_KEYS:
+            setattr(sa, key, agg[key])
+
+    # status 는 바꾸지 않는다 — segments 단계가 만든 "segmented" 를 그대로 둔다.
     db.commit()
 
     return MotionAnalysisResult(

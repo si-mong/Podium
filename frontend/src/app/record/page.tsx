@@ -2,8 +2,7 @@
 
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { getPendingSlide } from "../slideStore";
-import { ArrowLeft, Circle, Square, Sparkles, Loader2, AlertCircle, RotateCcw, CheckCircle2, Upload } from "lucide-react";
+import { ArrowLeft, Circle, Square, Sparkles, Loader2, AlertCircle, RotateCcw, CheckCircle2, Upload, FileText } from "lucide-react";
 
 // API 호출은 apiFetch (로그인 토큰 자동 첨부, 만료 시 자동 갱신) — frontend/src/utils/api.ts
 import { apiFetch } from "@/utils/api";
@@ -90,17 +89,34 @@ function RecordPage() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null); // 고른 파일을 화면에서 미리 보기 위한 임시 주소
   const [dragOver, setDragOver] = useState(false);
 
-  // 발표자료 PDF (세션 추가 창에서 골랐을 때만). 있으면 슬라이드 크게 + 카메라 작게 화면으로 바뀐다.
+  // 발표자료 PDF (촬영 모드에서 촬영 시작 전에 고름, 선택). 있으면 슬라이드 크게 + 카메라 작게 화면으로 바뀐다.
+  // 서버에는 저장하지 않고 이 화면에서 보여주기만 한다.
+  const pdfInputRef = useRef<HTMLInputElement>(null);
+  const [slideFile, setSlideFile] = useState<File | null>(null);
   const [slideUrl, setSlideUrl] = useState<string | null>(null);
+  const [pdfError, setPdfError] = useState<string | null>(null);
   const hasSlide = !isUpload && slideUrl !== null;
 
+  // PDF 를 고르면 화면에 띄울 임시 주소를 만들고, 바꾸거나 빼거나 페이지를 떠나면 지운다 (메모리 정리).
   useEffect(() => {
-    const file = isUpload ? null : getPendingSlide();
-    if (!file) return;
-    const url = URL.createObjectURL(file);
+    if (!slideFile) {
+      setSlideUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(slideFile);
     setSlideUrl(url);
     return () => URL.revokeObjectURL(url);
-  }, [isUpload]);
+  }, [slideFile]);
+
+  const choosePdf = (file?: File) => {
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".pdf")) {
+      setPdfError("PDF 파일만 올릴 수 있어요. PPT는 PDF로 저장해서 올려주세요.");
+      return;
+    }
+    setPdfError(null);
+    setSlideFile(file);
+  };
 
   const log =(text: string, kind: LogKind = "info") => setLogs((prev) => [...prev, { text, kind }]);
 
@@ -323,23 +339,30 @@ function RecordPage() {
     setErrorMsg(null);
     setAnalysisFailed(false);
     try {
-      // STEP 2(영상)와 STEP 3(음성)은 서로 의존하지 않아 동시에 돌려서 시간을 줄인다.
-      setStepLabel("동작과 목소리를 분석하는 중이에요 (몇 분 정도 걸려요)");
-      log("동작과 목소리를 살펴보고 있어요...");
-      const [motion, voice] = await Promise.allSettled([
-        callStep("/analyze/motion"),
-        callStep("/analyze/voice"),
-      ]);
-      // 음성 결과 없이는 구간을 나눌 수 없어서 실패하면 멈춘다.
-      if (voice.status === "rejected") throw new Error(`음성 분석 실패: ${errText(voice.reason)}`);
+      // 순서: 음성 → 구간 분리 → 영상. 영상은 구간을 기준으로 잘라서 보내므로 구간 분리가 먼저 끝나야 한다.
+      setStepLabel("목소리를 분석하는 중이에요 (몇 분 정도 걸려요)");
+      log("목소리를 살펴보고 있어요...");
+      try {
+        await callStep("/analyze/voice");
+      } catch (err) {
+        // 음성 결과 없이는 구간을 나눌 수 없어서 실패하면 멈춘다.
+        throw new Error(`음성 분석 실패: ${errText(err)}`);
+      }
       log("목소리 분석을 마쳤어요.", "success");
-      // 영상 분석은 실패해도 계속 진행한다 (제스처 값만 비게 됨).
-      if (motion.status === "rejected") log("동작 분석에 문제가 있었지만, 나머지는 계속 진행할게요.", "warn");
-      else log("동작 분석을 마쳤어요.", "success");
 
       setStepLabel("발표 내용을 구간으로 나누는 중이에요");
       const seg = await callStep("/analyze/segments");
       log(`발표를 ${seg.segment_count}개 구간으로 나눴어요.`, "success");
+
+      setStepLabel("구간별로 동작을 분석하는 중이에요");
+      log("동작을 살펴보고 있어요...");
+      try {
+        await callStep("/analyze/motion-by-segment");
+        log("동작 분석을 마쳤어요.", "success");
+      } catch {
+        // 영상 분석은 실패해도 계속 진행한다 (제스처 값만 비게 됨).
+        log("동작 분석에 문제가 있었지만, 나머지는 계속 진행할게요.", "warn");
+      }
 
       // 구간별 피드백은 실패해도 앞 단계 결과는 볼 수 있으니 경고만 남기고 넘어간다.
       setStepLabel("구간별로 자세한 피드백을 만드는 중이에요");
@@ -668,6 +691,54 @@ function RecordPage() {
             </label>
           )}
 
+          {/* 발표 자료 PDF (선택) — 촬영 시작 전에만 고르거나 바꿀 수 있다. 고르면 위에 슬라이드로 크게 뜬다 */}
+          {!isUpload && (phase === "idle" || phase === "error") && (
+            <div className={`pt-2 mb-4 ${!hasSlide ? "w-full lg:w-1/2 mx-auto" : ""}`}>
+              <input
+                ref={pdfInputRef}
+                type="file"
+                accept=".pdf,application/pdf"
+                className="hidden"
+                onChange={(e) => {
+                  choosePdf(e.target.files?.[0]);
+                  e.target.value = ""; // 같은 파일을 다시 골라도 onChange 가 불리게
+                }}
+              />
+              {slideFile ? (
+                <div className="flex items-center gap-2 bg-purple-50 border border-purple-200 rounded-xl px-3 py-2.5">
+                  <FileText className="w-4 h-4 text-purple-500 shrink-0" />
+                  <span className="text-sm font-bold text-purple-700 truncate">{slideFile.name}</span>
+                  <button
+                    onClick={() => pdfInputRef.current?.click()}
+                    className="ml-auto shrink-0 text-xs font-bold text-purple-600 hover:text-purple-800 px-2 py-1 rounded-lg hover:bg-purple-100 transition-colors"
+                  >
+                    바꾸기
+                  </button>
+                  <button
+                    onClick={() => setSlideFile(null)}
+                    className="shrink-0 text-xs font-bold text-slate-400 hover:text-rose-600 px-2 py-1 rounded-lg hover:bg-rose-50 transition-colors"
+                  >
+                    빼기
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => pdfInputRef.current?.click()}
+                  className="w-full border-2 border-dashed border-slate-300 bg-slate-50 hover:bg-slate-100 rounded-xl px-4 py-3 flex items-center justify-center gap-2 text-sm font-semibold text-slate-500 transition-colors"
+                >
+                  <FileText className="w-4 h-4 text-slate-400" />
+                  발표 자료 PDF 첨부 (선택) · 촬영 화면에 슬라이드로 보여요
+                </button>
+              )}
+              {pdfError ? (
+                <p className="text-xs text-rose-600 font-semibold mt-1.5">{pdfError}</p>
+              ) : (
+                !slideFile && <p className="text-xs text-slate-400 mt-1.5 text-center">PPT는 PDF로 저장해서 올려주세요</p>
+              )}
+            </div>
+          )}
+
           {errorMsg && (
             <div className="flex items-start gap-2 bg-rose-50 border border-rose-100 text-rose-700 rounded-xl p-3 text-sm font-medium">
               <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
@@ -723,7 +794,7 @@ function RecordPage() {
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 text-center">
             <p className="text-slate-800 font-bold text-[15px] leading-relaxed whitespace-pre-line">
-              {"실수해도 괜찮아요 연습이니까요!\n재촬영 하지 말고 계속 촬영 진행해주세요!"}
+              {"실수해도 괜찮아요!\n재촬영 하지 말고 진행해주세요!"}
             </p>
             <button
               onClick={() => {
