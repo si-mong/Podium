@@ -28,19 +28,19 @@ export default function LandingPage() {
         <>
           <Link
             href="/login"
-            className="px-4 py-2 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-50 hover:text-slate-800 transition-colors"
+            className="h-10 px-4 rounded-full text-sm font-semibold text-stone-700 hover:bg-white flex items-center transition-colors"
           >
             로그인
           </Link>
           <Link
             href="/signup"
-            className="px-4 py-2 rounded-xl text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 transition-colors"
+            className="h-10 px-4 rounded-full text-sm font-semibold text-white bg-stone-900 hover:bg-stone-700 flex items-center transition-colors"
           >
             회원가입
           </Link>
         </>
       }
-      primaryAction={{ label: "회원가입하고 시작하기", onClick: () => router.push("/signup") }}
+      primaryAction={{ label: "무료로 시작하기", onClick: () => router.push("/signup") }}
       secondaryAction={{ label: "로그인", onClick: () => router.push("/login") }}
     />
   );

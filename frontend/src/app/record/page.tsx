@@ -503,13 +503,13 @@ function RecordPage() {
   const ss = String(elapsedSec % 60).padStart(2, "0");
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col items-center py-6 px-4">
+    <div className="min-h-screen bg-stone-50 flex flex-col items-center py-6 px-4 font-['Pretendard_Variable',Pretendard,sans-serif]">
       {/* 화면 너비의 80%를 쓴다 (좁은 화면에서는 전체 너비).
           flex-1 로 화면 높이만큼 늘려서, 아래 촬영+로그 묶음이 세로 가운데에 오게 한다 */}
       <div className="w-full lg:w-[80vw] flex-1 flex flex-col">
         <button
           onClick={() => router.push("/dashboard")}
-          className="flex items-center gap-1.5 text-slate-500 hover:text-slate-800 font-semibold text-sm mb-4"
+          className="flex items-center gap-1.5 text-stone-500 hover:text-stone-800 font-semibold text-sm mb-4"
         >
           <ArrowLeft className="w-4 h-4" />
           세션 관리로 돌아가기
@@ -518,9 +518,9 @@ function RecordPage() {
         {/* 왼쪽 70%: (슬라이드) + 촬영 화면 + 버튼 / 오른쪽 30%: 활동 로그 (좁은 화면에서는 위아래로 쌓임) */}
         {/* my-auto: "돌아가기" 버튼 아래 남은 공간에서 위아래 여백을 똑같이 → 세로 가운데 정렬 */}
         <div className="grid grid-cols-1 lg:grid-cols-[7fr_3fr] gap-4 my-auto">
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
-          <h1 className="text-xl font-extrabold text-slate-800 mb-1">{isUpload ? "발표 영상 업로드" : "발표 영상 촬영"}</h1>
-          <p className="text-sm text-slate-500 mb-5">
+        <div className="bg-white rounded-2xl shadow-sm border border-stone-200 p-5">
+          <h1 className="text-xl font-extrabold text-stone-800 mb-1">{isUpload ? "발표 영상 업로드" : "발표 영상 촬영"}</h1>
+          <p className="text-sm text-stone-500 mb-5">
             {isUpload
               ? "발표 영상 파일(mp4, mov, webm)을 올리고 \"분석 시작\" 버튼을 눌러주세요. AI가 자세와 목소리, 발표 흐름을 분석해드려요."
               : "촬영이 끝나면 \"분석 시작\" 버튼을 눌러주세요. AI가 자세와 목소리, 발표 흐름을 분석해드려요."}
@@ -532,7 +532,7 @@ function RecordPage() {
             <iframe
               src={`${slideUrl}#view=Fit`}
               title="발표 슬라이드"
-              className="w-full h-[55vh] rounded-xl border border-slate-200 bg-slate-100 mb-4"
+              className="w-full h-[55vh] rounded-xl border border-stone-200 bg-stone-100 mb-4"
             />
           )}
 
@@ -546,7 +546,7 @@ function RecordPage() {
               hasSlide ? "w-full lg:w-1/3 shrink-0" : !isUpload ? "w-full lg:w-1/2 mx-auto" : ""
             } ${
               isUpload && !previewUrl
-                ? `border-2 border-dashed transition-colors ${dragOver ? "border-blue-400 bg-blue-50" : "border-slate-300 bg-slate-50"}`
+                ? `border-2 border-dashed transition-colors ${dragOver ? "border-stone-500 bg-stone-100" : "border-stone-300 bg-stone-50"}`
                 : "bg-black"
             }`}
           >
@@ -568,13 +568,13 @@ function RecordPage() {
                   setDragOver(false);
                   chooseFile(e.dataTransfer.files[0]);
                 }}
-                className="w-full h-full flex flex-col items-center justify-center gap-3 cursor-pointer hover:bg-blue-50 transition-colors"
+                className="w-full h-full flex flex-col items-center justify-center gap-3 cursor-pointer hover:bg-stone-100 transition-colors"
               >
                 <div className="w-14 h-14 rounded-full bg-white shadow-sm flex items-center justify-center">
-                  <Upload className="w-7 h-7 text-blue-500" />
+                  <Upload className="w-7 h-7 text-stone-700" />
                 </div>
-                <p className="font-bold text-slate-700">클릭하거나 영상 파일을 여기로 끌어다 놓으세요</p>
-                <p className="text-xs text-slate-400">mp4, mov, webm 파일을 올릴 수 있어요</p>
+                <p className="font-bold text-stone-700">클릭하거나 영상 파일을 여기로 끌어다 놓으세요</p>
+                <p className="text-xs text-stone-400">mp4, mov, webm 파일을 올릴 수 있어요</p>
               </button>
             )}
             <input
@@ -600,7 +600,7 @@ function RecordPage() {
                   {phase === "finalizing" ? (isUpload ? "영상을 올리고 준비하는 중이에요..." : "영상을 준비하는 중이에요...") : stepLabel}
                 </p>
                 {phase === "analyzing" && (
-                  <p className="text-xs text-slate-300">분석이 끝날 때까지 이 화면을 닫지 말아주세요.</p>
+                  <p className="text-xs text-stone-300">분석이 끝날 때까지 이 화면을 닫지 말아주세요.</p>
                 )}
               </div>
             )}
@@ -615,7 +615,7 @@ function RecordPage() {
                 <button
                   onClick={startUpload}
                   disabled={!selectedFile}
-                  className="flex-1 flex items-center justify-center gap-2 bg-blue-600 text-white px-5 py-3 rounded-xl font-bold hover:bg-blue-700 shadow-sm transition-colors disabled:bg-slate-300 disabled:cursor-not-allowed"
+                  className="flex-1 flex items-center justify-center gap-2 bg-blue-600 text-white px-5 py-3 rounded-xl font-bold hover:bg-blue-700 shadow-sm transition-colors disabled:bg-stone-300 disabled:cursor-not-allowed"
                 >
                   <Upload className="w-4 h-4" />
                   업로드 시작
@@ -623,7 +623,7 @@ function RecordPage() {
                 {selectedFile && (
                   <button
                     onClick={() => fileInputRef.current?.click()}
-                    className="flex-1 flex items-center justify-center gap-2 bg-white text-slate-700 border border-slate-300 px-5 py-3 rounded-xl font-bold hover:bg-slate-50 shadow-sm transition-colors"
+                    className="flex-1 flex items-center justify-center gap-2 bg-white text-stone-700 border border-stone-300 px-5 py-3 rounded-xl font-bold hover:bg-stone-50 shadow-sm transition-colors"
                   >
                     <RotateCcw className="w-4 h-4" />
                     다른 파일 선택
@@ -651,7 +651,7 @@ function RecordPage() {
                 <button
                   onClick={analyze}
                   disabled={retaking}
-                  className="flex-1 flex items-center justify-center gap-2 bg-blue-600 text-white px-5 py-3 rounded-xl font-bold hover:bg-blue-700 shadow-sm transition-colors disabled:bg-slate-300 disabled:cursor-not-allowed"
+                  className="flex-1 flex items-center justify-center gap-2 bg-blue-600 text-white px-5 py-3 rounded-xl font-bold hover:bg-blue-700 shadow-sm transition-colors disabled:bg-stone-300 disabled:cursor-not-allowed"
                 >
                   <Sparkles className="w-4 h-4" />
                   {analysisFailed ? "분석 다시 시도" : "분석 시작"}
@@ -659,7 +659,7 @@ function RecordPage() {
                 <button
                   onClick={isUpload ? reselect : retake}
                   disabled={retaking}
-                  className="flex-1 flex items-center justify-center gap-2 bg-white text-slate-700 border border-slate-300 px-5 py-3 rounded-xl font-bold hover:bg-slate-50 shadow-sm transition-colors disabled:text-slate-400 disabled:cursor-not-allowed"
+                  className="flex-1 flex items-center justify-center gap-2 bg-white text-stone-700 border border-stone-300 px-5 py-3 rounded-xl font-bold hover:bg-stone-50 shadow-sm transition-colors disabled:text-stone-400 disabled:cursor-not-allowed"
                 >
                   {retaking ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
                   {isUpload ? "다른 영상 선택" : "재촬영"}
@@ -668,7 +668,7 @@ function RecordPage() {
             ) : (
               <button
                 disabled
-                className="flex-1 flex items-center justify-center gap-2 bg-slate-300 text-white px-5 py-3 rounded-xl font-bold cursor-not-allowed"
+                className="flex-1 flex items-center justify-center gap-2 bg-stone-300 text-white px-5 py-3 rounded-xl font-bold cursor-not-allowed"
               >
                 <Loader2 className="w-4 h-4 animate-spin" />
                 {phase === "finalizing" ? (isUpload ? "업로드 중..." : "영상 준비 중...") : "분석 중..."}
@@ -685,9 +685,9 @@ function RecordPage() {
                 onChange={(e) => changeBlur(e.target.checked)}
                 className="sr-only peer"
               />
-              <span className="relative w-10 h-6 rounded-full bg-slate-300 peer-checked:bg-blue-600 transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:w-5 after:h-5 after:rounded-full after:bg-white after:shadow after:transition-transform peer-checked:after:translate-x-4" />
-              <span className="text-sm font-bold text-slate-700">배경 흐리게</span>
-              <span className="text-xs text-slate-400">촬영 영상의 배경을 흐리게 처리해요</span>
+              <span className="relative w-10 h-6 rounded-full bg-stone-300 peer-checked:bg-blue-600 transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:w-5 after:h-5 after:rounded-full after:bg-white after:shadow after:transition-transform peer-checked:after:translate-x-4" />
+              <span className="text-sm font-bold text-stone-700">배경 흐리게</span>
+              <span className="text-xs text-stone-400">촬영 영상의 배경을 흐리게 처리해요</span>
             </label>
           )}
 
@@ -716,7 +716,7 @@ function RecordPage() {
                   </button>
                   <button
                     onClick={() => setSlideFile(null)}
-                    className="shrink-0 text-xs font-bold text-slate-400 hover:text-rose-600 px-2 py-1 rounded-lg hover:bg-rose-50 transition-colors"
+                    className="shrink-0 text-xs font-bold text-stone-400 hover:text-rose-600 px-2 py-1 rounded-lg hover:bg-rose-50 transition-colors"
                   >
                     빼기
                   </button>
@@ -725,16 +725,16 @@ function RecordPage() {
                 <button
                   type="button"
                   onClick={() => pdfInputRef.current?.click()}
-                  className="w-full border-2 border-dashed border-slate-300 bg-slate-50 hover:bg-slate-100 rounded-xl px-4 py-3 flex items-center justify-center gap-2 text-sm font-semibold text-slate-500 transition-colors"
+                  className="w-full border-2 border-dashed border-stone-300 bg-stone-50 hover:bg-stone-100 rounded-xl px-4 py-3 flex items-center justify-center gap-2 text-sm font-semibold text-stone-500 transition-colors"
                 >
-                  <FileText className="w-4 h-4 text-slate-400" />
+                  <FileText className="w-4 h-4 text-stone-400" />
                   발표 자료 PDF 첨부 (선택) · 촬영 화면에 슬라이드로 보여요
                 </button>
               )}
               {pdfError ? (
                 <p className="text-xs text-rose-600 font-semibold mt-1.5">{pdfError}</p>
               ) : (
-                !slideFile && <p className="text-xs text-slate-400 mt-1.5 text-center">PPT는 PDF로 저장해서 올려주세요</p>
+                !slideFile && <p className="text-xs text-stone-400 mt-1.5 text-center">PPT는 PDF로 저장해서 올려주세요</p>
               )}
             </div>
           )}
@@ -752,11 +752,11 @@ function RecordPage() {
         {/* 진행 상황: 왼쪽 카드와 같은 높이로 늘어나고, 내용이 많으면 안에서 스크롤한다.
             (absolute 로 넣어서 로그가 길어져도 왼쪽 카드의 높이를 키우지 않는다) */}
         <div className="relative min-h-[260px]">
-          <div className="absolute inset-0 flex flex-col bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-            <div className="px-4 py-3 border-b border-slate-100 text-sm font-bold text-slate-700 shrink-0">진행 상황</div>
+          <div className="absolute inset-0 flex flex-col bg-white rounded-2xl shadow-sm border border-stone-200 overflow-hidden">
+            <div className="px-4 py-3 border-b border-stone-100 text-sm font-bold text-stone-700 shrink-0">진행 상황</div>
             <div ref={logBoxRef} className="flex-1 overflow-y-auto p-4 space-y-3">
               {logs.length === 0 ? (
-                <p className="text-sm text-slate-400 font-medium">
+                <p className="text-sm text-stone-400 font-medium">
                   {isUpload ? "업로드를 시작하면" : "촬영을 시작하면"} 진행 상황이 여기에 표시됩니다.
                 </p>
               ) : (
@@ -766,7 +766,7 @@ function RecordPage() {
                   return (
                     <div key={i} className="flex items-start gap-2.5">
                       {busy ? (
-                        <Loader2 className="w-4 h-4 mt-0.5 shrink-0 text-blue-500 animate-spin" />
+                        <Loader2 className="w-4 h-4 mt-0.5 shrink-0 text-stone-700 animate-spin" />
                       ) : l.kind === "success" ? (
                         <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0 text-green-600" />
                       ) : l.kind === "warn" ? (
@@ -775,10 +775,10 @@ function RecordPage() {
                         <AlertCircle className="w-4 h-4 mt-0.5 shrink-0 text-rose-500" />
                       ) : (
                         <span className="w-4 h-4 mt-0.5 shrink-0 flex items-center justify-center">
-                          <span className="w-1.5 h-1.5 rounded-full bg-slate-300" />
+                          <span className="w-1.5 h-1.5 rounded-full bg-stone-300" />
                         </span>
                       )}
-                      <p className="text-sm text-slate-700 font-medium leading-relaxed break-words">{l.text}</p>
+                      <p className="text-sm text-stone-700 font-medium leading-relaxed break-words">{l.text}</p>
                     </div>
                   );
                 })
@@ -793,7 +793,7 @@ function RecordPage() {
       {showStartNotice && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 text-center">
-            <p className="text-slate-800 font-bold text-[15px] leading-relaxed whitespace-pre-line">
+            <p className="text-stone-800 font-bold text-[15px] leading-relaxed whitespace-pre-line">
               {"실수해도 괜찮아요!\n재촬영 하지 말고 진행해주세요!"}
             </p>
             <button
@@ -801,7 +801,7 @@ function RecordPage() {
                 setShowStartNotice(false);
                 startRecording();
               }}
-              className="w-full mt-5 bg-blue-600 text-white px-5 py-3 rounded-xl font-bold hover:bg-blue-700 shadow-sm transition-colors"
+              className="w-full mt-5 bg-stone-900 text-white px-5 py-3 rounded-xl font-bold hover:bg-stone-700 shadow-sm transition-colors"
             >
               확인
             </button>
