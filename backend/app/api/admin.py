@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_admin)])
 
-Target = Literal["step2_gemini", "step3_modal", "step4_gemini", "step5_openai"]
+Target = Literal["step2_gemini", "step3_modal", "step4_openai", "step5_openai"]
 
 # 점검 대상 → (단계 설명, 제공자, 모델). 모델은 각 단계 모듈의 상수를 그대로 읽어
 # 단계에서 모델을 바꾸면 점검도 자동으로 따라간다.
@@ -46,7 +46,7 @@ TARGETS: dict[str, tuple[str, str, str]] = {
     "step2_gemini": ("STEP 2 영상 분석", "gemini", step2_video_analysis.MODEL),
     # STEP 3 STT 는 WHISPER_MODEL 이 modal: 일 때 Modal 서버리스 GPU 에서 돈다 (stt_remote.py).
     "step3_modal": ("STEP 3 음성 인식 (STT)", "modal", settings.whisper_model),
-    "step4_gemini": ("STEP 4 구간 분리", "gemini", step4_segmentation.MODEL),
+    "step4_openai": ("STEP 4 구간 분리", "openai", step4_segmentation.MODEL),
     "step5_openai": ("STEP 5 피드백", "openai", step5_feedback.MODEL),
 }
 
@@ -161,6 +161,28 @@ def ping(target: Target):
 STEPS = ["preprocess", "motion", "voice", "segments", "segment_feedback", "overall_feedback"]
 
 
+def _latest_run(evs: list[AnalysisEvent]) -> tuple[dict[str, AnalysisEvent], int | None, bool]:
+    """세션의 **가장 최근 분석 1회분**을 고른다 → (단계별 최근 실행, 총 소요 ms, 끝까지 성공했는지).
+
+    분석 1회는 전처리(/end)로 시작하므로 마지막 전처리 이후의 기록만 본다 (재분석하면 새 회차).
+    총 소요 = 그 회차의 첫 단계 시작 ~ 마지막 단계 종료. 단계 시간을 더하지 않는 이유는
+    동작·음성 분석처럼 **동시에 도는 단계**가 있어서 더하면 실제보다 길어지기 때문이다.
+    아직 실행 중인 단계가 있으면 총 소요는 None.
+    evs 는 시작 시각 순이어야 한다.
+    """
+    if not evs:
+        return {}, None, False
+    starts = [i for i, ev in enumerate(evs) if ev.step == "preprocess"]
+    run = evs[starts[-1]:] if starts else evs
+    latest = {ev.step: ev for ev in run}             # 시간순으로 덮어쓰므로 마지막 = 최근
+    complete = latest.get("overall_feedback") is not None and latest["overall_feedback"].status == "succeeded"
+    if any(ev.finished_at is None for ev in latest.values()):
+        return latest, None, complete
+    begin = min(ev.started_at for ev in latest.values())
+    end = max(ev.finished_at for ev in latest.values())
+    return latest, int((end - begin).total_seconds() * 1000), complete
+
+
 class StepStat(BaseModel):
     step: str
     runs: int
@@ -176,6 +198,7 @@ class AnalysisStats(BaseModel):
     sessions: int          # 기간 안에 한 단계라도 실행된 세션 수
     completed: int         # 종합 피드백까지 성공한 세션 수
     failed_sessions: int   # 실패(또는 일부 실패)가 한 번이라도 있었던 세션 수
+    avg_total_ms: int | None   # 끝까지 성공한 분석의 평균 총 소요 시간 (전처리 시작 ~ 종합 피드백 종료)
     steps: list[StepStat]
 
 
@@ -206,11 +229,21 @@ def analysis_stats(days: int = Query(7, ge=1, le=365), db: DbSession = Depends(g
             .where(AnalysisEvent.started_at >= since, AnalysisEvent.session_id.is_not(None), *conds)
         ) or 0
 
+    by_session: dict[int, list[AnalysisEvent]] = {}
+    for ev in db.scalars(
+        select(AnalysisEvent)
+        .where(AnalysisEvent.started_at >= since, AnalysisEvent.session_id.is_not(None))
+        .order_by(AnalysisEvent.started_at)
+    ):
+        by_session.setdefault(ev.session_id, []).append(ev)
+    totals = [t for _, t, done in (_latest_run(evs) for evs in by_session.values()) if done and t is not None]
+
     return AnalysisStats(
         days=days,
         sessions=distinct_sessions(),
         completed=distinct_sessions(AnalysisEvent.step == "overall_feedback", AnalysisEvent.status == "succeeded"),
         failed_sessions=distinct_sessions(AnalysisEvent.status.in_(["failed", "partial"])),
+        avg_total_ms=int(sum(totals) / len(totals)) if totals else None,
         steps=[
             StepStat(step=step, runs=a["runs"], succeeded=a["succeeded"], partial=a["partial"],
                      failed=a["failed"], running=a["running"],
@@ -238,7 +271,9 @@ class AnalysisListItem(BaseModel):
     duration_sec: float | None
     last_run_at: datetime | None
     has_failure: bool
-    steps: dict[str, StepRun]      # 단계별 **가장 최근** 실행
+    total_ms: int | None           # 최근 분석 1회의 총 소요 시간 (실행 중이면 None)
+    completed: bool                # 최근 분석이 종합 피드백까지 성공했는지
+    steps: dict[str, StepRun]      # 최근 분석 1회의 단계별 실행
 
 
 class AnalysisList(BaseModel):
@@ -291,7 +326,7 @@ def list_analyses(
     items = []
     for sess, title, user_email in rows:
         evs = events.get(sess.session_id, [])
-        latest = {ev.step: ev for ev in evs}          # 시간순으로 덮어쓰므로 마지막 = 최근
+        latest, total_ms, completed = _latest_run(evs)
         items.append(AnalysisListItem(
             session_id=sess.session_id,
             session_no=sess.session_no,
@@ -302,6 +337,8 @@ def list_analyses(
             duration_sec=durations.get(sess.session_id) or summaries.get(sess.session_id),
             last_run_at=evs[-1].started_at if evs else None,
             has_failure=any(ev.status in ("failed", "partial") for ev in evs),
+            total_ms=total_ms,
+            completed=completed,
             steps={step: _to_run(ev) for step, ev in latest.items()},
         ))
     return AnalysisList(total=total, items=items)
@@ -334,6 +371,23 @@ def analysis_detail(
         select(AnalysisEvent).where(AnalysisEvent.session_id == session_id).order_by(AnalysisEvent.started_at)
     ).all()
 
+    latest, total_ms, completed = _latest_run(list(events))
+    run = None
+    if latest:
+        begin = min(ev.started_at for ev in latest.values())
+        run = {
+            "started_at": begin,
+            "total_ms": total_ms,
+            "completed": completed,
+            # 타임라인: 각 단계가 분석 시작 후 몇 ms 에 시작해서 얼마나 걸렸는지
+            "steps": [
+                {"step": ev.step, "status": ev.status,
+                 "offset_ms": int((ev.started_at - begin).total_seconds() * 1000),
+                 "duration_ms": ev.duration_ms}
+                for ev in sorted(latest.values(), key=lambda e: e.started_at)
+            ],
+        }
+
     results: dict = {}
     if deleted_at is None:   # 휴지통 프로젝트는 사용자 조회 함수가 404 를 내므로 결과는 생략
         def call(name, fn):
@@ -357,6 +411,7 @@ def analysis_detail(
         "user_email": user_email,
         "status": sess.status,
         "created_at": sess.created_at,
+        "run": run,
         "events": [
             {"event_id": ev.event_id, "step": ev.step, "status": ev.status, "model": ev.model,
              "duration_ms": ev.duration_ms, "error": ev.error,
