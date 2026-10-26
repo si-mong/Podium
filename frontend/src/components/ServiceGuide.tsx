@@ -9,6 +9,7 @@
 // 두 화면의 차이는 상단 오른쪽 버튼(headerActions)과 시작 버튼(primaryAction)뿐이다.
 
 import type { ReactNode } from "react";
+import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import UsageSteps from "./UsageSteps";
 
@@ -108,7 +109,9 @@ export default function ServiceGuide({ headerActions, primaryAction, secondaryAc
       </main>
 
       <footer className="mt-16 border-t border-stone-200 py-8 text-center text-xs text-stone-400">
-        © {new Date().getFullYear()} Podium
+        © {new Date().getFullYear()} Podium ·{" "}
+        <Link href="/terms" className="hover:text-stone-600 hover:underline">이용약관</Link> ·{" "}
+        <Link href="/privacy" className="hover:text-stone-600 hover:underline">개인정보 처리방침</Link>
       </footer>
     </div>
   );
