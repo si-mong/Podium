@@ -73,7 +73,7 @@ export function TimestampText({ text, onSeek }: { text: string; onSeek: (sec: nu
               e.stopPropagation(); // 바깥 카드의 클릭(구간 선택)까지 같이 실행되지 않게
               onSeek(parseTime(part));
             }}
-            className="inline-block mx-0.5 px-1.5 py-0.5 rounded-md bg-blue-50 text-blue-700 border border-blue-200 text-[12px] font-bold hover:bg-blue-100 transition-colors"
+            className="inline-block mx-0.5 px-1.5 py-0.5 rounded-md bg-stone-100 text-stone-900 border border-stone-300 text-[12px] font-bold hover:bg-stone-200 transition-colors"
           >
             {part}
           </button>
@@ -178,7 +178,7 @@ export default function InteractiveScript({ script, videoChunks, currentTime, is
   }, [activeIndex, isPlaying, plain]);
 
   if (!script || script.sentences.length === 0) {
-    return <p className="text-sm text-slate-400 font-medium py-6 text-center">이 세션에는 음성 분석(스크립트) 결과가 없습니다.</p>;
+    return <p className="text-sm text-stone-400 font-medium py-6 text-center">이 세션에는 음성 분석(스크립트) 결과가 없습니다.</p>;
   }
 
   return (
@@ -186,10 +186,10 @@ export default function InteractiveScript({ script, videoChunks, currentTime, is
     // h-[400px]: 대략 10줄 정도가 보이는 높이. 그 이상은 스크롤로 본다.
     <div ref={containerRef} className="relative space-y-2 h-[400px] overflow-y-auto custom-scrollbar pr-2">
       {rows.map((row, i) => {
-        const time = <span className="text-slate-400 font-bold shrink-0 w-12 pt-1 text-[13px]">{fmtTime(row.t)}</span>;
+        const time = <span className="text-stone-400 font-bold shrink-0 w-12 pt-1 text-[13px]">{fmtTime(row.t)}</span>;
         // 새 구간의 첫 줄이면 위쪽에 얇은 구분선 + 위아래 여백.
         // 바깥 박스의 space-y-2 가 위 여백(margin-top)을 덮어쓰므로 !mt-5 로 강제한다.
-        const divider = dividerBefore.has(i) ? 'border-t border-slate-400 pt-5 !mt-5' : '';
+        const divider = dividerBefore.has(i) ? 'border-t border-stone-400 pt-5 !mt-5' : '';
 
         if (row.kind === 'sentence') {
           const isActive = i === activeIndex;
@@ -201,7 +201,7 @@ export default function InteractiveScript({ script, videoChunks, currentTime, is
                   onClick={() => onSeek(row.t)}
                   title="이 문장부터 재생"
                   className={`text-left leading-relaxed font-medium rounded-lg px-2 py-1 -mx-2 transition-colors ${
-                    isActive ? 'bg-yellow-100 text-slate-900' : 'text-slate-700 hover:bg-blue-50'
+                    isActive ? 'bg-yellow-100 text-stone-900' : 'text-stone-700 hover:bg-stone-100'
                   }`}
                 >
                   {row.text}
@@ -241,7 +241,7 @@ export default function InteractiveScript({ script, videoChunks, currentTime, is
               {time}
               <button
                 onClick={() => onSeek(Math.max(0, row.t - LEAD_SEC))}
-                className="bg-slate-200 text-slate-600 px-2.5 py-1 rounded-lg text-xs font-bold border border-slate-300 inline-flex items-center gap-1.5 hover:bg-slate-300 transition-colors"
+                className="bg-stone-200 text-stone-600 px-2.5 py-1 rounded-lg text-xs font-bold border border-stone-300 inline-flex items-center gap-1.5 hover:bg-stone-300 transition-colors"
               >
                 <Clock className="w-3.5 h-3.5" />
                 무음 {row.duration.toFixed(1)}초
@@ -258,7 +258,7 @@ export default function InteractiveScript({ script, videoChunks, currentTime, is
             <div className="flex flex-wrap items-center gap-1.5">
               <button
                 onClick={() => onSeek(Math.max(0, row.t - LEAD_SEC))}
-                className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded-lg text-xs font-bold border border-slate-200 inline-flex items-center gap-1 hover:bg-slate-200 transition-colors"
+                className="bg-stone-100 text-stone-600 px-2 py-0.5 rounded-lg text-xs font-bold border border-stone-200 inline-flex items-center gap-1 hover:bg-stone-200 transition-colors"
                 title="이 동작 분석 구간부터 재생"
               >
                 <Video className="w-3 h-3" />
@@ -271,7 +271,7 @@ export default function InteractiveScript({ script, videoChunks, currentTime, is
                   <span
                     key={key}
                     className={`px-2 py-0.5 rounded-lg text-xs font-bold border inline-flex items-center gap-1 ${
-                      positive ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-rose-50 text-rose-700 border-rose-200'
+                      positive ? 'bg-stone-100 text-stone-900 border-stone-300' : 'bg-rose-50 text-rose-700 border-rose-200'
                     }`}
                   >
                     {positive ? <ThumbsUp className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
@@ -280,7 +280,7 @@ export default function InteractiveScript({ script, videoChunks, currentTime, is
                 );
               })}
               {(row.chunk.posture || row.chunk.eye_contact) && (
-                <span className="text-xs text-slate-500 font-medium">
+                <span className="text-xs text-stone-500 font-medium">
                   {[row.chunk.posture && `자세 ${row.chunk.posture}`, row.chunk.eye_contact && `시선 ${row.chunk.eye_contact}`]
                     .filter(Boolean)
                     .join(' · ')}

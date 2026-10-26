@@ -75,7 +75,7 @@ export default function UsageSteps() {
               {i < STEPS.length - 1 && (
                 <span className="absolute left-4 top-10 bottom-1 w-0.5 -translate-x-1/2 bg-slate-200 rounded-full overflow-hidden" aria-hidden="true">
                   <span
-                    className={`block w-full h-full bg-blue-600 origin-top motion-safe:transition-transform motion-safe:duration-500 ${
+                    className={`block w-full h-full bg-stone-900 origin-top motion-safe:transition-transform motion-safe:duration-500 ${
                       i < active ? "scale-y-100" : "scale-y-0"
                     }`}
                   />
@@ -83,7 +83,7 @@ export default function UsageSteps() {
               )}
               <span
                 className={`w-8 h-8 rounded-full text-sm font-extrabold flex items-center justify-center shrink-0 motion-safe:transition-colors motion-safe:duration-300 ${
-                  reached ? "bg-blue-600 text-white" : "bg-slate-200 text-slate-500"
+                  reached ? "bg-stone-900 text-white" : "bg-slate-200 text-slate-500"
                 }`}
               >
                 {i + 1}
@@ -106,7 +106,7 @@ export default function UsageSteps() {
         <div className="sticky top-32">
           {/* key 가 바뀌면 새로 그려지면서 fade-up 애니메이션이 다시 나온다 */}
           <div key={active} className="motion-safe:animate-fade-up bg-white rounded-2xl border border-slate-200 shadow-xl shadow-slate-200/60 p-5 h-[300px] flex flex-col" aria-hidden="true">
-            <p className="text-xs font-bold text-blue-600">STEP {active + 1}</p>
+            <p className="text-xs font-bold text-stone-500">STEP {active + 1}</p>
             <p className="text-sm font-extrabold text-slate-800 mt-0.5">{STEPS[active].title}</p>
             <div className="mt-4 flex-1 min-h-0">
               <StepPreview step={active} />

@@ -1007,7 +1007,7 @@ def analyze_overall_feedback(
     db: DbSession = Depends(get_db),
     user_id: int = Depends(get_current_user_id),
 ):
-    """GPT 를 한 번만 호출해 발표 전체 총평(핵심 한 줄 + 짧은 부가 설명)을 받아
+    """GPT 를 한 번만 호출해 발표 전체 총평(핵심 한 줄 + 3~4문장 부가 설명)을 받아
     session_summaries.llm_feedback 에 저장한다.
 
     STEP 4(POST /sessions/{id}/analyze/segments)가 먼저 끝나 있어야 한다.

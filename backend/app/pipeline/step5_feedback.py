@@ -364,6 +364,12 @@ def run_segments(segments: list[dict], video_analysis: list[dict],
 # 구간별 분석과 달리 GPT 를 **한 번만** 호출해서 발표 전체를 요약한다.
 # 2026-10-18: 긴 문단은 한눈에 안 읽혀서 "핵심 한 줄(headline) + 짧은 부가 설명(overall_summary)"
 # 으로 바꿨다. 부가 설명 키 이름은 예전 세션과 맞추려고 overall_summary 그대로 둔다.
+# 2026-10-25: 부가 설명을 2~3문장 → 3~4문장으로 늘리고 "말하기 1문장 이상 + 몸짓 1문장 이상"을 강제했다.
+# 10-18 이후 총평이 전부 시선·제스처 얘기만 하고 필러가 29회인 세션(#107)에서도 말하기를 안 짚었기 때문.
+# (고칠 점 자리가 하나뿐인데 motion_notes 는 글이라 눈에 띄고, 말하기 지표는 숫자라 밀렸다)
+# 단, 말하기에 문제가 없으면 억지로 지적하지 않고 잘한 점으로 쓰게 했다(#104 에서 무음을 억지로 지적함).
+# "문제가 있는지"는 LLM 이 아니라 코드가 기준으로 판정해서 speech_issues 로 보낸다(_speech_issues).
+# 발화 속도는 구간별 피드백과 같은 느림/보통/빠름 라벨을 같이 보낸다.
 # 구간별처럼 항목마다 시각을 강제하지 않는다 — 총평은 짧아야 해서 문장마다
 # 시각을 넣으면 오히려 읽기 어려워진다. 다만 시각을 언급하는 경우엔 구간별과 같은 검증
 # (_generate_validated) 을 거쳐 데이터에 없는 시각을 지어내지 못하게 막는다.
@@ -375,19 +381,51 @@ OVERALL_PROMPT = """당신은 발표 코칭 전문가입니다.
 ## 지침
 1. outline(구간별 라벨·제목·시각)과 segments(구간별 전사문·지표)를 종합해서 발표 전체의
    흐름과 특징을 파악하세요. 특정 구간 하나만 보지 말고 전체를 아우르세요.
-2. segments 의 motion_notes 는 그 구간 영상을 실제로 보고 자세·동작·시선처리를 서술한
-   글입니다(구간마다 있음). 말하기 지표(전사문·필러·무음 등)만 요약하지 말고, motion_notes
-   에서 구간마다 반복되거나 눈에 띄는 동작·시선 습관이 있으면 총평에 함께 녹이세요.
-   gesture_timelines 는 그 습관이 발생한 시각(예: "0:14") 배열이니, 특정 동작을 짚고
-   싶으면 대표로 한 시각을 골라 함께 써도 됩니다(지침 5의 시각 규칙을 그대로 따르세요).
+2. 총평은 **말하기와 몸짓을 둘 다** 다뤄야 합니다. 한쪽만 쓰지 마세요.
+   - 말하기: segments 의 발화 속도·필러 횟수·무음 비율·반복 횟수와 전사문. 구간끼리 비교해서
+     눈에 띄게 많거나 빠른/느린 구간이 있으면 그 구간과 숫자를 짚으세요.
+     발화 속도가 빠른지 느린지는 speaking_rate_label(느림/보통/빠름)을 **그대로 따르세요** — 코드가 미리 판정한
+     값입니다. "보통"이면 발화 속도를 문제로 지적하지 마세요. 숫자를 쓸 때는 "spm" 대신
+     "분당 ○○음절"처럼 쓰세요.
+   - 몸짓: segments 의 motion_notes 는 그 구간 영상을 실제로 보고 자세·동작·시선처리를 서술한
+     글입니다(구간마다 있음). 구간마다 반복되거나 눈에 띄는 동작·시선 습관을 짚으세요.
+     gesture_timelines 는 그 습관이 발생한 시각(예: "0:14") 배열이니, 특정 동작을 짚고
+     싶으면 대표로 한 시각을 골라 함께 써도 됩니다(지침 5의 시각 규칙을 그대로 따르세요).
+   motion_notes 는 글로 길게 적혀 있고 말하기 지표는 숫자라서 몸짓 쪽으로 치우치기 쉬우니,
+   말하기 숫자도 똑같이 꼼꼼히 보세요.
 3. 결과는 **핵심 한 줄(headline)** 과 **부가 설명(overall_summary)** 두 부분으로 나눠 쓰세요.
    - headline: 발표 전체에서 가장 잘한 점 하나와 가장 고칠 점 하나를 묶은 한 문장
      (약 20~35자, 시각 없이). 예: "말 속도는 안정적이지만, 손 제스처와 시선 처리를 고쳐봐요"
      잘한 점과 고칠 점은 **서로 다른 항목**이어야 합니다. 같은 항목(예: 시선)을 앞에서
      칭찬하고 뒤에서 고치라고 쓰지 마세요.
      나쁜 예: "자세와 시선은 안정적이지만, 손 제스처와 시선 분배를 개선하세요"
-   - overall_summary: headline 의 근거와 고치는 방법을 담은 **짧은 문단** (목록이 아니라
-     이어지는 글, 2~3문장, 약 100~180자). 잘한 점의 근거 1개, 고칠 점마다 근거와 구체적인 행동을 쓰세요.
+   - overall_summary: headline 의 근거와 고치는 방법을 담은 **문단** (목록이 아니라
+     이어지는 글, 3~4문장, 약 150~250자). 잘한 점의 근거 1개, 고칠 점마다 근거와 구체적인 행동을 쓰세요.
+     이 문단에는 **말하기(발화 속도·필러·무음·반복)에 대한 문장 1개 이상**과
+     **몸짓(자세·제스처·시선)에 대한 문장 1개 이상**이 반드시 들어가야 합니다(지침 2).
+     headline 에 한쪽만 들어갔다면 다른 쪽을 이 문단에서 다루세요.
+     **4문장을 넘기지 마세요.** 말하기와 몸짓의 고치는 행동은 한 문장에 묶어도 됩니다.
+     고치는 행동에는 **말하기 행동 1개와 몸짓 행동 1개가 모두** 들어가야 합니다.
+     말하기를 고칠 점으로 쓸지는 segments 의 speech_issues 로 정하세요. speech_issues 는 코드가 기준
+     (필러 2회 이상, 반복 2회 이상, 무음 30% 이상)으로 미리 골라 둔 그 구간의 말하기 문제입니다.
+     - 어느 한 구간이라도 speech_issues 가 있으면: 말하기를 **반드시 고칠 점으로** 쓰고 말하기 행동을 넣으세요.
+       "과도하지 않다", "비교적 안정적"처럼 넘기지 마세요. speech_issues 가 있는 구간과 그 숫자를 짚으세요.
+     - 모든 구간의 speech_issues 가 비어 있으면: 말하기는 **잘한 점으로** 쓰고, 고치는 행동은 몸짓만 써도 됩니다.
+       문제가 없는 항목을 억지로 지적하지 마세요.
+     headline 에서 칭찬한 항목을 부가 설명에서 다시 지적하지 마세요(지침 3의 "서로 다른 항목").
+     말하기 행동은 아래처럼 "무엇을 줄이려고 + 어떻게 연습할지"를 구체적으로 쓰세요.
+     예: "핵심 문장마다 미리 끊어 읽고, 불필요한 '이제' 같은 필러를 줄이기 위해 문장 끝에서 잠시 멈추는 연습을 하세요."
+     이 예시를 그대로 베끼지 말고 이 발표에 맞게 쓰세요. 필러 단어를 예로 들 때는 segments 의
+     filler_words(그 구간에서 실제로 필러로 잡힌 단어와 횟수)에 있는 단어만 쓰세요. 전사문에 있어도
+     filler_words 에 없는 단어('그리고' 같은 접속사 등)는 필러가 아닙니다. 예시의 '이제'도 filler_words 에
+     없으면 쓰지 마세요. filler_words 가 비어 있으면 단어를 들지 말고 "필러"라고만 쓰세요.
+     몸짓 행동도 이 발표의 motion_notes 에 적힌 **구체적인 장면**(어느 구간에서, 무엇을 설명할 때
+     시선이 내려갔는지·손이 멈췄는지 등)을 근거로 쓰세요. "대본을 외워 핵심 문장마다 카메라를 바라보세요"처럼
+     어느 발표에나 쓸 수 있는 일반적인 조언만 쓰지 마세요.
+     무음 비율(silence_ratio)은 데이터에 이미 "30%"처럼 % 로 들어 있으니 그 값을 그대로 쓰세요.
+     speech_issues·speaking_rate_label 은 코드가 미리 판정한 값입니다. "기준 이하", "기준을 넘었다", "판정"처럼
+     기준이나 판정이 있다는 사실을 문장에 쓰지 마세요. 라벨 단어도 "느림으로"처럼 그대로 붙이지 말고
+     "느린 편", "보통 속도"처럼 자연스럽게 풀어 쓰세요.
 4. 느낌·감상 표현을 쓰지 마세요 (신뢰감, 인상적, 듣기 편한, 생동감, 자연스러운, 적극적인 등).
    대신 관찰된 사실(어느 구간·몇 번·몇 초)과 다음 발표에서 할 **구체적인 행동**을 쓰세요.
    "대부분의 구간", "후반부"처럼 흐리게 쓰지 말고 구간 라벨이나 시각으로 짚으세요.
@@ -404,7 +442,7 @@ OVERALL_PROMPT = """당신은 발표 코칭 전문가입니다.
 ## 출력 형식 (JSON, 다른 텍스트 없이)
 {{
   "headline": "핵심 한 줄",
-  "overall_summary": "2~3문장의 부가 설명 문단"
+  "overall_summary": "3~4문장의 부가 설명 문단 — 4문장을 넘기지 말 것 (말하기 1문장 이상 + 몸짓 1문장 이상)"
 }}
 
 ## outline (발표 전체 구간 목록)
@@ -413,6 +451,53 @@ OVERALL_PROMPT = """당신은 발표 코칭 전문가입니다.
 ## segments (구간별 전사문·지표)
 {segments}
 """
+
+
+# 종합 피드백에서 "말하기 고칠 점"이 있는지 코드가 판정하는 기준 (구간 하나라도 넘으면 있음).
+# LLM 에게 "뚜렷한 문제가 없으면 칭찬하라"고만 하면 필러 15회도 "과도하지 않다"고 넘겼다(#105).
+# 발화 속도는 넣지 않는다 — 지금 기준(250 SPM 미만 = 느림)이면 거의 모든 발표가 느림이 된다.
+SPEECH_FILLER_MIN = 2       # 필러 횟수
+SPEECH_REPEAT_MIN = 2       # 반복(말더듬) 횟수
+SPEECH_SILENCE_MIN = 0.30   # 무음 비율
+
+
+def _speech_issues(seg: dict) -> list[str]:
+    """구간 하나에서 기준을 넘은 말하기 문제를 "필러 5회"처럼 사람이 읽는 글로 돌려준다. 없으면 []."""
+    issues = []
+    if (seg.get("filler_count") or 0) >= SPEECH_FILLER_MIN:
+        issues.append(f"필러 {seg['filler_count']}회")
+    if (seg.get("repetition_count") or 0) >= SPEECH_REPEAT_MIN:
+        issues.append(f"반복 {seg['repetition_count']}회")
+    if (seg.get("silence_ratio") or 0) >= SPEECH_SILENCE_MIN:
+        issues.append(f"무음 {_to_percent(seg['silence_ratio'])}")
+    return issues
+
+
+# 음성인식 모델이 군소리를 표시하는 태그 → 사람이 읽는 소리 (voice/filler.py 의 MODEL_FILLER_TAGS)
+_FILLER_TAG_SOUND = {"<ah>": "아", "<uh>": "어", "<um>": "음", "<gue>": "그",
+                     "<jeo>": "저", "<mwo>": "뭐", "<mak>": "막"}
+
+
+def _filler_words(seg: dict, voice_timeline: dict) -> list[str]:
+    """그 구간에서 실제로 필러로 잡힌 단어를 많은 순으로 ["어 9회", "이제 6회"] 처럼 돌려준다.
+
+    전사문만 보고 고르게 하면 '그리고' 같은 접속사를 필러라고 불렀다(#106) → 실제 목록을 준다.
+    모델 태그(<uh> 등)는 전사문에 글자로 안 남으니 "어" 같은 소리로 바꾼다. 알 수 없는 것(?)은 뺀다.
+    """
+    counts: dict[str, int] = {}
+    for f in voice_timeline.get("filler_words") or []:
+        if not (seg["t_start"] <= f["t_start"] < seg["t_end"]):
+            continue
+        word = _FILLER_TAG_SOUND.get(f.get("text") or "", f.get("text") or "")
+        if not word or word.startswith("<") or word == "?":
+            continue
+        counts[word] = counts.get(word, 0) + 1
+    return [f"{w} {n}회" for w, n in sorted(counts.items(), key=lambda x: -x[1])]
+
+
+def _to_percent(ratio):
+    """0~1 비율 → "30%" 글자. 값이 없으면 그대로 둔다."""
+    return f"{round(ratio * 100)}%" if isinstance(ratio, (int, float)) else ratio
 
 
 def run_overall(segments: list[dict], video_analysis: list[dict], voice_timeline: dict) -> dict:
@@ -427,7 +512,20 @@ def run_overall(segments: list[dict], video_analysis: list[dict], voice_timeline
 
     outline = [{"label": s["label"], "title": s["title"],
                 "t_start": s["t_start"], "t_end": s["t_end"]} for s in segments]
-    segs_view = [{k: v for k, v in s.items() if k != "segment_id"} for s in segments]
+    # 숫자는 LLM 이 그대로 옮겨 쓸 수 있는 모양으로 바꿔서 보낸다.
+    #   무음 비율: 0~1 소수 → "30%" (소수로 보내면 %로 바꾸며 끝자리를 틀렸다: 0.296 → "29%")
+    #   발화 속도: 소수 → 정수 (171.9 를 "171"로 버림해서 썼다) + 구간별 피드백과 같은
+    #   느림/보통/빠름 라벨 (라벨 없이 숫자만 주면 144~211 을 "일정하다"고 판단했다)
+    segs_view = []
+    for s in segments:
+        view = {k: (_to_percent(v) if k == "silence_ratio" else v) for k, v in s.items() if k != "segment_id"}
+        spm = s.get("speaking_rate_spm")
+        if isinstance(spm, (int, float)):
+            view["speaking_rate_spm"] = round(spm)
+        view["speaking_rate_label"] = _speaking_rate_label(spm)
+        view["speech_issues"] = _speech_issues(s)   # 원래 숫자(소수 무음 비율)로 판정
+        view["filler_words"] = _filler_words(s, voice_timeline)
+        segs_view.append(view)
     labeled = {"outline": _add_time_labels(outline), "segments": _add_time_labels(segs_view)}
 
     prompt = OVERALL_PROMPT.format(
