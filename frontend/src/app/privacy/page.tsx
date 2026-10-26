@@ -27,8 +27,8 @@ const PROCESSORS = [
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="space-y-3">
-      <h2 className="text-base font-bold text-slate-800">{title}</h2>
+    <section className="space-y-2">
+      <h2 className="text-sm font-bold text-slate-800">{title}</h2>
       <div className="text-sm text-slate-600 leading-relaxed space-y-2">{children}</div>
     </section>
   );
