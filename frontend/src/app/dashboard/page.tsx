@@ -1184,19 +1184,65 @@ function PresentationAnalysisDashboard() {
             // 2) 폴더 목록: 컴퓨터 폴더처럼 아이콘만. 누르면 그 폴더가 열린다.
             return (
               <div className="max-w-[1200px] mx-auto animate-in fade-in slide-in-from-bottom-2 duration-300">
-                <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-end mb-8">
-                  <div>
-                    <h3 className="text-2xl font-extrabold text-stone-800">프로젝트 및 세션 관리</h3>
-                    <p className="text-[15px] text-stone-500 mt-2 font-medium">주제별 폴더를 생성하고 발표 연습을 촬영하세요.</p>
-                    <p className="text-[15px] text-stone-500 mt-1 font-medium">1. 새 주제 폴더 추가하기 · 2. 폴더를 열고 발표 추가하기</p>
-                  </div>
+                <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-center mb-6">
+                  <h3 className="text-2xl font-extrabold text-stone-800">프로젝트 &amp; 발표 관리</h3>
                   <button
                     onClick={() => setIsTopicModalOpen(true)}
-                    className="flex items-center gap-2 bg-stone-900 text-white px-5 py-2.5 rounded-xl font-bold hover:bg-stone-700 shadow-sm transition-colors whitespace-nowrap shrink-0"
+                    className="flex items-center justify-center gap-2 bg-stone-900 text-white px-5 py-2.5 rounded-xl font-bold hover:bg-stone-700 shadow-sm transition-colors whitespace-nowrap shrink-0"
                   >
                     <Plus className="w-4 h-4" />
                     새 주제 폴더 추가
                   </button>
+                </div>
+
+                {/* 사용 방법 — 단계 3개 + 각 단계 아래 간단한 예시 */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-10">
+                  {[
+                    {
+                      title: '주제 폴더 만들기',
+                      desc: '발표 주제마다 폴더를 하나씩 만들어요.',
+                      example: (
+                        <span className="flex items-center gap-2">
+                          <FolderIcon className="w-6 h-5 shrink-0" />
+                          <span className="font-semibold text-stone-700">캡스톤 중간발표</span>
+                        </span>
+                      ),
+                    },
+                    {
+                      title: '발표 추가하기',
+                      desc: '폴더를 열고 촬영하거나 영상을 올려요.',
+                      example: (
+                        <span className="flex items-center gap-1.5 flex-wrap">
+                          {['1회차 연습', '2회차 연습'].map((t) => (
+                            <span key={t} className="flex items-center gap-1 bg-white border border-stone-200 rounded-md px-2 py-0.5 font-semibold text-stone-700">
+                              <Video className="w-3.5 h-3.5 text-stone-400" />
+                              {t}
+                            </span>
+                          ))}
+                        </span>
+                      ),
+                    },
+                    {
+                      title: '피드백 보고 다시 연습',
+                      desc: '구간별 피드백을 확인하고 다시 촬영해요.',
+                      example: (
+                        <span className="flex items-center gap-2 font-semibold text-stone-700">
+                          필러 <span className="text-stone-400 line-through">12회</span>
+                          <ChevronRight className="w-4 h-4 text-stone-400" />
+                          <span className="text-emerald-600">5회</span>
+                        </span>
+                      ),
+                    },
+                  ].map((step, i) => (
+                    <div key={step.title} className="bg-white border border-stone-200 rounded-2xl p-5 shadow-sm">
+                      <div className="flex items-center gap-2.5">
+                        <span className="w-6 h-6 rounded-full bg-stone-900 text-white text-xs font-bold flex items-center justify-center shrink-0">{i + 1}</span>
+                        <span className="font-bold text-stone-800">{step.title}</span>
+                      </div>
+                      <p className="mt-2 text-sm text-stone-500">{step.desc}</p>
+                      <div className="mt-3 text-sm bg-stone-50 border border-stone-100 rounded-xl px-3 py-2.5">{step.example}</div>
+                    </div>
+                  ))}
                 </div>
 
                 {topics.length > 0 ? (
