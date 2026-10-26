@@ -2,7 +2,7 @@
 
 // 서비스 안내 화면 — 로그인 전 첫 화면(/)과 로그인 후 홈(/home)이 똑같이 쓴다.
 //   1) 가운데 떠 있는 알약 모양 상단 바 (Podium 워드마크 + 오른쪽 버튼)
-//   2) 소개: Podium 워드마크 + 아주 큰 제목 + 사실 한 줄 + 검은 알약 버튼
+//   2) 소개: 아주 큰 제목 + 사실 한 줄 + 검은 알약 버튼 (로고는 상단 바에 있어서 여기엔 안 넣음)
 //   3) 분석하는 항목: 항목이 하나씩 돌아가며 켜지고 아래에 설명이 바뀐다 (마우스를 올리면 그 항목에서 멈춤)
 //   4) 이렇게 사용해요: 스크롤 따라 진행 — UsageSteps.tsx
 // 디자인: 파란색 없이 검정·흰색·따뜻한 회색(stone)만 쓰고, 글꼴은 Pretendard (layout.tsx 에서 불러옴).
@@ -11,7 +11,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowRight, Eye, Gauge, Hand, MessageCircleMore, Pause, PersonStanding, Repeat, type LucideIcon } from "lucide-react";
+import { ArrowRight, ChevronDown, Eye, Gauge, Hand, MessageCircleMore, Pause, PersonStanding, Repeat, type LucideIcon } from "lucide-react";
 import UsageSteps from "./UsageSteps";
 
 interface Props {
@@ -113,10 +113,8 @@ export default function ServiceGuide({ headerActions, primaryAction, secondaryAc
 
       <main className="max-w-5xl mx-auto px-6">
         {/* 2) 소개 */}
-        <section className="pt-24 pb-16 text-center motion-safe:animate-fade-up">
-          <PodiumLogo className="mx-auto h-12 md:h-14 w-auto" />
-
-          <h1 className="mt-10 text-5xl md:text-6xl font-extrabold tracking-[-0.04em] leading-[1.1]">
+        <section className="pt-16 md:pt-20 pb-10 text-center motion-safe:animate-fade-up">
+          <h1 className="text-5xl md:text-6xl font-extrabold tracking-[-0.04em] leading-[1.1]">
             발표 연습,
             <br />
             혼자서도 쉽게!
@@ -148,13 +146,23 @@ export default function ServiceGuide({ headerActions, primaryAction, secondaryAc
           </div>
 
           {/* 3) 분석하는 항목 — 하나씩 돌아가며 켜진다 */}
-          <div className="mt-20">
+          <div className="mt-14">
             <AnalysisItems />
           </div>
+
+          {/* 아래 "이렇게 사용해요"가 첫 화면에 안 보여서, 누르면 내려가는 안내 버튼 */}
+          <button
+            type="button"
+            onClick={() => document.getElementById("how-to")?.scrollIntoView({ behavior: "smooth" })}
+            className="mt-12 inline-flex flex-col items-center gap-1 text-sm font-semibold text-stone-500 hover:text-stone-800 transition-colors"
+          >
+            이렇게 사용해요
+            <ChevronDown className="w-5 h-5 motion-safe:animate-bounce" />
+          </button>
         </section>
 
         {/* 4) 이렇게 사용해요 — 스크롤하면 단계가 하나씩 켜지고 오른쪽 그림이 바뀐다 (UsageSteps.tsx) */}
-        <section className="pt-16 border-t border-stone-200 motion-safe:animate-fade-up [animation-delay:80ms]">
+        <section id="how-to" className="scroll-mt-24 pt-16 border-t border-stone-200 motion-safe:animate-fade-up [animation-delay:80ms]">
           <h2 className="text-3xl font-extrabold tracking-[-0.03em]">이렇게 사용해요.</h2>
           <div className="mt-10">
             <UsageSteps />

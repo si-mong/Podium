@@ -31,7 +31,7 @@ export default function ThemeToggle() {
       onClick={toggle}
       aria-label={dark ? "라이트 모드로 바꾸기" : "다크 모드로 바꾸기"}
       title={dark ? "라이트 모드" : "다크 모드"}
-      className="fixed bottom-4 right-4 z-50 w-11 h-11 rounded-full bg-stone-900 text-white shadow-lg flex items-center justify-center hover:bg-stone-700 transition-colors"
+      className="fixed bottom-6 right-6 md:bottom-8 md:right-8 z-50 w-11 h-11 rounded-full bg-stone-900 text-white shadow-lg flex items-center justify-center hover:bg-stone-700 transition-colors"
     >
       {dark ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
     </button>
