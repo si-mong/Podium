@@ -1087,7 +1087,7 @@ function PresentationAnalysisDashboard() {
 
         {/* Scrollable Container for Content */}
         {/* 본문 양옆 여백: 화면이 넓을수록 넉넉하게 (꽉 찬 느낌 방지) */}
-        <div className="flex-1 overflow-y-auto py-8 px-8 lg:px-16 min-[1700px]:px-24 custom-scrollbar">
+        <div className="flex-1 overflow-y-auto py-8 px-10 lg:px-24 min-[1700px]:px-32 custom-scrollbar">
           
           {/* VIEW 0: Session Management — 폴더 목록(아이콘) ↔ 폴더 안(세션 목록 + 종합추이) */}
           {activeMenu === 'sessions' && (() => {
@@ -1308,7 +1308,7 @@ function PresentationAnalysisDashboard() {
           {/* Analysis Views (Only show if a session is selected and we are not in 'sessions' tab) */}
           {activeMenu !== 'sessions' && activeMenu !== 'trash' && activeSessionId ? (
             // 단일 분석은 왼쪽·오른쪽 두 칸으로 놓으므로 더 넓게 쓴다
-            <div className={`${topNav ? 'max-w-[1440px]' : 'max-w-[1200px]'} mx-auto space-y-6 pb-12`}>
+            <div className={`${topNav ? 'max-w-[1320px]' : 'max-w-[1200px]'} mx-auto space-y-6 pb-12`}>
 
               {/* VIEW 3: Single Analysis */}
               {activeMenu === 'single' && (
