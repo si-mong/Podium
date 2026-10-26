@@ -109,6 +109,12 @@ export default function LoginPage() {
             <p className="text-xs text-amber-700 mt-2">서버에 구글 로그인이 아직 설정되지 않았어요.</p>
           )}
 
+          <p className="text-xs text-slate-400 text-center mt-3">
+            계속하면{" "}
+            <Link href="/terms" className="underline hover:text-slate-600">이용약관</Link>과{" "}
+            <Link href="/privacy" className="underline hover:text-slate-600">개인정보 처리방침</Link>에 동의하게 돼요.
+          </p>
+
           {error && <p className="text-sm text-red-500 font-medium mt-4">{error}</p>}
 
           {providers?.password && (
