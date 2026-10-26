@@ -1395,12 +1395,12 @@ function PresentationAnalysisDashboard() {
                     </div>
                   )}
 
-                  {/* 첫째 줄: 왼쪽 구간별 지표 분석 그래프 / 오른쪽 종합 피드백.
+                  {/* 첫째 줄: 왼쪽 구간별 지표 분석 그래프 / 오른쪽 종합 피드백 — 한 박스 안에서 구분선으로 나눈다.
                       화면 폭이 1200px 보다 좁으면(브라우저를 크게 확대했을 때 등) 두 칸이 비좁아져 글자가 잘리므로 위아래로 쌓는다.
                       (둘째 줄 영상/스크립트도 같은 기준) */}
-                  <div className="grid grid-cols-1 min-[1200px]:grid-cols-2 gap-6 items-stretch">
+                  <div className="bg-white rounded-xl shadow-sm border border-stone-200 grid grid-cols-1 min-[1200px]:grid-cols-2 divide-y min-[1200px]:divide-y-0 min-[1200px]:divide-x divide-stone-200 items-stretch">
                   {/* Top: Graphs by Segment */}
-                  <div className="bg-white rounded-xl shadow-sm border border-stone-200 p-6 min-w-0">
+                  <div className="p-6 min-w-0">
                     <h3 className="font-extrabold text-stone-800 text-lg flex items-center gap-2">
                       <span className="bg-purple-100 text-purple-600 p-1.5 rounded-xl"><BarChart2 className="w-5 h-5"/></span>
                       구간별 지표 분석 그래프
@@ -1507,7 +1507,7 @@ function PresentationAnalysisDashboard() {
 
                   {/* Overall AI Feedback — 핵심 한 줄(크게) + 부가 설명 짧은 문단.
                       예전 세션은 headline 이 없어서 부가 설명 문단만 보인다 */}
-                  <div className="bg-white rounded-xl shadow-sm border border-stone-200 p-6 min-w-0">
+                  <div className="p-6 min-w-0">
                     <h3 className="font-extrabold text-stone-800 text-lg flex items-center gap-2 mb-6">
                       <span className="bg-stone-200 text-stone-900 p-1.5 rounded-xl"><Award className="w-5 h-5"/></span>
                       종합 피드백
@@ -1531,9 +1531,9 @@ function PresentationAnalysisDashboard() {
                   </div>
 
                   {/* 둘째 줄: 왼쪽 영상(+ 구간 버튼) / 오른쪽 발표 스크립트 */}
-                  <div className="grid grid-cols-1 min-[1200px]:grid-cols-2 gap-6 items-stretch">
+                  <div className="bg-white rounded-xl shadow-sm border border-stone-200 grid grid-cols-1 min-[1200px]:grid-cols-2 divide-y min-[1200px]:divide-y-0 min-[1200px]:divide-x divide-stone-200 items-stretch">
                   {/* Middle: Timeline & Video */}
-                  <div className="bg-white rounded-xl shadow-sm border border-stone-200 p-6 min-w-0">
+                  <div className="p-6 min-w-0">
                     <div className="flex items-center justify-between mb-4">
                       <h3 className="font-extrabold text-stone-800 text-lg flex items-center gap-2">
                         <span className="bg-stone-200 text-stone-900 p-1.5 rounded-xl"><Video className="w-5 h-5"/></span>
@@ -1582,13 +1582,14 @@ function PresentationAnalysisDashboard() {
                     {segments.length > 0 ? (
                       <>
                         {/* Timeline Buttons */}
-                        <div className="flex flex-wrap items-center gap-2">
+                        {/* 구간 버튼은 모두 같은 크기 (마지막 줄이 늘어나지 않게 칸 고정) */}
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                           {segments.map((seg, idx) => (
                             <button
                               key={seg.segment_id}
                               onClick={() => selectSegment(idx)}
                               title={`${seg.title} (${fmtTime(seg.t_start)}~${fmtTime(seg.t_end)})`}
-                              className={`flex-1 min-w-[110px] py-3 px-4 rounded-xl text-[15px] font-extrabold border transition-all ${activeSegmentIndex === idx ? 'bg-stone-800 text-white border-stone-800 shadow-md shadow-stone-300' : 'bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100 hover:text-stone-800'}`}
+                              className={`truncate py-3 px-4 rounded-xl text-[15px] font-extrabold border transition-all ${activeSegmentIndex === idx ? 'bg-stone-800 text-white border-stone-800 shadow-md shadow-stone-300' : 'bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100 hover:text-stone-800'}`}
                             >
                               {segmentName(seg)}
                             </button>
@@ -1603,7 +1604,7 @@ function PresentationAnalysisDashboard() {
                   </div>
 
                   {/* 발표 스크립트 (인터랙티브: 문장/표시를 누르면 영상이 그 시점으로 이동, 구간 버튼을 누르면 그 구간 시작으로 이동) */}
-                  <div className="bg-white rounded-xl shadow-sm border border-stone-200 p-6 min-w-0">
+                  <div className="p-6 min-w-0">
                     <h3 className="font-extrabold text-stone-800 mb-4 flex flex-wrap items-center gap-x-2 gap-y-1">
                       <span className="bg-stone-200 text-stone-900 p-1.5 rounded-xl"><FileText className="w-5 h-5"/></span>
                       {/* 분석 스크립트(필러·반복·무음·동작 표시) ↔ 원본 스크립트(문장만) 전환 */}
