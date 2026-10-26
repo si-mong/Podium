@@ -16,7 +16,7 @@ const EFFECTIVE_DATE = "2026년 10월 26일";
 function Article({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="space-y-3">
-      <h2 className="text-lg font-extrabold text-slate-800">{title}</h2>
+      <h2 className="text-base font-bold text-slate-800">{title}</h2>
       <div className="text-sm text-slate-600 leading-relaxed space-y-2">{children}</div>
     </section>
   );
@@ -37,7 +37,7 @@ export default function TermsPage() {
       </header>
 
       <main className="max-w-3xl mx-auto px-6 py-12">
-        <article className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 md:p-10 space-y-10">
+        <article className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 md:p-10 space-y-8">
           <div>
             <h1 className="text-2xl font-extrabold text-slate-800 tracking-tight">이용약관</h1>
             <p className="text-sm text-slate-500 mt-2">

@@ -28,7 +28,7 @@ const PROCESSORS = [
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="space-y-3">
-      <h2 className="text-lg font-extrabold text-slate-800">{title}</h2>
+      <h2 className="text-base font-bold text-slate-800">{title}</h2>
       <div className="text-sm text-slate-600 leading-relaxed space-y-2">{children}</div>
     </section>
   );
@@ -49,7 +49,7 @@ export default function PrivacyPage() {
       </header>
 
       <main className="max-w-3xl mx-auto px-6 py-12">
-        <article className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 md:p-10 space-y-10">
+        <article className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 md:p-10 space-y-8">
           <div>
             <h1 className="text-2xl font-extrabold text-slate-800 tracking-tight">개인정보 처리방침</h1>
             <p className="text-sm text-slate-500 mt-2">
@@ -135,50 +135,34 @@ export default function PrivacyPage() {
           </Section>
 
           <Section title="5. 운영자의 열람">
-            <p>
-              운영자는 오류 대응과 품질 개선을 위해 관리자 화면에서 분석 결과(수치, 대본, 피드백)와 실행 기록을 볼 수 있습니다.
-              관리자 화면에서는 <b>발표 영상을 볼 수 없도록</b> 만들었습니다.
-            </p>
+            <p>운영자는 오류 대응을 위해 분석 결과와 실행 기록을 볼 수 있으며, <b>발표 영상은 볼 수 없습니다</b>.</p>
           </Section>
 
           <Section title="6. 이용자의 권리">
             <p>
-              이용자는 언제든지 자신의 개인정보를 열람·정정·삭제하거나 처리 정지를 요청할 수 있습니다.
-              영상과 분석 결과는 서비스 안에서 직접 삭제할 수 있고, 그 밖의 요청은 아래 연락처로 보내 주시면 지체 없이 처리합니다.
-            </p>
-            <p>만 14세 미만은 서비스에 가입할 수 없습니다.</p>
-          </Section>
-
-          <Section title="7. 쿠키와 브라우저 저장소">
-            <p>
-              로그인 상태를 유지하기 위해 브라우저 저장소(localStorage)에 로그인 토큰을 저장하고, 구글 로그인 과정에서 위조 방지용 쿠키를 잠깐 사용합니다.
-              광고·추적용 쿠키는 사용하지 않습니다.
+              언제든지 개인정보 열람·정정·삭제를 요청할 수 있고, 영상과 분석 결과는 서비스에서 직접 삭제할 수 있습니다.
+              만 14세 미만은 가입할 수 없습니다.
             </p>
           </Section>
 
-          <Section title="8. 안전성 확보 조치">
-            <ul className="list-disc pl-5 space-y-1.5">
-              <li>모든 통신은 HTTPS로 암호화합니다.</li>
-              <li>영상과 분석 결과는 본인 계정으로만 조회할 수 있도록 접근을 제한합니다.</li>
-              <li>서버 접속은 허용된 관리자만 할 수 있도록 제한합니다.</li>
-            </ul>
+          <Section title="7. 쿠키와 보안">
+            <p>
+              로그인 유지를 위해 브라우저에 로그인 토큰을 저장하며, 광고·추적용 쿠키는 쓰지 않습니다.
+              모든 통신은 HTTPS로 암호화하고, 영상과 분석 결과는 본인만 볼 수 있습니다.
+            </p>
           </Section>
 
-          <Section title="9. 개인정보 보호책임자와 문의">
+          <Section title="8. 문의">
             <p>
-              개인정보 관련 문의·요청: <b>{OPERATOR}</b> ·{" "}
+              {OPERATOR} ·{" "}
               <a href={`mailto:${CONTACT_EMAIL}`} className="text-blue-600 font-semibold hover:underline">
                 {CONTACT_EMAIL}
               </a>
             </p>
-            <p>
-              개인정보 침해에 대한 신고·상담은 개인정보침해신고센터(privacy.kisa.or.kr, 국번 없이 118)나 개인정보분쟁조정위원회(www.kopico.go.kr, 1833-6972)에 할 수 있습니다.
-            </p>
           </Section>
 
-          <Section title="10. 방침 변경">
-            <p>이 방침을 바꾸면 시행 7일 전에 서비스 화면에 알립니다.</p>
-            <p className="text-slate-500">시행일: {EFFECTIVE_DATE}</p>
+          <Section title="9. 방침 변경">
+            <p>방침을 바꾸면 시행 7일 전에 서비스 화면에 알립니다. (시행일: {EFFECTIVE_DATE})</p>
           </Section>
         </article>
       </main>
