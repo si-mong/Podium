@@ -124,7 +124,7 @@ function ProfileForm() {
                   value={affiliation}
                   onChange={(e) => setAffiliation(e.target.value)}
                   maxLength={100}
-                  placeholder="예: OO대학교 컴퓨터공학과"
+                  placeholder="예: 컴퓨터공학과"
                   className={inputClass}
                 />
               </div>
