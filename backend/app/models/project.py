@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from sqlalchemy import BigInteger, DateTime, ForeignKey, String, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -17,6 +18,10 @@ class Project(Base):
         index=True,
     )
     title: Mapped[str] = mapped_column(String(255), nullable=False)
+    # 발표 목차 (예: ["도입", "문제 정의", "해결 방법", "결과"]). 선택 입력.
+    # 있으면 STEP 4 가 이 항목들을 구간 라벨로 쓴다. 회차를 시작할 때 sessions.outline 에 복사된다
+    # — 나중에 목차를 고쳐도 지난 회차 결과는 그대로 두기 위함.
+    outline: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

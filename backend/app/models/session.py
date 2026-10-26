@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from sqlalchemy import BigInteger, DateTime, Float, ForeignKey, Integer, String, UniqueConstraint, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -23,6 +24,8 @@ class Session(Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="processing")
     full_video_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
     pdf_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    # 이 회차를 시작할 때의 프로젝트 목차 사본 (projects.outline 참고). 비어 있으면 STEP 4 기본 라벨을 쓴다.
+    outline: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

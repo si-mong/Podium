@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, StringConstraints
+from pydantic import BaseModel, ConfigDict, StringConstraints, field_validator
 
 from app.schemas.session import SessionRead
 
@@ -15,10 +15,36 @@ class ProjectCreate(BaseModel):
     title: _Title
 
 
-class ProjectUpdate(BaseModel):
-    """제목 수정. 현재 프로젝트에서 사용자가 바꿀 수 있는 필드는 title 하나뿐."""
+# 목차 항목 하나는 구간 라벨(segments.label, String(32))로 저장되므로 30자까지.
+OUTLINE_MAX_ITEMS = 12
+OUTLINE_ITEM_MAX = 30
 
-    title: _Title
+
+def clean_outline(items: list[str] | None) -> list[str] | None:
+    """앞뒤 공백 제거, 빈 항목·중복 제거 (순서 유지). 남는 게 없으면 None = 목차 없음."""
+    if items is None:
+        return None
+    out: list[str] = []
+    for raw in items:
+        item = " ".join(str(raw).split())
+        if not item:
+            continue
+        if len(item) > OUTLINE_ITEM_MAX:
+            raise ValueError(f"목차 항목은 {OUTLINE_ITEM_MAX}자까지 쓸 수 있어요: {item[:10]}…")
+        if item not in out:
+            out.append(item)
+    if len(out) > OUTLINE_MAX_ITEMS:
+        raise ValueError(f"목차는 {OUTLINE_MAX_ITEMS}개까지 넣을 수 있어요.")
+    return out or None
+
+
+class ProjectUpdate(BaseModel):
+    """제목·목차 수정. 보낸 필드만 바꾼다. outline 에 [] 나 null 을 보내면 목차를 지운다."""
+
+    title: _Title | None = None
+    outline: list[str] | None = None
+
+    _clean = field_validator("outline")(clean_outline)
 
 
 class ProjectRead(BaseModel):
@@ -28,6 +54,7 @@ class ProjectRead(BaseModel):
     user_id: int
     title: str
     created_at: datetime
+    outline: list[str] | None = None
 
 
 class ProjectWithSessions(ProjectRead):

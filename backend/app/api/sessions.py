@@ -103,13 +103,15 @@ def start_session(
     db: DbSession = Depends(get_db),
     user_id: int = Depends(get_current_user_id),
 ):
-    get_owned_project(db, project_id, user_id)
+    project = get_owned_project(db, project_id, user_id)
 
     # 회차 번호 = 이 프로젝트에서 가장 큰 번호 + 1. (중간 회차를 지워도 다른 회차 번호는 그대로 유지된다.)
     next_no = db.scalar(
         select(func.coalesce(func.max(Session.session_no), 0) + 1).where(Session.project_id == project_id)
     )
-    session = Session(project_id=project_id, session_no=next_no, status="recording")
+    # 목차는 지금 시점의 사본을 회차에 남긴다 — 나중에 프로젝트 목차를 고쳐도 이 회차 분석은 그대로
+    session = Session(project_id=project_id, session_no=next_no, status="recording",
+                      outline=list(project.outline) if project.outline else None)
     db.add(session)
     db.commit()
     db.refresh(session)
@@ -819,7 +821,7 @@ def analyze_segments(
     from app.pipeline import step4_aggregate, step4_segmentation
 
     total = voice_raw.total_duration if voice_raw else sent_dicts[-1]["t_end"]
-    result = step4_segmentation.run(sent_dicts, total_duration=total)
+    result = step4_segmentation.run(sent_dicts, total_duration=total, outline=session.outline)
 
     # 재분석 시 이전 회차가 남지 않도록 통째로 교체 (CASCADE 로 하위도 정리됨).
     db.query(Segment).filter(Segment.session_id == session_id).delete()

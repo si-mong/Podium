@@ -24,6 +24,7 @@ class SessionRead(BaseModel):
     full_video_path: Optional[str]
     pdf_path: Optional[str]
     created_at: datetime
+    outline: Optional[List[str]] = None   # 이 회차에 쓴 목차 (시작할 때 프로젝트에서 복사)
 
 
 class SessionDetail(SessionRead):

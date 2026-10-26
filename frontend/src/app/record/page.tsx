@@ -8,6 +8,7 @@ import { ArrowLeft, Circle, Square, Sparkles, Loader2, AlertCircle, RotateCcw, C
 import { apiFetch } from "@/utils/api";
 import { isLoggedIn } from "@/utils/auth";
 import { startBackgroundBlur, BlurredCamera } from "./backgroundBlur";
+import OutlineEditor from "./OutlineEditor";
 const CHUNK_MS = 30_000; // 전송용 청크 길이 (STEP1 전처리 단위, app/api/sessions.py CHUNK_DURATION_SEC와 동일)
 
 type Phase = "idle" | "recording" | "finalizing" | "ready" | "analyzing" | "done" | "error";
@@ -82,6 +83,41 @@ function RecordPage() {
   const [analysisFailed, setAnalysisFailed] = useState(false); // 분석이 실패했으면 버튼 글자가 "분석 다시 시도"
   const [retaking, setRetaking] = useState(false); // 재촬영 처리(이전 영상 삭제) 중
   const [showStartNotice, setShowStartNotice] = useState(false); // "촬영 시작" 누르면 먼저 이 안내부터 뜨고, 확인해야 진짜 촬영 시작
+
+  // 발표 목차 (선택) — 프로젝트에 저장된 걸 불러와서 고칠 수 있다. 시작할 때 바뀌었으면 프로젝트에 저장한다
+  // (세션을 만들 때 백엔드가 프로젝트 목차를 회차에 복사하므로 반드시 세션 생성 **전에** 저장).
+  const [outline, setOutline] = useState<string[]>([]);
+  const savedOutlineRef = useRef<string[]>([]);
+  const [outlineLoaded, setOutlineLoaded] = useState(false);
+  useEffect(() => {
+    if (!projectId) return;
+    apiFetch("/projects")
+      .then((res) => (res.ok ? res.json() : []))
+      .then((projects: { project_id: number; outline: string[] | null }[]) => {
+        const saved = projects.find((p) => String(p.project_id) === projectId)?.outline ?? [];
+        savedOutlineRef.current = saved;
+        setOutline(saved);
+      })
+      .catch(() => {})
+      .finally(() => setOutlineLoaded(true));
+  }, [projectId]);
+
+  const saveOutline = async () => {
+    const cleaned = outline.map((x) => x.trim()).filter(Boolean);
+    if (JSON.stringify(cleaned) === JSON.stringify(savedOutlineRef.current)) return;
+    try {
+      const res = await apiFetch(`/projects/${projectId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ outline: cleaned }),
+      });
+      if (!res.ok) throw new Error();
+      savedOutlineRef.current = cleaned;
+      log(cleaned.length ? `목차 ${cleaned.length}개를 저장했어요. 이 목차대로 구간을 나눠요.` : "목차를 비웠어요. 구간은 자동으로 나눠요.", "success");
+    } catch {
+      log("목차를 저장하지 못해서 이번엔 자동으로 구간을 나눠요.", "warn");
+    }
+  };
 
   // 업로드 모드 전용
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -228,6 +264,7 @@ function RecordPage() {
       streamRef.current = stream;
       if (videoPreviewRef.current) videoPreviewRef.current.srcObject = stream;
 
+      await saveOutline();
       const startRes = await apiFetch(`/projects/${projectId}/sessions/start`, { method: "POST" });
       if (!startRes.ok) throw new Error("세션 생성 실패");
       const session = await startRes.json();
@@ -444,6 +481,7 @@ function RecordPage() {
     setLogs([]);
     setPhase("finalizing");
     try {
+      await saveOutline();
       const startRes = await apiFetch(`/projects/${projectId}/sessions/start`, { method: "POST" });
       if (!startRes.ok) throw new Error("세션을 만들지 못했어요.");
       const session = await startRes.json();
@@ -675,6 +713,15 @@ function RecordPage() {
               </button>
             )}
           </div>
+
+          {/* 발표 목차 (선택) — 시작 전에만 고칠 수 있다 */}
+          {outlineLoaded && (phase === "idle" || phase === "error") && (
+            <OutlineEditor
+              items={outline}
+              onChange={setOutline}
+              className={!isUpload && !hasSlide ? "w-full lg:w-1/2 mx-auto" : ""}
+            />
+          )}
 
           {/* 배경 흐리게 켜기/끄기 — 촬영 시작 전에만 보인다 (촬영 중에는 바꿀 수 없음) */}
           {!isUpload && (phase === "idle" || phase === "error") && (

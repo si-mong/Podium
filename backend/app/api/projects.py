@@ -117,12 +117,19 @@ def update_project(
     db: DbSession = Depends(get_db),
     user_id: int = Depends(get_current_user_id),
 ):
-    """제목 수정. 현재 수정 가능한 필드는 title 뿐이다.
+    """제목·목차 수정. 보낸 필드만 바꾼다.
 
-    세션·분석 결과에는 영향을 주지 않는다 — 프로젝트는 회차를 묶는 이름표일 뿐.
+    세션·분석 결과에는 영향을 주지 않는다 — 목차는 **다음에 시작하는 회차부터** 쓰인다
+    (회차를 시작할 때 sessions.outline 으로 복사되기 때문).
     """
     project = get_owned_project(db, project_id, user_id)
-    project.title = body.title
+    fields = body.model_dump(exclude_unset=True)
+    if "title" in fields:
+        if body.title is None:
+            raise HTTPException(422, "제목은 비울 수 없어요.")
+        project.title = body.title
+    if "outline" in fields:
+        project.outline = body.outline
     db.commit()
     db.refresh(project)
     return project

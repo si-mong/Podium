@@ -3,8 +3,11 @@ Step 4: 구간 분리 (LLM)
 
 STT 문장들을 의미 단위로 묶어 발표 구간을 나눈다.
 
-입력: stt_sentences (문장 + 시각)
+입력: stt_sentences (문장 + 시각), 발표 목차(선택)
 출력: segments 행 (label / title / t_start / t_end)
+
+목차가 있으면 **목차 항목을 라벨로** 쓴다 (기본 라벨 9종 대신). 순서는 강제하지 않고,
+말하지 않은 항목은 빠져도 된다. 구간 수 상한은 발표 길이 대신 목차 항목 수를 따른다.
 
 핵심 설계 — **LLM 에게 타임스탬프를 묻지 않는다.**
     문장에 번호를 붙여 넘기고 **번호 범위**로 경계를 받은 뒤, 시각은 우리가
@@ -121,7 +124,23 @@ PROMPT = """당신은 발표 영상을 분석하는 도우미입니다.
    예: 「해결방안」을 말하다가 그와 관련된 기술·용어를 설명했다면, 그 설명까지
    전체가 하나의 「해결방안」입니다. 설명이 끝나고 다시 원래 이야기로 돌아와도
    쪼개지 말고 하나로 두세요.
-5. 각 구간에 아래 라벨 중 **가장 가까운 것 하나**를 고르세요.
+{label_rules}
+
+## 출력 형식
+아래 형식의 JSON 객체만 출력하세요. 설명이나 마크다운은 쓰지 마세요.
+
+{{"segments": [
+  {{"label": "라벨", "title": "이 구간을 한 줄로 요약(20자 이내)", "start": 0, "end": 4}},
+  ...
+]}}
+
+## 전사문
+{transcript}
+"""
+
+
+# 기본 모드(목차 없음)의 규칙 5~8 + 라벨 목록. {labels}·{minutes}·{lo}·{hi} 를 채워서 PROMPT 의 {label_rules} 에 넣는다.
+DEFAULT_RULES = """5. 각 구간에 아래 라벨 중 **가장 가까운 것 하나**를 고르세요.
    순서는 정해져 있지 않고, 같은 라벨이 여러 번 나와도 됩니다.
    목록에 없는 라벨을 새로 만들지 마세요.
 6. 「배경」「핵심개념」은 아래 두 조건을 **모두** 만족할 때만 쓰세요.
@@ -135,19 +154,18 @@ PROMPT = """당신은 발표 영상을 분석하는 도우미입니다.
    {hi}개를 넘기지 말고, 20초가 안 되는 짧은 구간은 만들지 말고 앞뒤 구간에 포함시키세요.
 
 ## 라벨 목록
-{labels}
+{labels}"""
 
-## 출력 형식
-아래 형식의 JSON 객체만 출력하세요. 설명이나 마크다운은 쓰지 마세요.
+# 목차 모드의 규칙 5~7 + 목차. 발표자가 정한 목차를 라벨로 쓴다.
+OUTLINE_RULES = """5. 발표자가 미리 정한 **목차**가 아래에 있습니다. 각 구간의 label 은 목차 항목 중
+   **가장 가까운 것 하나**를 글자 그대로 쓰세요. 목차에 없는 라벨을 새로 만들지 마세요.
+6. 목차 순서대로 발표하지 않았을 수 있습니다. **순서는 실제 발표 흐름을 따르세요.**
+   말하지 않은 목차 항목은 빼도 되고, 같은 항목이 다시 나오면 다시 써도 됩니다.
+   목차 어느 항목에도 딱 맞지 않는 부분은 앞뒤 흐름상 가장 가까운 항목에 포함시키세요.
+7. 이 발표는 약 {minutes}분입니다. 20초가 안 되는 짧은 구간은 만들지 말고 앞뒤 구간에 포함시키세요.
 
-{{"segments": [
-  {{"label": "라벨", "title": "이 구간을 한 줄로 요약(20자 이내)", "start": 0, "end": 4}},
-  ...
-]}}
-
-## 전사문
-{transcript}
-"""
+## 목차
+{labels}"""
 
 
 @dataclass
@@ -183,7 +201,26 @@ def build_transcript(sentences: list[dict]) -> str:
     return "\n".join(f"[{i}] {s['text']}" for i, s in enumerate(sentences))
 
 
-def _repair(items: list[dict], n: int) -> tuple[list[Segment], list[str]]:
+def _match_label(label: str, labels: list[str]) -> str | None:
+    """목차 모드에서 LLM 이 라벨을 살짝 바꿔 쓴 경우(띄어쓰기·번호·괄호) 원래 항목으로 되돌린다."""
+    if label in labels:
+        return label
+    key = lambda x: "".join(ch for ch in x.lower() if ch.isalnum())
+    k = key(label)
+    if not k:
+        return None
+    for cand in labels:
+        if key(cand) == k:
+            return cand
+    for cand in labels:   # 한쪽이 다른 쪽을 포함 ("2. 해결 방법" ↔ "해결 방법")
+        kc = key(cand)
+        if kc and (kc in k or k in kc):
+            return cand
+    return None
+
+
+def _repair(items: list[dict], n: int, labels: list[str] = LABELS,
+            outline_mode: bool = False) -> tuple[list[Segment], list[str]]:
     """LLM 출력을 검증하고 고칠 수 있는 건 고친다.
 
     번호 기반이라 기계적 검증이 가능하다는 게 이 설계의 핵심 이점.
@@ -198,7 +235,14 @@ def _repair(items: list[dict], n: int) -> tuple[list[Segment], list[str]]:
             warns.append(f"번호 없음/형식 오류: {it}")
             continue
         label = str(it.get("label", "")).strip()
-        if label not in LABELS:
+        if outline_mode:
+            matched = _match_label(label, labels)
+            if matched is None:
+                warns.append(f"목차에 없는 라벨 '{label}' → 그대로 사용")
+            elif matched != label:
+                warns.append(f"라벨 '{label}' → 목차 항목 «{matched}» 로 맞춤")
+                label = matched
+        elif label not in labels:
             warns.append(f"목록 밖 라벨 '{label}' → 그대로 사용")
         segs.append(Segment(label=label or "미분류",
                             title=str(it.get("title", "")).strip()[:255],
@@ -342,6 +386,24 @@ def _merge_same_label(segs, sentences, max_gap: int, max_ratio: float):
     return segs, warns
 
 
+def _merge_adjacent(segs):
+    """바로 붙어 있는 같은 라벨을 길이 제한 없이 합친다 (목차 모드 전용).
+
+    목차 항목은 발표자가 정한 한 덩어리라, «클라우드 → 클라우드» 처럼 이어지면 하나여야 한다.
+    _merge_same_label 의 MAX_MERGE_RATIO(거대 구간 방지)는 기본 라벨용 안전장치라 여기선 쓰지 않는다.
+    """
+    warns, out = [], []
+    for seg in segs:
+        if out and out[-1].label == seg.label:
+            prev = out[-1]
+            out[-1] = Segment(label=prev.label, title=prev.title,
+                              start_idx=prev.start_idx, end_idx=seg.end_idx)
+            warns.append(f"이어진 목차 항목 «{seg.label}» 병합")
+        else:
+            out.append(seg)
+    return out, warns
+
+
 def _stitch(segs, total_duration: float | None):
     """구간을 빈틈 없이 이어붙인다.
 
@@ -363,8 +425,12 @@ def _stitch(segs, total_duration: float | None):
 
 
 def run(sentences: list[dict], total_duration: float | None = None,
-        on_progress=None) -> SegmentResult:
-    """문장 목록 → 구간. sentences 는 stt_sentences 형식(text/t_start/t_end)."""
+        on_progress=None, outline: list[str] | None = None) -> SegmentResult:
+    """문장 목록 → 구간. sentences 는 stt_sentences 형식(text/t_start/t_end).
+
+    outline: 발표자가 입력한 목차. 있으면 그 항목을 라벨로 쓰고, 구간 수 상한은 항목 수 + 1
+    (같은 항목이 한 번 더 나오는 경우 여유). 하한은 두지 않는다 — 말하지 않은 항목은 빠질 수 있다.
+    """
     from openai import OpenAI
 
     from app.core.config import settings
@@ -380,10 +446,17 @@ def run(sentences: list[dict], total_duration: float | None = None,
         raise RuntimeError("OPENAI_API_KEY 없음 (.env 확인)")
 
     total_sec = total_duration or (sentences[-1]["t_end"] - sentences[0]["t_start"])
-    lo, hi = target_count(total_sec)
-    prompt = PROMPT.format(labels="\n".join(f"- {x}" for x in LABELS),
-                           minutes=max(1, round(total_sec / 60)), lo=lo, hi=hi,
-                           transcript=build_transcript(sentences))
+    minutes = max(1, round(total_sec / 60))
+    outline = [x for x in (outline or []) if x]
+    if outline:
+        labels, lo, hi = outline, 1, len(outline) + 1
+        rules = OUTLINE_RULES.format(labels="\n".join(f"- {x}" for x in labels), minutes=minutes)
+    else:
+        labels = LABELS
+        lo, hi = target_count(total_sec)
+        rules = DEFAULT_RULES.format(labels="\n".join(f"- {x}" for x in labels),
+                                     minutes=minutes, lo=lo, hi=hi)
+    prompt = PROMPT.format(label_rules=rules, transcript=build_transcript(sentences))
     client = OpenAI(api_key=api_key)
 
     last_err = None
@@ -404,7 +477,7 @@ def run(sentences: list[dict], total_duration: float | None = None,
             items = data.get("segments") if isinstance(data, dict) else data
             if not isinstance(items, list):
                 raise ValueError(f"segments 배열이 없음: {raw[:200]}")
-            segs, warns = _repair(items, len(sentences))
+            segs, warns = _repair(items, len(sentences), labels, outline_mode=bool(outline))
             if not segs:
                 raise ValueError("유효 구간 0개")
             # 순서 주의: 같은 라벨을 먼저 합쳐야 짧은 구간 병합이 엉뚱한 이웃을 안 고른다
@@ -413,6 +486,9 @@ def run(sentences: list[dict], total_duration: float | None = None,
             segs, mwarns = _merge_short(segs, sentences, MIN_SEGMENT_SEC)
             segs, cwarns = _cap_count(segs, sentences, hi)
             warns += swarns + mwarns + cwarns
+            if outline:   # 병합 과정에서 같은 항목이 다시 붙을 수 있어 마지막에 한 번 더
+                segs, awarns = _merge_adjacent(segs)
+                warns += awarns
             if len(segs) < lo:
                 warns.append(f"구간 {len(segs)}개 — 목표 {lo}~{hi}개보다 적음 (내용상 더 나누지 않음)")
 
