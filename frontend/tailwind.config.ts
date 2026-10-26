@@ -19,9 +19,15 @@ const config: Config = {
           from: { opacity: "0", transform: "translateY(8px)" },
           to: { opacity: "1", transform: "translateY(0)" },
         },
+        // 첫 화면 "분석하는 항목": 선택된 항목 아래 막대가 차오르며 다음 항목으로 넘어갈 때까지 남은 시간을 보여준다
+        "fill-x": {
+          from: { transform: "scaleX(0)" },
+          to: { transform: "scaleX(1)" },
+        },
       },
       animation: {
         "fade-up": "fade-up 0.3s ease-out both",
+        "fill-x": "fill-x var(--fill-duration, 2.4s) linear both",
       },
     },
   },

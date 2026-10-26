@@ -8,7 +8,7 @@ import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Loader2 } from "lucide-react";
-import { PodiumMark } from "@/components/ServiceGuide";
+import { PodiumLogo } from "@/components/ServiceGuide";
 import { apiFetch, errorMessage } from "@/utils/api";
 import { isLoggedIn } from "@/utils/auth";
 
@@ -87,11 +87,8 @@ function ProfileForm() {
   return (
     <div className="min-h-screen bg-stone-50 flex items-center justify-center p-4 font-['Pretendard_Variable',Pretendard,sans-serif]">
       <div className="w-full max-w-md">
-        <Link href={welcome ? "/" : "/home"} className="flex flex-col items-center gap-3 mb-8">
-          <div className="w-14 h-14 rounded-2xl bg-stone-100 shadow-[inset_0_-2px_0_rgba(0,0,0,0.06)] flex items-center justify-center">
-            <PodiumMark className="w-7 h-7 text-stone-800" />
-          </div>
-          <h1 className="text-xl font-extrabold text-stone-900 tracking-tight">Podium</h1>
+        <Link href={welcome ? "/" : "/home"} className="flex justify-center mb-8">
+          <PodiumLogo className="h-10 w-auto hover:opacity-70 transition-opacity" />
         </Link>
 
         <div className="bg-white rounded-2xl shadow-sm border border-stone-200 p-8">

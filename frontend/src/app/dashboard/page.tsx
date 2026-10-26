@@ -14,7 +14,7 @@ import {
   ComposedChart
 } from 'recharts';
 import InteractiveScript, { TimestampText, fmtTime, ScriptData, VideoChunk } from './InteractiveScript';
-import { PodiumMark } from '@/components/ServiceGuide';
+import { PodiumLogo } from '@/components/ServiceGuide';
 
 const videoThumbnail = "/dashboard-video-thumbnail.png";
 
@@ -992,11 +992,10 @@ function PresentationAnalysisDashboard() {
   const logo = (
     <button
       onClick={() => router.push('/home')}
-      className={`flex items-center group shrink-0 text-stone-900 hover:text-stone-600 transition-colors ${topNav ? 'gap-2' : 'gap-1.5'}`}
+      className="flex items-center shrink-0 hover:opacity-70 transition-opacity"
     >
-      {/* 홈 화면과 같은 단상 기호 + Podium 글자 (ServiceGuide.tsx 의 PodiumMark) */}
-      <PodiumMark className={topNav ? 'w-6 h-6 min-[1700px]:w-7 min-[1700px]:h-7' : 'w-6 h-6'} />
-      <h1 className={`${topNav ? 'text-[22px]' : 'text-xl'} font-extrabold tracking-tight`}>Podium</h1>
+      {/* 홈 화면과 같은 Podium 워드마크 (ServiceGuide.tsx 의 PodiumLogo) */}
+      <PodiumLogo className={topNav ? 'h-7 min-[1700px]:h-8 w-auto' : 'h-7 w-auto'} />
     </button>
   );
 

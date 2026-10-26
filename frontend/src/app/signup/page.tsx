@@ -7,7 +7,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Mail, Lock, Loader2, Eye, EyeOff } from "lucide-react";
-import { PodiumMark } from "@/components/ServiceGuide";
+import { PodiumLogo } from "@/components/ServiceGuide";
 import Link from "next/link";
 import { API_BASE, errorMessage } from "@/utils/api";
 
@@ -67,12 +67,8 @@ export default function SignupPage() {
     <div className="min-h-screen bg-stone-50 flex items-center justify-center p-4 font-['Pretendard_Variable',Pretendard,sans-serif]">
       <div className="w-full max-w-sm">
         {/* 로고 — 누르면 첫 화면(랜딩)으로 */}
-        <Link href="/" className="flex flex-col items-center gap-3 mb-8 group">
-          {/* 홈 화면과 같은 단상 기호 타일 + Podium 글자 */}
-          <div className="w-14 h-14 rounded-2xl bg-stone-100 shadow-[inset_0_-2px_0_rgba(0,0,0,0.06)] flex items-center justify-center group-hover:bg-stone-200 transition-colors">
-            <PodiumMark className="w-7 h-7 text-stone-800" />
-          </div>
-          <h1 className="text-xl font-extrabold text-stone-900 tracking-tight">Podium</h1>
+        <Link href="/" className="flex justify-center mb-8 group">
+          <PodiumLogo className="h-10 w-auto group-hover:opacity-70 transition-opacity" />
         </Link>
 
         {/* 회원가입 카드 */}

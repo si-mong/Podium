@@ -4,7 +4,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { PodiumMark } from "@/components/ServiceGuide";
+import { PodiumLogo } from "@/components/ServiceGuide";
 
 export const metadata: Metadata = { title: "이용약관 · Podium" };
 
@@ -27,9 +27,8 @@ export default function TermsPage() {
     <div className="min-h-screen bg-stone-50 text-stone-900 font-['Pretendard_Variable',Pretendard,sans-serif]">
       <header className="bg-white border-b border-stone-200">
         <div className="max-w-3xl mx-auto px-6 py-4">
-          <Link href="/" className="inline-flex items-center gap-1.5">
-            <PodiumMark className="w-5 h-5 text-stone-800" />
-            <span className="text-lg font-extrabold text-stone-900 tracking-tight">Podium</span>
+          <Link href="/" className="inline-flex">
+            <PodiumLogo className="h-6 w-auto hover:opacity-70 transition-opacity" />
           </Link>
         </div>
       </header>
