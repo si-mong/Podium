@@ -8,6 +8,8 @@ STT 문장들을 의미 단위로 묶어 발표 구간을 나눈다.
 
 목차가 있으면 **목차 항목을 라벨로** 쓴다 (기본 라벨 9종 대신). 순서는 강제하지 않고,
 말하지 않은 항목은 빠져도 된다. 구간 수 상한은 발표 길이 대신 목차 항목 수를 따른다.
+목차 어디에도 안 맞는 내용(예: 질의응답)이 **30초 이상** 이어질 때만 새 이름을 허용한다
+(OUTLINE_NEW_LABEL_MIN_SEC). 그보다 짧으면 이웃 목차 항목에 흡수한다.
 
 핵심 설계 — **LLM 에게 타임스탬프를 묻지 않는다.**
     문장에 번호를 붙여 넘기고 **번호 범위**로 경계를 받은 뒤, 시각은 우리가
@@ -156,16 +158,70 @@ DEFAULT_RULES = """5. 각 구간에 아래 라벨 중 **가장 가까운 것 하
 ## 라벨 목록
 {labels}"""
 
-# 목차 모드의 규칙 5~7 + 목차. 발표자가 정한 목차를 라벨로 쓴다.
-OUTLINE_RULES = """5. 발표자가 미리 정한 **목차**가 아래에 있습니다. 각 구간의 label 은 목차 항목 중
-   **가장 가까운 것 하나**를 글자 그대로 쓰세요. 목차에 없는 라벨을 새로 만들지 마세요.
-6. 목차 순서대로 발표하지 않았을 수 있습니다. **순서는 실제 발표 흐름을 따르세요.**
-   말하지 않은 목차 항목은 빼도 되고, 같은 항목이 다시 나오면 다시 써도 됩니다.
-   목차 어느 항목에도 딱 맞지 않는 부분은 앞뒤 흐름상 가장 가까운 항목에 포함시키세요.
+# ── 목차 모드: 두 단계 ───────────────────────────────────────────────────────
+# 1) OUTLINE_RULES — 목차는 참고만 하고, 실제 주제가 바뀌는 곳에서 나눈 뒤 label 에 실제 주제를 쓴다.
+# 2) MAP_PROMPT    — 구간마다 "어느 목차 항목의 내용인가, 아니면 없음"만 따로 분류한다.
+# 처음엔 한 번에 시켰더니(주제 판단 + 목차 매칭) topic 은 «엣지컴퓨팅 소개» 로 정확히 쓰면서
+# label 은 앞 항목 «클라우드의 한계» 로 억지로 끼워 넣었고, 실행할 때마다 결과도 흔들렸다.
+# 분류만 따로 물으면 끼워 맞추려는 경향이 줄어든다.
+# "없음"이면 실제 주제를 새 라벨로 쓰되, 30초 미만이면 후처리(_absorb_off_outline)에서 이웃 목차 항목에 흡수한다.
+OUTLINE_NEW_LABEL_MIN_SEC = 30.0
+
+OUTLINE_RULES = """5. 발표자가 미리 정한 **목차**가 아래에 있습니다. 목차는 **참고용**입니다 — 구간 경계는
+   목차가 아니라 **실제로 주제가 바뀌는 지점**으로 정하세요. 목차 순서대로 발표하지 않았을 수 있고,
+   목차에 없는 내용이 있을 수도 있습니다.
+6. label 에는 그 구간에서 **실제로 다룬 주제**를 10자 이내로 쓰세요. 그 주제가 목차 항목과
+   같다면 목차 항목을 글자 그대로 쓰고, 목차에 없는 주제라면 목차에 맞추지 말고 실제 주제를 쓰세요.
 7. 이 발표는 약 {minutes}분입니다. 20초가 안 되는 짧은 구간은 만들지 말고 앞뒤 구간에 포함시키세요.
 
-## 목차
+## 목차 (참고용)
 {labels}"""
+
+MAP_PROMPT = """발표 구간 목록과 발표자가 미리 정한 목차가 있습니다.
+각 구간이 **어느 목차 항목의 내용인지** 고르세요.
+
+## 규칙
+- 구간의 주제가 그 목차 항목이 말하는 내용 **그 자체(또는 그 일부)**일 때만 그 항목을 고르세요.
+- 앞 항목에서 이어지는 이야기라도 주제가 다르면(예: 문제를 다 말한 뒤 해결책을 소개) 그 항목이 아닙니다.
+- 어느 항목의 내용도 아니면 "없음"을 고르세요. "없음"은 정상적인 답입니다 — 억지로 맞추지 마세요.
+- 목차 항목은 글자 그대로 쓰세요. 같은 항목을 여러 구간에 골라도 됩니다.
+
+## 목차
+{outline}
+
+## 구간 (번호. 주제 — 요약 / 첫 문장)
+{segments}
+
+## 출력
+구간 수만큼 순서대로, 아래 형식의 JSON 객체만 출력하세요.
+{{"labels": ["목차 항목 또는 없음", ...]}}
+"""
+
+
+def _map_to_outline(client, items: list[dict], sentences: list[dict], outline: list[str]) -> list[str] | None:
+    """2단계: 구간마다 목차 항목 또는 "없음". 실패하면 None (그러면 1단계 label 을 그대로 쓴다)."""
+    lines = []
+    for k, it in enumerate(items):
+        try:
+            first = sentences[max(0, min(int(it["start"]), len(sentences) - 1))]["text"][:60]
+        except (KeyError, TypeError, ValueError):
+            first = ""
+        lines.append(f"{k + 1}. {it.get('label', '')} — {it.get('title', '')} / {first}")
+    prompt = MAP_PROMPT.format(outline="\n".join(f"- {x}" for x in outline), segments="\n".join(lines))
+    try:
+        resp = client.chat.completions.create(
+            model=MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"},
+            temperature=0,
+        )
+        labels = json.loads(resp.choices[0].message.content or "{}").get("labels")
+        if isinstance(labels, list) and len(labels) == len(items):
+            return [str(x).strip() for x in labels]
+        logger.warning("STEP 4 목차 매칭: 개수 불일치 %s vs %d", labels, len(items))
+    except Exception as exc:  # noqa: BLE001 — 매칭 실패는 치명적이지 않다
+        logger.warning("STEP 4 목차 매칭 실패: %s", exc)
+    return None
 
 
 @dataclass
@@ -236,9 +292,11 @@ def _repair(items: list[dict], n: int, labels: list[str] = LABELS,
             continue
         label = str(it.get("label", "")).strip()
         if outline_mode:
-            matched = _match_label(label, labels)
+            matched = None if label in ("", "없음") else _match_label(label, labels)
             if matched is None:
-                warns.append(f"목차에 없는 라벨 '{label}' → 그대로 사용")
+                # 목차 어느 항목에도 해당하지 않는 구간 → 실제 주제(topic)를 새 이름으로 (30초 이상일 때만 유지)
+                label = (str(it.get("topic", "")).strip() or (label if label != "없음" else "") or "기타")[:30]   # segments.label 이 String(32)
+                warns.append(f"목차 밖 구간 «{label}» (30초 이상일 때만 유지)")
             elif matched != label:
                 warns.append(f"라벨 '{label}' → 목차 항목 «{matched}» 로 맞춤")
                 label = matched
@@ -386,6 +444,28 @@ def _merge_same_label(segs, sentences, max_gap: int, max_ratio: float):
     return segs, warns
 
 
+def _absorb_off_outline(segs, sentences, outline: list[str], min_sec: float):
+    """목차에 없는 라벨인데 min_sec 보다 짧은 구간은 이웃(더 짧은 쪽) 목차 항목에 흡수한다.
+
+    LLM 에게 "30초 이상일 때만 새 이름"이라고 했지만 지키지 않을 수 있어 여기서 확실히 막는다.
+    흡수할 때 라벨·제목은 이웃 쪽을 따른다 (짧은 곁가지 = 앞뒤 이야기의 일부).
+    """
+    warns = []
+    while len(segs) > 1:
+        i = next((k for k, s in enumerate(segs)
+                  if s.label not in outline and _dur(s, sentences) < min_sec), None)
+        if i is None:
+            break
+        other = _shorter_neighbor(segs, sentences, i)
+        a, b = sorted((i, other))
+        keep = segs[other]
+        merged = Segment(label=keep.label, title=keep.title,
+                         start_idx=segs[a].start_idx, end_idx=segs[b].end_idx)
+        warns.append(f"목차에 없는 짧은 구간 «{segs[i].label}»({_dur(segs[i], sentences):.0f}초) → «{keep.label}» 에 흡수")
+        segs = segs[:a] + [merged] + segs[b + 1:]
+    return segs, warns
+
+
 def _merge_adjacent(segs):
     """바로 붙어 있는 같은 라벨을 길이 제한 없이 합친다 (목차 모드 전용).
 
@@ -428,8 +508,8 @@ def run(sentences: list[dict], total_duration: float | None = None,
         on_progress=None, outline: list[str] | None = None) -> SegmentResult:
     """문장 목록 → 구간. sentences 는 stt_sentences 형식(text/t_start/t_end).
 
-    outline: 발표자가 입력한 목차. 있으면 그 항목을 라벨로 쓰고, 구간 수 상한은 항목 수 + 1
-    (같은 항목이 한 번 더 나오는 경우 여유). 하한은 두지 않는다 — 말하지 않은 항목은 빠질 수 있다.
+    outline: 발표자가 입력한 목차. 있으면 그 항목을 라벨로 쓰고, 구간 수 상한은 항목 수 + 2
+    (같은 항목 반복·목차 밖 긴 내용 여유). 하한은 두지 않는다 — 말하지 않은 항목은 빠질 수 있다.
     """
     from openai import OpenAI
 
@@ -449,7 +529,7 @@ def run(sentences: list[dict], total_duration: float | None = None,
     minutes = max(1, round(total_sec / 60))
     outline = [x for x in (outline or []) if x]
     if outline:
-        labels, lo, hi = outline, 1, len(outline) + 1
+        labels, lo, hi = outline, 1, len(outline) + 2
         rules = OUTLINE_RULES.format(labels="\n".join(f"- {x}" for x in labels), minutes=minutes)
     else:
         labels = LABELS
@@ -477,9 +557,20 @@ def run(sentences: list[dict], total_duration: float | None = None,
             items = data.get("segments") if isinstance(data, dict) else data
             if not isinstance(items, list):
                 raise ValueError(f"segments 배열이 없음: {raw[:200]}")
+            if outline:
+                # 2단계: 1단계 label(실제 주제)을 topic 으로 옮기고, 목차 항목 또는 "없음"으로 다시 분류
+                items = [it for it in items if isinstance(it, dict)]
+                mapped = _map_to_outline(client, items, sentences, outline)
+                for it, lab in zip(items, mapped or [None] * len(items)):
+                    it["topic"] = str(it.get("label", "")).strip()
+                    if lab is not None:
+                        it["label"] = lab
             segs, warns = _repair(items, len(sentences), labels, outline_mode=bool(outline))
             if not segs:
                 raise ValueError("유효 구간 0개")
+            if outline:
+                segs, owarns = _absorb_off_outline(segs, sentences, outline, OUTLINE_NEW_LABEL_MIN_SEC)
+                warns += owarns
             # 순서 주의: 같은 라벨을 먼저 합쳐야 짧은 구간 병합이 엉뚱한 이웃을 안 고른다
             segs, swarns = _merge_same_label(segs, sentences,
                                              MAX_SANDWICH_GAP, MAX_MERGE_RATIO)

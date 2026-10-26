@@ -30,26 +30,39 @@ export default function OutlineEditor({ items, onChange, className = "" }: Props
   };
 
   return (
-    <div className={`mb-4 bg-white border border-stone-200 rounded-xl overflow-hidden ${className}`}>
+    // 선택 기능이지만 놓치기 쉬워서 눈에 띄게: 주황 강조 테두리 + 굵은 제목 + "추천" 표시
+    <div className={`mb-4 bg-amber-50 border-2 border-amber-300 rounded-xl overflow-hidden ${className}`}>
       <button
         type="button"
         onClick={() => {
           setOpen(!open);
           if (!open && items.length === 0) onChange(["", "", ""]);   // 처음 펼치면 빈 칸 3개
         }}
-        className="w-full flex items-center gap-2 px-4 py-3 text-left hover:bg-stone-50 transition-colors"
+        className="w-full flex items-center gap-2.5 px-4 py-3.5 text-left hover:bg-amber-100/60 transition-colors"
       >
-        <ListOrdered className="w-4 h-4 text-stone-400 shrink-0" />
-        <span className="text-sm font-bold text-stone-700">발표 목차</span>
-        <span className="text-xs text-stone-400">{filled ? `${filled}개` : "(선택)"}</span>
-        <ChevronDown className={`ml-auto w-4 h-4 text-stone-400 transition-transform ${open ? "rotate-180" : ""}`} />
+        <ListOrdered className="w-5 h-5 text-amber-600 shrink-0" />
+        <span className="min-w-0">
+          <span className="flex items-center gap-2">
+            <span className="text-base font-extrabold text-stone-900">발표 목차 입력</span>
+            {filled ? (
+              <span className="text-xs font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">{filled}개</span>
+            ) : (
+              <span className="text-xs font-bold text-white bg-amber-500 px-2 py-0.5 rounded-full">추천</span>
+            )}
+          </span>
+          <span className="block text-sm text-amber-800 mt-0.5">
+            {filled ? "이 목차를 바탕으로 발표 구간을 나눠요" : "목차를 적으면 그 흐름대로 구간을 더 정확하게 나눠요 (선택)"}
+          </span>
+        </span>
+        <ChevronDown className={`ml-auto w-5 h-5 text-amber-600 shrink-0 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
 
       {open && (
-        <div className="px-4 pb-4 border-t border-stone-100">
+        <div className="px-4 pb-4 border-t border-amber-200 bg-white">
           <p className="text-xs text-stone-500 leading-relaxed mt-3 mb-3">
-            목차를 적으면 그 항목대로 발표 구간을 나눠요. 순서가 달라도, 말하지 않은 항목이 있어도 괜찮아요.
-            비워 두면 자동으로 나눠요. 이 폴더의 다음 연습에도 그대로 불러와요.
+            목차를 참고해서 발표 구간을 나눠요. 순서가 달라도, 말하지 않은 항목이 있어도 괜찮고,
+            목차에 없는 내용을 길게 말하면 그 부분은 따로 이름을 붙여요. 비워 두면 자동으로 나누고,
+            이 폴더의 다음 연습에도 그대로 불러와요.
           </p>
           <ol className="space-y-2">
             {items.map((item, i) => (

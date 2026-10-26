@@ -646,6 +646,15 @@ function RecordPage() {
 
           {/* 버튼 + 오류 안내. 슬라이드 있으면 카메라 오른쪽 남은 칸을 채운다 */}
           <div className={hasSlide ? "flex-1 w-full" : ""}>
+          {/* 발표 목차 (선택) — 시작 버튼 바로 위 (눈에 잘 띄게). 시작 전에만 고칠 수 있다 */}
+          {outlineLoaded && (phase === "idle" || phase === "error") && (
+            <OutlineEditor
+              items={outline}
+              onChange={setOutline}
+              className={!isUpload && !hasSlide ? "w-full lg:w-1/2 mx-auto" : ""}
+            />
+          )}
+
           {/* 버튼 줄도 촬영 모드(슬라이드 없음)에선 카메라와 같은 너비(절반)로 맞춘다 */}
           <div className={`flex items-center gap-3 mb-4 ${!isUpload && !hasSlide ? "w-full lg:w-1/2 mx-auto" : ""}`}>
             {isUpload && (phase === "idle" || phase === "error") ? (
@@ -713,15 +722,6 @@ function RecordPage() {
               </button>
             )}
           </div>
-
-          {/* 발표 목차 (선택) — 시작 전에만 고칠 수 있다 */}
-          {outlineLoaded && (phase === "idle" || phase === "error") && (
-            <OutlineEditor
-              items={outline}
-              onChange={setOutline}
-              className={!isUpload && !hasSlide ? "w-full lg:w-1/2 mx-auto" : ""}
-            />
-          )}
 
           {/* 배경 흐리게 켜기/끄기 — 촬영 시작 전에만 보인다 (촬영 중에는 바꿀 수 없음) */}
           {!isUpload && (phase === "idle" || phase === "error") && (
