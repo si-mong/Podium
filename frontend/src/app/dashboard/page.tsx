@@ -943,7 +943,7 @@ function PresentationAnalysisDashboard() {
         // 가로(상단 메뉴바): 글자 15px. 아이콘·여백은 넓은 화면(1700px 이상)에서만 크게(아이콘 24px),
         // 그보다 좁으면(브라우저 100% 등) 한 줄에 다 들어가도록 작게(아이콘 20px)
         className={`flex items-center rounded-xl transition-all text-left group
-          ${horizontal ? 'gap-2 px-3 py-2 min-[1700px]:gap-3 min-[1700px]:px-5 min-[1700px]:py-3 shrink-0' : 'w-full gap-3.5 px-4 py-3.5'}
+          ${horizontal ? 'gap-2 px-1.5 py-1.5 md:px-3 md:py-2 min-[1700px]:gap-3 min-[1700px]:px-5 min-[1700px]:py-3 shrink-0' : 'w-full gap-3.5 px-4 py-3.5'}
           ${isActive
             ? 'bg-stone-100/80 text-stone-900 shadow-sm border border-stone-200'
             : isDisabled
@@ -953,7 +953,7 @@ function PresentationAnalysisDashboard() {
         <div className={`${horizontal ? 'p-1.5 min-[1700px]:p-2' : 'p-1.5'} rounded-lg transition-colors ${isActive ? 'bg-stone-200' : isDisabled ? 'bg-stone-50' : 'bg-stone-100 group-hover:bg-stone-200'}`}>
           <Icon className={`${horizontal ? 'w-5 h-5 min-[1700px]:w-6 min-[1700px]:h-6' : 'w-4 h-4'} ${isActive ? 'text-stone-900' : 'text-stone-500'}`} />
         </div>
-        <span className={`${horizontal ? 'text-[15px] whitespace-nowrap' : 'text-[15px]'} ${isActive ? 'font-bold' : 'font-semibold'}`}>
+        <span className={`${horizontal ? 'hidden md:inline text-[15px] whitespace-nowrap' : 'text-[15px]'} ${isActive ? 'font-bold' : 'font-semibold'}`}>
           {menu.label}
         </span>
       </button>
@@ -995,28 +995,30 @@ function PresentationAnalysisDashboard() {
       className="flex items-center shrink-0 hover:opacity-70 transition-opacity"
     >
       {/* 홈 화면과 같은 Podium 워드마크 (ServiceGuide.tsx 의 PodiumLogo) */}
-      <PodiumLogo className={topNav ? 'h-7 min-[1700px]:h-8 w-auto' : 'h-7 w-auto'} />
+      <PodiumLogo className={topNav ? 'h-5 md:h-7 min-[1700px]:h-8 w-auto' : 'h-5 md:h-7 w-auto'} />
     </button>
   );
 
   return (
     // 글꼴은 홈 화면과 같은 Pretendard (layout.tsx 에서 불러옴)
-    <div className={`flex h-screen bg-stone-50 font-['Pretendard_Variable',Pretendard,sans-serif] overflow-hidden ${topNav ? 'flex-col' : ''}`}>
+    <div className={`flex h-screen bg-stone-50 font-['Pretendard_Variable',Pretendard,sans-serif] overflow-hidden ${topNav ? 'flex-col' : 'flex-col md:flex-row'}`}>
 
-      {/* 단일 분석 화면: 상단 메뉴바 (로고 · 메뉴 · 폴더>세션 · 휴지통 · 로그아웃) */}
-      {topNav && (
-        // 넓은 화면(1700px 이상): 높이 h-24, 로고와 메뉴 사이 gap-14 / 그보다 좁으면 h-20, gap-8 로 줄인다
-        <header className="h-20 min-[1700px]:h-24 bg-white border-b border-stone-200 shadow-sm z-20 shrink-0 flex items-center gap-8 min-[1700px]:gap-14 px-6 min-[1700px]:px-8">
+      {/* 상단 메뉴바 (로고 · 메뉴 · 폴더>세션 · 휴지통 · 로그아웃)
+          단일 분석 화면에서는 항상 쓰고, 다른 화면에서도 모바일(768px 미만)에서는 사이드바 대신 이걸 쓴다.
+          모바일에서는 메뉴·휴지통·로그아웃을 아이콘만 보이고 폴더>세션 표시는 숨긴다. */}
+      {(
+        // 넓은 화면(1700px 이상): 높이 h-24, 로고와 메뉴 사이 gap-14 / 그보다 좁으면 h-20, gap-8 / 모바일 h-16, gap-3
+        <header className={`${topNav ? 'flex' : 'flex md:hidden'} h-16 md:h-20 min-[1700px]:h-24 bg-white border-b border-stone-200 shadow-sm z-20 shrink-0 items-center gap-3 md:gap-8 min-[1700px]:gap-14 px-4 md:px-6 min-[1700px]:px-8`}>
           {logo}
-          <nav className="flex items-center gap-2 min-w-0 overflow-x-auto">
+          <nav className="flex items-center gap-0.5 md:gap-2 min-w-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {MENUS.map(menu => renderMenuButton(menu, true))}
           </nav>
-          <div className="ml-auto flex items-center gap-2 min-[1700px]:gap-3 min-w-0">
-            {breadcrumb}
+          <div className="ml-auto flex items-center gap-0.5 md:gap-2 min-[1700px]:gap-3 min-w-0">
+            <div className="hidden md:block min-w-0">{breadcrumb}</div>
             {/* 휴지통·로그아웃: 좁은 화면에서는 아이콘만 (마우스를 올리면 이름이 뜸) */}
             <button
               onClick={() => goTo({ view: 'trash' })}
-              className="flex items-center gap-2 px-3 py-2 min-[1700px]:px-4 min-[1700px]:py-3 rounded-xl text-stone-500 hover:bg-stone-50 hover:text-stone-700 transition-colors text-[15px] font-semibold shrink-0"
+              className="flex items-center gap-2 px-2 md:px-3 py-2 min-[1700px]:px-4 min-[1700px]:py-3 rounded-xl text-stone-500 hover:bg-stone-50 hover:text-stone-700 transition-colors text-[15px] font-semibold shrink-0"
               title="휴지통"
             >
               <Trash2 className="w-5 h-5 min-[1700px]:w-6 min-[1700px]:h-6" />
@@ -1024,7 +1026,7 @@ function PresentationAnalysisDashboard() {
             </button>
             <button
               onClick={logout}
-              className="flex items-center gap-2 px-3 py-2 min-[1700px]:px-4 min-[1700px]:py-3 rounded-xl text-stone-500 hover:bg-stone-50 hover:text-stone-700 transition-colors text-[15px] font-semibold shrink-0"
+              className="flex items-center gap-2 px-2 md:px-3 py-2 min-[1700px]:px-4 min-[1700px]:py-3 rounded-xl text-stone-500 hover:bg-stone-50 hover:text-stone-700 transition-colors text-[15px] font-semibold shrink-0"
               title="로그아웃"
             >
               <LogOut className="w-5 h-5 min-[1700px]:w-6 min-[1700px]:h-6" />
@@ -1036,7 +1038,7 @@ function PresentationAnalysisDashboard() {
 
       {/* Sidebar Navigation (단일 분석 화면에서는 위의 상단 메뉴바로 대신함) */}
       {!topNav && (
-      <aside className="w-[280px] bg-white border-r border-stone-200 flex flex-col flex-shrink-0 z-20 shadow-sm">
+      <aside className="hidden md:flex w-[280px] bg-white border-r border-stone-200 flex-col flex-shrink-0 z-20 shadow-sm">
         <div className="h-20 flex items-center px-6 border-b border-stone-100 shrink-0">
           {logo}
         </div>
@@ -1073,7 +1075,7 @@ function PresentationAnalysisDashboard() {
 
         {/* Top Header bar (단일 분석 화면에서는 상단 메뉴바가 대신해서 숨김) */}
         {!topNav && (
-        <header className="h-20 bg-white/80 backdrop-blur-md border-b border-stone-200 flex items-center justify-between px-8 flex-shrink-0 z-10 sticky top-0 relative">
+        <header className="hidden md:flex h-20 bg-white/80 backdrop-blur-md border-b border-stone-200 items-center justify-between px-8 flex-shrink-0 z-10 sticky top-0 relative">
           <div className="absolute left-1/2 -translate-x-1/2 flex justify-center w-full max-w-[50%] pointer-events-none">
             <h2 className="text-xl font-bold text-stone-800 text-center">
               {activeMenu === 'trash' ? '휴지통' : MENUS.find(m => m.id === activeMenu)?.label}
@@ -1085,8 +1087,8 @@ function PresentationAnalysisDashboard() {
         )}
 
         {/* Scrollable Container for Content */}
-        {/* 본문 양옆 여백: 화면이 넓을수록 넉넉하게 (꽉 찬 느낌 방지) */}
-        <div className="flex-1 overflow-y-auto py-8 px-10 lg:px-24 min-[1700px]:px-32 custom-scrollbar">
+        {/* 본문 양옆 여백: 화면이 넓을수록 넉넉하게 (꽉 찬 느낌 방지), 모바일은 좁게 */}
+        <div className="flex-1 overflow-y-auto py-6 md:py-8 px-4 sm:px-8 lg:px-32 min-[1700px]:px-44 custom-scrollbar">
           
           {/* VIEW 0: Session Management — 폴더 목록(아이콘) ↔ 폴더 안(세션 목록 + 종합추이) */}
           {activeMenu === 'sessions' && (() => {
@@ -1182,7 +1184,7 @@ function PresentationAnalysisDashboard() {
             // 2) 폴더 목록: 컴퓨터 폴더처럼 아이콘만. 누르면 그 폴더가 열린다.
             return (
               <div className="max-w-[1200px] mx-auto animate-in fade-in slide-in-from-bottom-2 duration-300">
-                <div className="flex justify-between items-end mb-8">
+                <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-end mb-8">
                   <div>
                     <h3 className="text-2xl font-extrabold text-stone-800">프로젝트 및 세션 관리</h3>
                     <p className="text-[15px] text-stone-500 mt-2 font-medium">주제별 폴더를 생성하고 발표 연습을 촬영하세요.</p>
@@ -1190,7 +1192,7 @@ function PresentationAnalysisDashboard() {
                   </div>
                   <button
                     onClick={() => setIsTopicModalOpen(true)}
-                    className="flex items-center gap-2 bg-stone-900 text-white px-5 py-2.5 rounded-xl font-bold hover:bg-stone-700 shadow-sm transition-colors"
+                    className="flex items-center gap-2 bg-stone-900 text-white px-5 py-2.5 rounded-xl font-bold hover:bg-stone-700 shadow-sm transition-colors whitespace-nowrap shrink-0"
                   >
                     <Plus className="w-4 h-4" />
                     새 주제 폴더 추가
@@ -1307,7 +1309,7 @@ function PresentationAnalysisDashboard() {
           {/* Analysis Views (Only show if a session is selected and we are not in 'sessions' tab) */}
           {activeMenu !== 'sessions' && activeMenu !== 'trash' && activeSessionId ? (
             // 단일 분석은 왼쪽·오른쪽 두 칸으로 놓으므로 더 넓게 쓴다
-            <div className={`${topNav ? 'max-w-[1320px]' : 'max-w-[1200px]'} mx-auto space-y-6 pb-12`}>
+            <div className={`${topNav ? 'max-w-[1240px]' : 'max-w-[1200px]'} mx-auto space-y-6 pb-12`}>
 
               {/* VIEW 3: Single Analysis */}
               {activeMenu === 'single' && (

@@ -104,8 +104,8 @@ export default function ServiceGuide({ headerActions, primaryAction, secondaryAc
     <div className="min-h-screen bg-white text-stone-900 font-['Pretendard_Variable',Pretendard,sans-serif]">
       {/* 1) 상단 바 — 화면 가운데 떠 있는 알약 모양 */}
       <div className="sticky top-4 z-20 px-4">
-        <header className="max-w-2xl mx-auto h-14 rounded-full bg-stone-100/90 backdrop-blur flex items-center justify-between pl-6 pr-2">
-          <PodiumLogo className="h-6 w-auto" />
+        <header className="max-w-2xl mx-auto h-14 rounded-full bg-stone-100/90 backdrop-blur flex items-center justify-between gap-2 pl-5 sm:pl-6 pr-2">
+          <PodiumLogo className="h-5 sm:h-6 w-auto shrink-0" />
           <div className="flex items-center gap-1">{headerActions}</div>
         </header>
       </div>

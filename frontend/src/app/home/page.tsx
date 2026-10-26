@@ -6,7 +6,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronRight, LogOut, ShieldCheck, UserRound } from "lucide-react";
+import { ChevronRight, FolderOpen, LogOut, ShieldCheck, UserRound } from "lucide-react";
 import ServiceGuide from "@/components/ServiceGuide";
 import { API_BASE, apiFetch } from "@/utils/api";
 import { clearTokens, getRefreshToken, isLoggedIn } from "@/utils/auth";
@@ -48,32 +48,33 @@ export default function HomePage() {
           {isAdmin && (
             <button
               onClick={() => router.push("/admin")}
-              className="h-10 flex items-center gap-1.5 px-4 rounded-full text-sm font-semibold text-stone-700 hover:bg-white transition-colors"
+              className="h-10 flex items-center gap-1.5 px-3 sm:px-4 rounded-full whitespace-nowrap text-sm font-semibold text-stone-700 hover:bg-white transition-colors"
             >
               <ShieldCheck className="w-4 h-4" />
-              관리자
+              <span className="hidden sm:inline">관리자</span>
             </button>
           )}
           <button
             onClick={() => router.push("/profile")}
-            className="h-10 flex items-center gap-1.5 px-4 rounded-full text-sm font-semibold text-stone-700 hover:bg-white transition-colors"
+            className="h-10 flex items-center gap-1.5 px-3 sm:px-4 rounded-full whitespace-nowrap text-sm font-semibold text-stone-700 hover:bg-white transition-colors"
           >
             <UserRound className="w-4 h-4" />
-            내 정보
+            <span className="hidden sm:inline">내 정보</span>
           </button>
           <button
             onClick={() => router.push("/dashboard")}
-            className="h-10 flex items-center gap-1.5 px-4 rounded-full text-sm font-semibold text-stone-700 hover:bg-white transition-colors"
+            className="h-10 flex items-center gap-1.5 px-3 sm:px-4 rounded-full whitespace-nowrap text-sm font-semibold text-stone-700 hover:bg-white transition-colors"
           >
-            내 기록
-            <ChevronRight className="w-4 h-4" />
+            <FolderOpen className="w-4 h-4 sm:hidden" />
+            <span className="hidden sm:inline">내 기록</span>
+            <ChevronRight className="w-4 h-4 hidden sm:block" />
           </button>
           <button
             onClick={logout}
-            className="h-10 flex items-center gap-1.5 px-4 rounded-full text-sm font-semibold text-stone-500 hover:bg-white hover:text-stone-700 transition-colors"
+            className="h-10 flex items-center gap-1.5 px-3 sm:px-4 rounded-full whitespace-nowrap text-sm font-semibold text-stone-500 hover:bg-white hover:text-stone-700 transition-colors"
           >
             <LogOut className="w-4 h-4" />
-            로그아웃
+            <span className="hidden sm:inline">로그아웃</span>
           </button>
         </>
       }
