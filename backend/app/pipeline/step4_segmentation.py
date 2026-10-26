@@ -8,8 +8,8 @@ STT 문장들을 의미 단위로 묶어 발표 구간을 나눈다.
 
 목차가 있으면 **목차 항목을 라벨로** 쓴다 (기본 라벨 9종 대신). 순서는 강제하지 않고,
 말하지 않은 항목은 빠져도 된다. 구간 수 상한은 발표 길이 대신 목차 항목 수를 따른다.
-목차 어디에도 안 맞는 내용(예: 질의응답)이 **30초 이상** 이어질 때만 새 이름을 허용한다
-(OUTLINE_NEW_LABEL_MIN_SEC). 그보다 짧으면 이웃 목차 항목에 흡수한다.
+목차 어디에도 안 맞는 내용(예: 목차에서 빠뜨린 해결책 소개)이 **30초 이상** 이어지면
+기본 라벨(LABELS) 중 가장 가까운 것을 붙인다 (OUTLINE_NEW_LABEL_MIN_SEC). 그보다 짧으면 이웃 목차 항목에 흡수한다.
 
 핵심 설계 — **LLM 에게 타임스탬프를 묻지 않는다.**
     문장에 번호를 붙여 넘기고 **번호 범위**로 경계를 받은 뒤, 시각은 우리가
@@ -160,11 +160,12 @@ DEFAULT_RULES = """5. 각 구간에 아래 라벨 중 **가장 가까운 것 하
 
 # ── 목차 모드: 두 단계 ───────────────────────────────────────────────────────
 # 1) OUTLINE_RULES — 목차는 참고만 하고, 실제 주제가 바뀌는 곳에서 나눈 뒤 label 에 실제 주제를 쓴다.
-# 2) MAP_PROMPT    — 구간마다 "어느 목차 항목의 내용인가, 아니면 없음"만 따로 분류한다.
+# 2) MAP_PROMPT    — 구간마다 "어느 목차 항목의 내용인가"만 따로 분류한다. 어느 항목도 아니면 기본 라벨 중 하나.
 # 처음엔 한 번에 시켰더니(주제 판단 + 목차 매칭) topic 은 «엣지컴퓨팅 소개» 로 정확히 쓰면서
 # label 은 앞 항목 «클라우드의 한계» 로 억지로 끼워 넣었고, 실행할 때마다 결과도 흔들렸다.
 # 분류만 따로 물으면 끼워 맞추려는 경향이 줄어든다.
-# "없음"이면 실제 주제를 새 라벨로 쓰되, 30초 미만이면 후처리(_absorb_off_outline)에서 이웃 목차 항목에 흡수한다.
+# 목차 밖 구간은 자유 이름 대신 **기본 라벨**에서 고른다 — 회차마다 비슷한 내용에 다른 이름이 붙지 않게.
+#   (구간 내용은 title 한 줄 요약으로 따로 보인다.) 30초 미만이면 후처리(_absorb_off_outline)에서 이웃 목차 항목에 흡수.
 OUTLINE_NEW_LABEL_MIN_SEC = 30.0
 
 OUTLINE_RULES = """5. 발표자가 미리 정한 **목차**가 아래에 있습니다. 목차는 **참고용**입니다 — 구간 경계는
@@ -183,23 +184,26 @@ MAP_PROMPT = """발표 구간 목록과 발표자가 미리 정한 목차가 있
 ## 규칙
 - 구간의 주제가 그 목차 항목이 말하는 내용 **그 자체(또는 그 일부)**일 때만 그 항목을 고르세요.
 - 앞 항목에서 이어지는 이야기라도 주제가 다르면(예: 문제를 다 말한 뒤 해결책을 소개) 그 항목이 아닙니다.
-- 어느 항목의 내용도 아니면 "없음"을 고르세요. "없음"은 정상적인 답입니다 — 억지로 맞추지 마세요.
-- 목차 항목은 글자 그대로 쓰세요. 같은 항목을 여러 구간에 골라도 됩니다.
+- 어느 목차 항목의 내용도 아니면, 억지로 맞추지 말고 아래 **기본 라벨** 중 가장 가까운 것을 고르세요.
+- 목차 항목·기본 라벨은 글자 그대로 쓰세요. 같은 것을 여러 구간에 골라도 됩니다.
 
 ## 목차
 {outline}
+
+## 기본 라벨 (목차에 해당하지 않을 때만)
+{defaults}
 
 ## 구간 (번호. 주제 — 요약 / 첫 문장)
 {segments}
 
 ## 출력
 구간 수만큼 순서대로, 아래 형식의 JSON 객체만 출력하세요.
-{{"labels": ["목차 항목 또는 없음", ...]}}
+{{"labels": ["목차 항목 또는 기본 라벨", ...]}}
 """
 
 
 def _map_to_outline(client, items: list[dict], sentences: list[dict], outline: list[str]) -> list[str] | None:
-    """2단계: 구간마다 목차 항목 또는 "없음". 실패하면 None (그러면 1단계 label 을 그대로 쓴다)."""
+    """2단계: 구간마다 목차 항목 또는 기본 라벨. 실패하면 None (그러면 1단계 label 을 그대로 쓴다)."""
     lines = []
     for k, it in enumerate(items):
         try:
@@ -207,7 +211,9 @@ def _map_to_outline(client, items: list[dict], sentences: list[dict], outline: l
         except (KeyError, TypeError, ValueError):
             first = ""
         lines.append(f"{k + 1}. {it.get('label', '')} — {it.get('title', '')} / {first}")
-    prompt = MAP_PROMPT.format(outline="\n".join(f"- {x}" for x in outline), segments="\n".join(lines))
+    prompt = MAP_PROMPT.format(outline="\n".join(f"- {x}" for x in outline),
+                               defaults="\n".join(f"- {x}" for x in LABELS if x not in outline),
+                               segments="\n".join(lines))
     try:
         resp = client.chat.completions.create(
             model=MODEL,
@@ -292,11 +298,11 @@ def _repair(items: list[dict], n: int, labels: list[str] = LABELS,
             continue
         label = str(it.get("label", "")).strip()
         if outline_mode:
-            matched = None if label in ("", "없음") else _match_label(label, labels)
+            matched = _match_label(label, labels) if label else None
             if matched is None:
-                # 목차 어느 항목에도 해당하지 않는 구간 → 실제 주제(topic)를 새 이름으로 (30초 이상일 때만 유지)
-                label = (str(it.get("topic", "")).strip() or (label if label != "없음" else "") or "기타")[:30]   # segments.label 이 String(32)
-                warns.append(f"목차 밖 구간 «{label}» (30초 이상일 때만 유지)")
+                # 목차 밖 구간 → 기본 라벨 (30초 이상일 때만 유지, 아니면 이웃 목차 항목에 흡수)
+                label = label if label in LABELS else (_match_label(label, LABELS) or "미분류")
+                warns.append(f"목차 밖 구간 → 기본 라벨 «{label}» (30초 이상일 때만 유지)")
             elif matched != label:
                 warns.append(f"라벨 '{label}' → 목차 항목 «{matched}» 로 맞춤")
                 label = matched
@@ -558,7 +564,7 @@ def run(sentences: list[dict], total_duration: float | None = None,
             if not isinstance(items, list):
                 raise ValueError(f"segments 배열이 없음: {raw[:200]}")
             if outline:
-                # 2단계: 1단계 label(실제 주제)을 topic 으로 옮기고, 목차 항목 또는 "없음"으로 다시 분류
+                # 2단계: 1단계 label(실제 주제)을 topic 으로 옮기고, 목차 항목(없으면 기본 라벨)으로 다시 분류
                 items = [it for it in items if isinstance(it, dict)]
                 mapped = _map_to_outline(client, items, sentences, outline)
                 for it, lab in zip(items, mapped or [None] * len(items)):
