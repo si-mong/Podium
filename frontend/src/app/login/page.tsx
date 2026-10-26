@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import { Mail, Lock, Loader2, Eye, EyeOff } from "lucide-react";
 import { PodiumMark } from "@/components/ServiceGuide";
 import Link from "next/link";
-import { API_BASE, errorMessage } from "@/utils/api";
+import { API_BASE, apiFetch, errorMessage } from "@/utils/api";
 import { saveTokens } from "@/utils/auth";
 
 export default function LoginPage() {
@@ -47,7 +47,9 @@ export default function LoginPage() {
       }
       const data = await res.json();
       saveTokens(data.access_token, data.refresh_token);
-      router.push("/dashboard");
+      // 프로필 화면을 아직 안 거쳤으면(첫 로그인) 먼저 보낸다. 확인에 실패하면 그냥 대시보드로.
+      const me = await apiFetch("/auth/me").then((r) => (r.ok ? r.json() : null)).catch(() => null);
+      router.push(me && !me.profile_completed_at ? "/profile?welcome=1" : "/dashboard");
     } catch {
       setError("서버에 연결하지 못했어요. 잠시 후 다시 시도해주세요.");
     } finally {

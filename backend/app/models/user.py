@@ -21,6 +21,14 @@ class User(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
+    # 프로필 — 전부 선택 입력. 첫 로그인 직후 /profile 에서 받고, 건너뛰어도 된다.
+    # 전화번호처럼 쓸 곳이 없는 정보는 일부러 받지 않는다 (개인정보 최소 수집).
+    display_name: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    affiliation: Mapped[str | None] = mapped_column(String(100), nullable=True)   # 소속·학과(분야)
+    purpose: Mapped[str | None] = mapped_column(String(20), nullable=True)        # 발표 목적 (schemas.auth.Purpose)
+    # 프로필 화면을 한 번 거쳤는지(저장이든 건너뛰기든). NULL 이면 로그인 직후 프로필 화면으로 보낸다.
+    profile_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
     projects: Mapped[list["Project"]] = relationship(  # noqa: F821
         back_populates="user",
         cascade="all, delete-orphan",

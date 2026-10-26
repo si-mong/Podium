@@ -6,7 +6,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronRight, LogOut, ShieldCheck } from "lucide-react";
+import { ChevronRight, LogOut, ShieldCheck, UserRound } from "lucide-react";
 import ServiceGuide from "@/components/ServiceGuide";
 import { API_BASE, apiFetch } from "@/utils/api";
 import { clearTokens, getRefreshToken, isLoggedIn } from "@/utils/auth";
@@ -54,6 +54,13 @@ export default function HomePage() {
               관리자
             </button>
           )}
+          <button
+            onClick={() => router.push("/profile")}
+            className="h-10 flex items-center gap-1.5 px-4 rounded-full text-sm font-semibold text-stone-700 hover:bg-white transition-colors"
+          >
+            <UserRound className="w-4 h-4" />
+            내 정보
+          </button>
           <button
             onClick={() => router.push("/dashboard")}
             className="h-10 flex items-center gap-1.5 px-4 rounded-full text-sm font-semibold text-stone-700 hover:bg-white transition-colors"

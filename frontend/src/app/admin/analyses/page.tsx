@@ -14,7 +14,7 @@ interface StepStat { step: string; runs: number; succeeded: number; partial: num
 interface Stats { days: number; sessions: number; completed: number; failed_sessions: number; avg_total_ms: number | null; steps: StepStat[] }
 interface StepRun { status: string; duration_ms: number | null; model: string | null; error: string | null; started_at: string }
 interface Item {
-  session_id: number; session_no: number; project_title: string; user_email: string; status: string;
+  session_id: number; session_no: number; project_title: string; user_email: string; user_name: string | null; user_affiliation: string | null; status: string;
   created_at: string; duration_sec: number | null; last_run_at: string | null; has_failure: boolean;
   total_ms: number | null; completed: boolean;
   steps: Record<string, StepRun>;
@@ -175,7 +175,7 @@ export default function AdminAnalysesPage() {
             <input
               value={emailInput}
               onChange={(e) => setEmailInput(e.target.value)}
-              placeholder="회원 이메일로 찾기"
+              placeholder="회원 이메일·이름으로 찾기"
               className="text-sm outline-none w-56 bg-transparent"
             />
           </form>
@@ -230,7 +230,12 @@ export default function AdminAnalysesPage() {
                       className="border-b border-slate-50 last:border-0 hover:bg-slate-50 cursor-pointer"
                     >
                       <td className="px-5 py-3 text-slate-600 whitespace-nowrap">{fmtDate(it.created_at)}</td>
-                      <td className="px-5 py-3 text-slate-700 max-w-[200px] truncate">{it.user_email}</td>
+                      <td className="px-5 py-3 max-w-[200px]">
+                        {it.user_name && <div className="text-slate-800 font-semibold truncate">{it.user_name}</div>}
+                        <div className={`truncate ${it.user_name ? "text-xs text-slate-400" : "text-slate-700"}`} title={it.user_affiliation ?? undefined}>
+                          {it.user_email}
+                        </div>
+                      </td>
                       <td className="px-5 py-3 text-slate-700 max-w-[220px] truncate">
                         {it.project_title} <span className="text-slate-400">· {it.session_no}회차</span>
                       </td>

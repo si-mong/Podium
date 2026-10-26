@@ -23,7 +23,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session as DbSession
 
 from app.api import sessions as session_routes
@@ -266,6 +266,8 @@ class AnalysisListItem(BaseModel):
     session_no: int
     project_title: str
     user_email: str
+    user_name: str | None          # 프로필 이름 (선택 입력이라 없을 수 있음)
+    user_affiliation: str | None
     status: str
     created_at: datetime
     duration_sec: float | None
@@ -296,12 +298,13 @@ def list_analyses(
 ):
     """전체 회원의 세션을 최신순으로. 휴지통에 들어간 프로젝트의 세션도 포함한다 (관리자 확인용)."""
     q = (
-        select(Session, Project.title, User.email)
+        select(Session, Project.title, User)
         .join(Project, Project.project_id == Session.project_id)
         .join(User, User.user_id == Project.user_id)
     )
-    if email:
-        q = q.where(User.email.ilike(f"%{email.strip()}%"))
+    if email:   # 이메일 또는 이름으로 검색
+        pattern = f"%{email.strip()}%"
+        q = q.where(or_(User.email.ilike(pattern), User.display_name.ilike(pattern)))
     if only_failed:
         failed_ids = select(AnalysisEvent.session_id).where(AnalysisEvent.status.in_(["failed", "partial"]))
         q = q.where(Session.session_id.in_(failed_ids))
@@ -324,14 +327,16 @@ def list_analyses(
     ).all()) if ids else {}
 
     items = []
-    for sess, title, user_email in rows:
+    for sess, title, user in rows:
         evs = events.get(sess.session_id, [])
         latest, total_ms, completed = _latest_run(evs)
         items.append(AnalysisListItem(
             session_id=sess.session_id,
             session_no=sess.session_no,
             project_title=title,
-            user_email=user_email,
+            user_email=user.email,
+            user_name=user.display_name,
+            user_affiliation=user.affiliation,
             status=sess.status,
             created_at=sess.created_at,
             duration_sec=durations.get(sess.session_id) or summaries.get(sess.session_id),
@@ -357,14 +362,14 @@ def analysis_detail(
     누가 어떤 세션을 열람했는지는 로그로 남긴다.
     """
     row = db.execute(
-        select(Session, Project.title, Project.user_id, Project.deleted_at, User.email)
+        select(Session, Project.title, Project.user_id, Project.deleted_at, User)
         .join(Project, Project.project_id == Session.project_id)
         .join(User, User.user_id == Project.user_id)
         .where(Session.session_id == session_id)
     ).first()
     if row is None:
         raise HTTPException(404, "session not found")
-    sess, title, owner_id, deleted_at, user_email = row
+    sess, title, owner_id, deleted_at, user = row
     logger.info("관리자 열람: admin=%s session=%s owner=%s", admin_id, session_id, owner_id)
 
     events = db.scalars(
@@ -408,7 +413,9 @@ def analysis_detail(
         "session_no": sess.session_no,
         "project_title": title,
         "project_trashed": deleted_at is not None,
-        "user_email": user_email,
+        "user_email": user.email,
+        "user_name": user.display_name,
+        "user_affiliation": user.affiliation,
         "status": sess.status,
         "created_at": sess.created_at,
         "run": run,
