@@ -6,7 +6,7 @@ import plugin from "tailwindcss/plugin";
 // 화면마다 dark: 클래스를 붙이는 대신, 색 팔레트 자체를 CSS 변수로 바꿔서 한 번에 처리한다.
 //   - 라이트: 원래 Tailwind 색 그대로
 //   - 다크(<html class="dark">): 단계를 뒤집는다 (50↔950, 100↔900 …). 밝은 배경은 어둡게, 진한 글자는 밝게.
-//   - white 는 카드 배경으로 많이 써서 다크에서는 stone-900, 페이지 배경(stone-50)은 stone-950 이 된다.
+//   - 회색(stone·slate)과 white 는 진회색 단계를 따로 쓴다 (아래 DARK_GRAY). 카드 white = #2a2a2e, 페이지 배경 = #202023
 //   - black 은 영상 배경·덮개라 바꾸지 않는다.
 // 모드 전환은 components/ThemeToggle.tsx, 깜빡임 방지 스크립트는 app/layout.tsx.
 const THEMED = ["slate", "stone", "red", "orange", "amber", "yellow", "green", "emerald", "teal", "sky", "blue", "indigo", "purple", "pink", "rose"] as const;
@@ -31,8 +31,15 @@ for (const name of THEMED) {
     darkVars[`--c-${name}-${s}`] = rgb(palette(name)[FLIP[s]]);
   }
 }
-// 다크에서 페이지 배경(stone-50)과 카드(white)가 구분되도록 stone-50 은 한 단계 더 어둡게
-darkVars["--c-stone-50"] = "12 10 9";
+// 회색(stone·slate)은 그냥 뒤집으면 너무 껌껌해서, 다크 전용 진회색 단계를 따로 쓴다.
+//   페이지 배경 stone-50 = #202023, 카드 white = #2a2a2e, 옅은 채움 100 = #34343a, 테두리 200 = #3f3f46 …
+const DARK_GRAY: Record<string, string> = {
+  "50": "32 32 35", "100": "52 52 58", "200": "63 63 70", "300": "82 82 91", "400": "113 113 122",
+  "500": "161 161 170", "600": "190 190 198", "700": "212 212 216", "800": "228 228 231",
+  "900": "244 244 245", "950": "250 250 250",
+};
+for (const name of ["stone", "slate"]) for (const s of SHADES) darkVars[`--c-${name}-${s}`] = DARK_GRAY[s];
+darkVars["--c-white"] = "42 42 46";
 
 const config: Config = {
   darkMode: "class",
