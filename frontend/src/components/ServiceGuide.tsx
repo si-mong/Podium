@@ -34,7 +34,8 @@ const ROTATE_MS = 2400;
 
 // Podium 워드마크 (마이크가 o 자리에 들어간 로고). public/podium-logo.png — 투명 배경, 1237×309
 export function PodiumLogo({ className }: { className?: string }) {
-  return <Image src="/podium-logo.png" alt="Podium" width={1237} height={309} priority className={className} />;
+  // 로고 이미지는 검정이라 다크 모드에서는 색을 뒤집어 흰색으로 보인다
+  return <Image src="/podium-logo.png" alt="Podium" width={1237} height={309} priority className={`dark:invert ${className ?? ""}`} />;
 }
 
 // 분석하는 항목: 2.4초마다 다음 항목으로 넘어간다. 마우스를 올리거나 눌러서 고르면 그 항목에서 멈춘다.

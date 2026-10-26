@@ -355,8 +355,8 @@ function GrowthTrendChart({ sessions }: { sessions: TopicSession[] }) {
       <div className="flex-1 min-h-[300px] w-full pr-4">
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={chartData} margin={{ top: 20, right: 20, bottom: 20, left: 0 }}>
-            <CartesianGrid key="grid" strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-            <XAxis key="xaxis" dataKey="session" axisLine={false} tickLine={false} tick={{fill: '#64748B', fontSize: 14, fontWeight: 600}} dy={15} />
+            <CartesianGrid key="grid" strokeDasharray="3 3" vertical={false} stroke="var(--chart-grid)" />
+            <XAxis key="xaxis" dataKey="session" axisLine={false} tickLine={false} tick={{fill: 'var(--chart-axis)', fontSize: 14, fontWeight: 600}} dy={15} />
             <YAxis
               key={`yaxis-${metric.id}`}
               axisLine={false}
@@ -368,7 +368,7 @@ function GrowthTrendChart({ sessions }: { sessions: TopicSession[] }) {
             />
             <Tooltip
               key={`tooltip-${metric.id}`}
-              cursor={{fill: '#f8fafc', stroke: metric.type === 'line' ? '#e2e8f0' : 'none', strokeWidth: 1, strokeDasharray: '4 4'}}
+              cursor={{fill: 'var(--chart-cursor)', stroke: metric.type === 'line' ? 'var(--chart-cursor-line)' : 'none', strokeWidth: 1, strokeDasharray: '4 4'}}
               contentStyle={{ borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 10px 25px -5px rgb(0 0 0 / 0.1)', padding: '16px 20px', fontWeight: 600 }}
               formatter={(value) => [`${value}${metric.unit}`, metric.label]}
             />
@@ -380,7 +380,7 @@ function GrowthTrendChart({ sessions }: { sessions: TopicSession[] }) {
                 name={metric.label}
                 stroke={metric.color}
                 strokeWidth={4}
-                dot={{r: 6, fill: metric.color, strokeWidth: 3, stroke: '#fff'}}
+                dot={{r: 6, fill: metric.color, strokeWidth: 3, stroke: 'var(--chart-dot-ring)'}}
                 activeDot={{r: 8}}
               />
             ) : (
@@ -1396,10 +1396,10 @@ function PresentationAnalysisDashboard() {
                              return (
                                <ResponsiveContainer width="100%" height="100%">
                                  <ComposedChart data={trendData} margin={{ top: 20, right: 20, bottom: 20, left: 0 }}>
-                                   <CartesianGrid key="grid-single" strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                                   <CartesianGrid key="grid-single" strokeDasharray="3 3" vertical={false} stroke="var(--chart-grid)" />
                                    {/* scale="band": 막대그래프처럼 구간마다 같은 폭의 칸을 주고 그 칸 가운데에 점을 찍는다.
                                        (기본값은 첫·끝 점이 양쪽 끝에 붙어서 꺾은선만 간격이 넓고 끝 글자가 잘렸다.) */}
-                                   <XAxis key="xaxis-single" dataKey="segment" scale="band" interval={0} axisLine={false} tickLine={false} tick={{fill: '#64748B', fontSize: 14, fontWeight: 600}} dy={15} />
+                                   <XAxis key="xaxis-single" dataKey="segment" scale="band" interval={0} axisLine={false} tickLine={false} tick={{fill: 'var(--chart-axis)', fontSize: 14, fontWeight: 600}} dy={15} />
                                    <YAxis
                                      key={`yaxis-single-${activeMetricConfig.id}`}
                                      axisLine={false} tickLine={false}
@@ -1408,7 +1408,7 @@ function PresentationAnalysisDashboard() {
                                    />
                                    <Tooltip
                                      key={`tooltip-single-${activeMetricConfig.id}`}
-                                     cursor={{fill: '#f8fafc', stroke: activeMetricConfig.type === 'line' ? '#e2e8f0' : 'none', strokeWidth: 1, strokeDasharray: '4 4'}}
+                                     cursor={{fill: 'var(--chart-cursor)', stroke: activeMetricConfig.type === 'line' ? 'var(--chart-cursor-line)' : 'none', strokeWidth: 1, strokeDasharray: '4 4'}}
                                      contentStyle={{ borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 10px 25px -5px rgb(0 0 0 / 0.1)', padding: '16px 20px', fontWeight: 600 }}
                                      formatter={(value) => [`${value}${activeMetricConfig.unit}`, activeMetricConfig.label] as [string, string]}
                                    />
@@ -1416,7 +1416,7 @@ function PresentationAnalysisDashboard() {
                                      <Line
                                        key={`line-single-${activeMetricConfig.id}`}
                                        type="monotone" dataKey={activeMetricConfig.id} name={activeMetricConfig.label} stroke={activeMetricConfig.color} strokeWidth={4}
-                                       dot={{r: 6, fill: activeMetricConfig.color, strokeWidth: 3, stroke: '#fff'}} activeDot={{r: 8}}
+                                       dot={{r: 6, fill: activeMetricConfig.color, strokeWidth: 3, stroke: 'var(--chart-dot-ring)'}} activeDot={{r: 8}}
                                      />
                                    ) : (
                                      <Bar

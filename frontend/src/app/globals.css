@@ -2,16 +2,26 @@
 @tailwind components;
 @tailwind utilities;
 
+/* 다크 모드: <html class="dark"> 일 때. 색 팔레트 자체는 tailwind.config.ts 에서 CSS 변수로 뒤집는다. */
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  /* 차트(recharts)처럼 클래스를 못 쓰는 곳의 색 */
+  --chart-grid: #f1f5f9;
+  --chart-axis: #64748b;
+  --chart-cursor: #f8fafc;
+  --chart-cursor-line: #e2e8f0;
+  --chart-dot-ring: #ffffff;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+:root.dark {
+  --background: #0c0a09;
+  --foreground: #e7e5e4;
+  --chart-grid: #292524;
+  --chart-axis: #a8a29e;
+  --chart-cursor: #1c1917;
+  --chart-cursor-line: #44403c;
+  --chart-dot-ring: #1c1917;
 }
 
 body {
