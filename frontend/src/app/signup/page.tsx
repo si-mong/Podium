@@ -75,7 +75,13 @@ export default function SignupPage() {
 
         {/* 회원가입 카드 */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8">
-          <h2 className="text-lg font-bold text-slate-800 mb-6">회원가입</h2>
+          <h2 className="text-lg font-bold text-slate-800 mb-4">회원가입</h2>
+
+          {/* 구글 로그인으로 바꾸면 같은 이메일의 기존 회원에 자동으로 연결된다 (feat/google-login 의 auth_google.py) */}
+          <div className="mb-6 rounded-xl bg-blue-50 border border-blue-100 px-4 py-3 text-xs text-blue-800 leading-relaxed">
+            <b>구글 로그인을 준비하고 있어요.</b> 평소 쓰는 <b>Gmail 주소</b>로 가입하면, 구글 로그인이 열린 뒤에도
+            같은 계정과 분석 기록을 그대로 쓸 수 있어요. 주소는 점(.)까지 Gmail과 똑같이 입력해 주세요.
+          </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
@@ -139,6 +145,11 @@ export default function SignupPage() {
               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
               회원가입
             </button>
+            <p className="text-xs text-slate-400 text-center">
+              가입하면{" "}
+              <Link href="/terms" className="underline hover:text-slate-600">이용약관</Link>과{" "}
+              <Link href="/privacy" className="underline hover:text-slate-600">개인정보 처리방침</Link>에 동의하게 돼요.
+            </p>
           </form>
 
           <p className="text-center text-sm text-slate-500 mt-6">
