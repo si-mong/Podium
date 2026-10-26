@@ -6,7 +6,7 @@ import {
   Play, Pause,
   CheckCircle, AlertCircle, TrendingUp,
   BarChart2, Mic, Activity, Award, Clock, Video,
-  Folder, FolderOpen, ChevronRight, ArrowLeft, Plus, Trash2, Upload, X, FileText, MessageSquare, Columns, ThumbsUp, Lightbulb, Pencil, LogOut
+  Folder, FolderOpen, ChevronRight, ChevronDown, ArrowLeft, Plus, Trash2, Upload, X, FileText, MessageSquare, Columns, ThumbsUp, Lightbulb, Pencil, LogOut
 } from 'lucide-react';
 import {
   Line, Bar, XAxis, YAxis,
@@ -718,6 +718,8 @@ function PresentationAnalysisDashboard() {
 
   // Modals State
   const [isTopicModalOpen, setIsTopicModalOpen] = useState(false);
+  // "내 기록" 사용 방법: 폴더가 없으면 펼치고, 있으면 접어 둔다. 사용자가 직접 열고 닫으면 그 상태를 따른다.
+  const [guideOpen, setGuideOpen] = useState<boolean | null>(null);
   const [newTopicName, setNewTopicName] = useState('');
 
   // Topic Rename State
@@ -1195,8 +1197,24 @@ function PresentationAnalysisDashboard() {
                   </button>
                 </div>
 
-                {/* 사용 방법 — 단계 3개 + 각 단계 아래 간단한 예시 */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-10">
+                {/* 사용 방법 — 한 박스 안에 단계 3개(구분선) + 각 단계 아래 간단한 예시. 폴더가 있으면 접혀 있다. */}
+                {(() => {
+                  const open = guideOpen ?? topics.length === 0;
+                  return (
+                <div className="bg-white border border-stone-200 rounded-2xl shadow-sm mb-10 overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setGuideOpen(!open)}
+                    className="w-full flex items-center justify-between px-5 py-3.5 text-left hover:bg-stone-50 transition-colors"
+                  >
+                    <span className="font-bold text-stone-800">사용 방법</span>
+                    <span className="flex items-center gap-1 text-sm font-semibold text-stone-500">
+                      {open ? '접기' : '펼치기'}
+                      <ChevronDown className={`w-4 h-4 transition-transform ${open ? 'rotate-180' : ''}`} />
+                    </span>
+                  </button>
+                  {open && (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 border-t border-stone-200 divide-y sm:divide-y-0 sm:divide-x divide-stone-200">
                   {[
                     {
                       title: '주제 폴더 만들기',
@@ -1234,7 +1252,7 @@ function PresentationAnalysisDashboard() {
                       ),
                     },
                   ].map((step, i) => (
-                    <div key={step.title} className="bg-white border border-stone-200 rounded-2xl p-5 shadow-sm">
+                    <div key={step.title} className="p-5">
                       <div className="flex items-center gap-2.5">
                         <span className="w-6 h-6 rounded-full bg-stone-900 text-white text-xs font-bold flex items-center justify-center shrink-0">{i + 1}</span>
                         <span className="font-bold text-stone-800">{step.title}</span>
@@ -1243,7 +1261,11 @@ function PresentationAnalysisDashboard() {
                       <div className="mt-3 text-sm bg-stone-50 border border-stone-100 rounded-xl px-3 py-2.5">{step.example}</div>
                     </div>
                   ))}
+                  </div>
+                  )}
                 </div>
+                  );
+                })()}
 
                 {topics.length > 0 ? (
                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5">
