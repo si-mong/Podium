@@ -18,11 +18,13 @@ from sqlalchemy.orm import Session as DbSession, selectinload
 
 from app.api._deps import get_current_user_id, get_owned_project
 from app.core.database import get_db
-from app.models import Project
+from app.models import Project, Session, SessionSummary, VideoAnalysis, VoiceRaw
 from app.schemas.project import (
     ProjectCreate,
     ProjectRead,
     ProjectTrashItem,
+    ProjectTrend,
+    TrendPoint,
     ProjectUpdate,
     ProjectWithSessions,
 )
@@ -104,6 +106,67 @@ def restore_project(
     db.commit()
     db.refresh(project)
     return project
+
+
+# ---------------------------------------------------------------------------
+# 종합추이 (회차별 지표)
+# ---------------------------------------------------------------------------
+
+# gesture_counts 7종(app/pipeline/step2_video_analysis.py) 중 일반/부정적 제스처로 묶는 기준.
+# 프론트 단일 분석 카드(dashboard/page.tsx 의 GENERAL/NEGATIVE_GESTURE_KEYS)와 같다.
+GENERAL_GESTURE_KEYS = ("explanatory_gesture", "pointing", "body_movement")
+NEGATIVE_GESTURE_KEYS = ("distracting_gesture", "touching_face_or_hair", "fidgeting_with_objects", "closed_posture")
+
+
+@router.get("/{project_id}/trend", response_model=ProjectTrend)
+def get_project_trend(
+    project_id: int,
+    db: DbSession = Depends(get_db),
+    user_id: int = Depends(get_current_user_id),
+):
+    """폴더 안 회차들의 전체 지표를 회차 순으로. 새로 계산하지 않고 **저장된 분석 결과만** 모은다.
+
+    값은 단일 분석 화면 상단 카드와 같은 기준이다 (voice-summary 와 동작 분석 합계).
+    분석이 안 끝난 단계의 값은 None — 그래프에서 그 회차는 비워 둔다.
+    """
+    get_owned_project(db, project_id, user_id)
+    sessions = db.scalars(
+        select(Session).where(Session.project_id == project_id).order_by(Session.session_no)
+    ).all()
+    ids = [s.session_id for s in sessions]
+    if not ids:
+        return ProjectTrend(project_id=project_id, points=[])
+
+    # 회차마다 따로 조회하지 않고 테이블별로 한 번씩 (회차가 많아도 쿼리 4번)
+    voices = {v.session_id: v for v in db.scalars(select(VoiceRaw).where(VoiceRaw.session_id.in_(ids)))}
+    summaries = {s.session_id: s for s in db.scalars(select(SessionSummary).where(SessionSummary.session_id.in_(ids)))}
+    gestures: dict[int, list[int]] = {}
+    for va in db.scalars(select(VideoAnalysis).where(VideoAnalysis.session_id.in_(ids))):
+        counts = va.gesture_counts or {}
+        g = gestures.setdefault(va.session_id, [0, 0])
+        g[0] += sum(counts.get(k) or 0 for k in GENERAL_GESTURE_KEYS)
+        g[1] += sum(counts.get(k) or 0 for k in NEGATIVE_GESTURE_KEYS)
+
+    points = []
+    for s in sessions:
+        v, summary, g = voices.get(s.session_id), summaries.get(s.session_id), gestures.get(s.session_id)
+        silence_ratio = None
+        if v is not None and v.total_duration > 0:
+            silence_sec = sum(seg["duration"] for seg in (v.silence_segments or []))
+            silence_ratio = round(silence_sec / v.total_duration, 3)
+        points.append(TrendPoint(
+            session_id=s.session_id,
+            session_no=s.session_no,
+            created_at=s.created_at,
+            duration_sec=v.total_duration if v is not None else (summary.total_duration if summary else None),
+            filler_count=len(v.filler_words or []) if v is not None else None,
+            repetition_count=len(v.repetitions or []) if v is not None else None,
+            silence_ratio=silence_ratio,
+            speaking_rate_spm=summary.avg_speaking_rate_spm if summary else None,
+            general_gesture=g[0] if g else None,
+            negative_gesture=g[1] if g else None,
+        ))
+    return ProjectTrend(project_id=project_id, points=points)
 
 
 # ---------------------------------------------------------------------------

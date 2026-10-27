@@ -230,7 +230,7 @@ const MENUS = [
   { id: 'sessions', label: '내 기록', icon: FolderOpen },
   { id: 'single', label: '단일 분석', icon: BarChart2 },
   { id: 'compare', label: '비교분석(개발중)', icon: Columns },
-  { id: 'growth', label: '종합추이(개발중)', icon: TrendingUp },
+  { id: 'growth', label: '종합추이', icon: TrendingUp },
 ];
 
 const COMPARE_METRICS = [
@@ -305,43 +305,85 @@ async function getJson<T>(path: string): Promise<T | null> {
   }
 }
 
-// 회차별 성장 추이 그래프 (지표 버튼 + 그래프). "종합추이" 메뉴와 폴더 화면 오른쪽에서 같이 쓴다.
-// 아직 회차별 지표 API 가 없어서 회차 수에 맞춘 Mock 값을 보여준다.
-function GrowthTrendChart({ sessions }: { sessions: TopicSession[] }) {
-  const [metricId, setMetricId] = useState('fillerTotal');
+// 종합추이 — GET /projects/{id}/trend. 회차마다 저장된 분석 결과(단일 분석 상단 카드와 같은 기준).
+interface ProjectTrendPoint {
+  session_id: number;
+  session_no: number;
+  duration_sec: number | null;
+  filler_count: number | null;
+  repetition_count: number | null;
+  silence_ratio: number | null;      // 0~1
+  speaking_rate_spm: number | null;
+  general_gesture: number | null;
+  negative_gesture: number | null;
+}
 
-  if (sessions.length === 0) {
-    return (
-      <div className="h-full min-h-[300px] flex flex-col items-center justify-center text-stone-400 bg-stone-50 rounded-2xl border border-dashed border-stone-200">
-        <TrendingUp className="w-12 h-12 mb-3 text-stone-300" />
-        <p className="font-bold text-[15px]">해당 주제에 발표 연습 기록이 없습니다.</p>
-      </div>
-    );
+// lowerIsBetter: 줄어들면 좋아진 것 (초록), 늘면 나빠진 것 (빨강). null 이면 좋고 나쁨을 따지지 않는다.
+const TREND_METRICS = [
+  { id: 'filler', label: '필러', unit: '회', color: '#f43f5e', type: 'line', lowerIsBetter: true,
+    get: (p: ProjectTrendPoint) => p.filler_count },
+  { id: 'rate', label: '말하기 속도', unit: '음절/분', color: '#3b82f6', type: 'line', lowerIsBetter: null,
+    get: (p: ProjectTrendPoint) => (p.speaking_rate_spm == null ? null : Math.round(p.speaking_rate_spm)) },
+  { id: 'silence', label: '무음 비율', unit: '%', color: '#c084fc', type: 'bar', lowerIsBetter: true,
+    get: (p: ProjectTrendPoint) => (p.silence_ratio == null ? null : Math.round(p.silence_ratio * 1000) / 10) },
+  { id: 'repetition', label: '말 더듬', unit: '회', color: '#fb923c', type: 'bar', lowerIsBetter: true,
+    get: (p: ProjectTrendPoint) => p.repetition_count },
+  { id: 'generalGesture', label: '일반 제스처', unit: '회', color: '#0ea5e9', type: 'line', lowerIsBetter: null,
+    get: (p: ProjectTrendPoint) => p.general_gesture },
+  { id: 'negativeGesture', label: '부정적 제스처', unit: '회', color: '#ef4444', type: 'line', lowerIsBetter: true,
+    get: (p: ProjectTrendPoint) => p.negative_gesture },
+] as const;
+
+// 회차별 종합추이 그래프 (지표 버튼 + 첫 회차 대비 변화 + 그래프). "종합추이" 메뉴와 폴더 화면 오른쪽에서 같이 쓴다.
+// 새로 분석하지 않고 저장된 결과만 모은다. 분석이 안 끝난 회차는 그래프에서 비워 둔다.
+function GrowthTrendChart({ projectId }: { projectId: string }) {
+  const [metricId, setMetricId] = useState<string>('filler');
+  const [points, setPoints] = useState<ProjectTrendPoint[] | null>(null);   // null = 불러오는 중
+
+  useEffect(() => {
+    setPoints(null);
+    getJson<{ points: ProjectTrendPoint[] }>(`/projects/${projectId}/trend`).then((d) => setPoints(d?.points ?? []));
+  }, [projectId]);
+
+  const empty = (text: string) => (
+    <div className="h-full min-h-[300px] flex flex-col items-center justify-center text-stone-400 bg-stone-50 rounded-2xl border border-dashed border-stone-200">
+      <TrendingUp className="w-12 h-12 mb-3 text-stone-300" />
+      <p className="font-bold text-[15px]">{text}</p>
+    </div>
+  );
+  if (points === null) return empty('불러오는 중…');
+  if (points.length === 0) return empty('해당 주제에 발표 연습 기록이 없습니다.');
+  if (!points.some((p) => p.filler_count != null || p.general_gesture != null)) return empty('아직 분석이 끝난 회차가 없어요.');
+
+  const metric = TREND_METRICS.find((m) => m.id === metricId)!;
+  const chartData = points.map((p) => ({ session: `${p.session_no}회차`, value: metric.get(p) }));
+
+  // 첫 회차 대비 변화 — 값이 있는 회차 중 처음과 마지막
+  const valued = points.filter((p) => metric.get(p) != null);
+  let change: { text: string; tone: string } | null = null;
+  if (valued.length >= 2) {
+    const a = metric.get(valued[0])!, b = metric.get(valued[valued.length - 1])!;
+    const diff = Math.round((b - a) * 10) / 10;
+    const head = `${valued[0].session_no}회차 ${a}${metric.unit} → ${valued[valued.length - 1].session_no}회차 ${b}${metric.unit}`;
+    if (diff === 0) change = { text: `${head} (변화 없음)`, tone: 'text-stone-500' };
+    else {
+      const better = metric.lowerIsBetter == null ? null : (diff < 0) === metric.lowerIsBetter;
+      change = {
+        text: `${head} (${diff > 0 ? '+' : ''}${diff}${metric.unit})`,
+        tone: better == null ? 'text-stone-600' : better ? 'text-emerald-600' : 'text-rose-600',
+      };
+    }
   }
-
-  // Mock 값 — 회차가 지날수록 좋아지는 모양으로 만든다
-  const chartData = sessions.map((s, index) => {
-    const maxImprovementFactor = Math.max(1, 4 - index);
-    return {
-      session: s.name.replace(' 연습', ''),
-      fillerTotal: 10 + maxImprovementFactor * 5,  // 필러 단어 빈도
-      wpm: 120 + maxImprovementFactor * 10,         // 평균 말하기 속도
-      silenceRatio: 5 + maxImprovementFactor * 2,   // 전체 무음 비율 (%)
-      habits: 4 + maxImprovementFactor * 3,         // 말 더듬 횟수
-    };
-  });
-
-  const metric = GROWTH_METRICS_CONFIG.find(m => m.id === metricId)!;
 
   return (
     <div className="h-full flex flex-col">
-      {/* Metric Selection Buttons */}
-      <div className="flex flex-wrap gap-3 mb-6">
-        {GROWTH_METRICS_CONFIG.map(m => (
+      {/* 지표 선택 */}
+      <div className="flex flex-wrap gap-2 mb-3">
+        {TREND_METRICS.map((m) => (
           <button
             key={m.id}
             onClick={() => setMetricId(m.id)}
-            className={`px-4 py-2 rounded-xl text-[14px] font-bold transition-all border ${
+            className={`px-3.5 py-2 rounded-xl text-[13px] font-bold transition-all border ${
               metricId === m.id
                 ? 'bg-stone-800 text-white border-stone-800 shadow-md shadow-stone-300'
                 : 'bg-white text-stone-500 border-stone-200 hover:bg-stone-50 hover:text-stone-800'
@@ -351,8 +393,11 @@ function GrowthTrendChart({ sessions }: { sessions: TopicSession[] }) {
           </button>
         ))}
       </div>
+      <p className={`text-sm font-semibold mb-4 min-h-[20px] ${change?.tone ?? 'text-stone-400'}`}>
+        {change ? change.text : '두 번 이상 분석하면 첫 회차 대비 변화가 보여요.'}
+      </p>
 
-      <div className="flex-1 min-h-[300px] w-full pr-4">
+      <div className="flex-1 min-h-[260px] w-full pr-4">
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={chartData} margin={{ top: 20, right: 20, bottom: 20, left: 0 }}>
             <CartesianGrid key="grid" strokeDasharray="3 3" vertical={false} stroke="var(--chart-grid)" />
@@ -362,31 +407,33 @@ function GrowthTrendChart({ sessions }: { sessions: TopicSession[] }) {
               axisLine={false}
               tickLine={false}
               tick={{fill: metric.color, fontSize: 13, fontWeight: 700}}
-              domain={['auto', 'auto']}
+              domain={[0, 'auto']}
+              allowDecimals={metric.id === 'silence'}
               dx={-10}
-              unit={metric.unit}
+              unit={metric.unit === '음절/분' ? '' : metric.unit}
             />
             <Tooltip
               key={`tooltip-${metric.id}`}
               cursor={{fill: 'var(--chart-cursor)', stroke: metric.type === 'line' ? 'var(--chart-cursor-line)' : 'none', strokeWidth: 1, strokeDasharray: '4 4'}}
               contentStyle={{ borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 10px 25px -5px rgb(0 0 0 / 0.1)', padding: '16px 20px', fontWeight: 600 }}
-              formatter={(value) => [`${value}${metric.unit}`, metric.label]}
+              formatter={(value) => [value == null ? '분석 전' : `${value}${metric.unit}`, metric.label]}
             />
             {metric.type === 'line' ? (
               <Line
                 key={`line-${metric.id}`}
                 type="monotone"
-                dataKey={metric.id}
+                dataKey="value"
                 name={metric.label}
                 stroke={metric.color}
                 strokeWidth={4}
+                connectNulls
                 dot={{r: 6, fill: metric.color, strokeWidth: 3, stroke: 'var(--chart-dot-ring)'}}
                 activeDot={{r: 8}}
               />
             ) : (
               <Bar
                 key={`bar-${metric.id}`}
-                dataKey={metric.id}
+                dataKey="value"
                 name={metric.label}
                 fill={metric.color}
                 radius={[6, 6, 0, 0]}
@@ -706,7 +753,7 @@ function PresentationAnalysisDashboard() {
   });
 
   // Growth Chart State
-  const [selectedGrowthTopicId, setSelectedGrowthTopicId] = useState('t1');
+  const [selectedGrowthTopicId, setSelectedGrowthTopicId] = useState('');
 
   // Single Analysis State
   const [activeSingleMetric, setActiveSingleMetric] = useState('fillerTotal');
@@ -927,6 +974,12 @@ function PresentationAnalysisDashboard() {
     goTo({ view: 'single', session: sessionId }); // 세션을 고르면 단일 분석 화면으로
   };
 
+  // 종합추이에서 보여줄 폴더: 직접 고른 폴더 → 지금 열어 둔 폴더 → 첫 폴더
+  const growthTopicId =
+    topics.find(t => t.id === selectedGrowthTopicId)?.id ??
+    topics.find(t => t.id === activeTopicId)?.id ??
+    topics[0]?.id ?? '';
+
   // 단일 분석 화면은 내용이 넓게 보이도록 왼쪽 사이드바 대신 상단 메뉴바를 쓴다.
   const topNav = activeMenu === 'single';
 
@@ -934,7 +987,8 @@ function PresentationAnalysisDashboard() {
   const renderMenuButton = (menu: typeof MENUS[number], horizontal: boolean) => {
     const Icon = menu.icon;
     const isActive = activeMenu === menu.id;
-    const isDisabled = !activeSessionId && menu.id !== 'sessions';
+    // 종합추이는 폴더 단위라 회차를 고르지 않아도 열 수 있다
+    const isDisabled = !activeSessionId && menu.id !== 'sessions' && menu.id !== 'growth';
 
     return (
       <button
@@ -1167,15 +1221,14 @@ function PresentationAnalysisDashboard() {
                       )}
                     </div>
 
-                    {/* 오른쪽: 이 폴더의 종합추이 (아직 Mock 데이터) */}
+                    {/* 오른쪽: 이 폴더의 종합추이 (회차별 저장된 분석 결과) */}
                     <div className="bg-white rounded-2xl shadow-sm border border-stone-200 p-6 h-[560px] flex flex-col">
                       <div className="flex items-center gap-2.5 mb-5">
                         <span className="bg-green-100 text-green-600 p-1.5 rounded-xl"><TrendingUp className="w-5 h-5" /></span>
                         <h4 className="font-extrabold text-stone-800 text-lg">종합추이</h4>
-                        <span className="text-[12px] font-bold text-amber-600 bg-amber-50 border border-amber-100 px-2 py-0.5 rounded-md">예시 데이터</span>
                       </div>
                       <div className="flex-1 min-h-0">
-                        <GrowthTrendChart sessions={openFolder.sessions} />
+                        <GrowthTrendChart projectId={openFolder.id} />
                       </div>
                     </div>
                   </div>
@@ -1374,8 +1427,8 @@ function PresentationAnalysisDashboard() {
             </div>
           )}
 
-          {/* Analysis Views (Only show if a session is selected and we are not in 'sessions' tab) */}
-          {activeMenu !== 'sessions' && activeMenu !== 'trash' && activeSessionId ? (
+          {/* Analysis Views — 회차를 골랐을 때만. 종합추이는 폴더 단위라 회차 없이도 연다. */}
+          {activeMenu !== 'sessions' && activeMenu !== 'trash' && (activeSessionId || activeMenu === 'growth') ? (
             // 단일 분석은 왼쪽·오른쪽 두 칸으로 놓으므로 더 넓게 쓴다
             <div className={`${topNav ? 'max-w-[1200px]' : 'max-w-[1200px]'} mx-auto space-y-6 pb-12`}>
 
@@ -1993,15 +2046,15 @@ function PresentationAnalysisDashboard() {
                       <div>
                         <h3 className="font-extrabold text-stone-800 text-xl flex items-center gap-2.5">
                           <span className="bg-green-100 text-green-600 p-1.5 rounded-xl shadow-sm"><TrendingUp className="w-5 h-5"/></span>
-                          회차별 성장 추이
+                          종합추이
                         </h3>
-                        <p className="text-[15px] text-stone-500 mt-2 font-medium">선택된 주제 내 발표 연습 회차들의 주요 4가지 지표 변화를 확인합니다.</p>
+                        <p className="text-[15px] text-stone-500 mt-2 font-medium">선택한 주제의 발표 연습 회차별로 주요 지표가 어떻게 바뀌었는지 확인합니다.</p>
                       </div>
                       
                       <div className="flex items-center gap-3 shrink-0">
                         <label className="text-sm font-bold text-stone-600">주제 선택:</label>
                         <select 
-                          value={selectedGrowthTopicId}
+                          value={growthTopicId}
                           onChange={(e) => setSelectedGrowthTopicId(e.target.value)}
                           className="bg-stone-50 border border-stone-200 text-stone-700 text-sm rounded-xl focus:ring-stone-900 focus:border-stone-900 block p-2.5 font-bold outline-none cursor-pointer"
                         >
@@ -2013,7 +2066,11 @@ function PresentationAnalysisDashboard() {
                     </div>
 
                     <div className="flex-1 min-h-0">
-                      <GrowthTrendChart sessions={(topics.find(t => t.id === selectedGrowthTopicId) || topics[0])?.sessions ?? []} />
+                      {topics.length > 0 ? (
+                        <GrowthTrendChart projectId={growthTopicId} />
+                      ) : (
+                        <p className="text-sm text-stone-400">주제 폴더를 먼저 만들어 주세요.</p>
+                      )}
                     </div>
                   </div>
                 </div>
