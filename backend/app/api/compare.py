@@ -5,6 +5,7 @@
   GET  /projects/{id}/comparisons                     -> 만든 AI 비교 피드백 목록
 
 두 회차는 같은 폴더에 있고 구간 분리(STEP4)까지 끝나 있어야 한다. 아니면 400.
+**지금은 관리자만** 쓸 수 있다 (더 다듬은 뒤 공개). 관리자도 자기 폴더만 비교할 수 있다.
 base/target 을 안 주면 비교할 수 있는 회차 중 마지막 회차(target)와 그 직전 회차(base).
 """
 from __future__ import annotations
@@ -15,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
-from app.api._deps import get_current_user_id, get_owned_project
+from app.api._deps import get_current_user_id, get_owned_project, require_admin
 from app.core.database import get_db
 from app.models import Session, SessionComparison
 from app.pipeline import compare_feedback
@@ -30,7 +31,7 @@ from app.services.analysis_log import tracked
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/projects", tags=["compare"])
+router = APIRouter(prefix="/projects", tags=["compare"], dependencies=[Depends(require_admin)])
 
 
 def _project_sessions(db: DbSession, project_id: int) -> tuple[list[CompareSession], dict]:
