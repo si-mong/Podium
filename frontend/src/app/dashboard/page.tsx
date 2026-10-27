@@ -174,6 +174,12 @@ function buildSummaryStats(gestureTotals: GestureTotals | null, voice: VoiceSumm
   ];
 }
 
+// 종합 피드백 부가 설명 문단을 문장 단위로 나눈다 ("~요. ~다." → ["~요.", "~다."]).
+// 마침표·물음표·느낌표 뒤에 공백이 있을 때만 자르므로 "1.5" 같은 숫자는 안 잘린다.
+function splitSentences(text: string): string[] {
+  return text.split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter(Boolean);
+}
+
 const MENUS = [
   { id: 'sessions', label: '내 기록', icon: FolderOpen },
   { id: 'single', label: '단일 분석', icon: BarChart2 },
@@ -251,7 +257,7 @@ function GrowthTrendChart({ projectId }: { projectId: string }) {
   const empty = (text: string) => (
     <div className="h-full min-h-[300px] flex flex-col items-center justify-center text-stone-400 bg-stone-50 rounded-2xl border border-dashed border-stone-200">
       <TrendingUp className="w-12 h-12 mb-3 text-stone-300" />
-      <p className="font-bold text-[15px]">{text}</p>
+      <p className="font-bold text-[16px]">{text}</p>
     </div>
   );
   if (points === null) return empty('불러오는 중…');
@@ -286,7 +292,7 @@ function GrowthTrendChart({ projectId }: { projectId: string }) {
           <button
             key={m.id}
             onClick={() => setMetricId(m.id)}
-            className={`px-3.5 py-2 rounded-xl text-[13px] font-bold transition-all border ${
+            className={`px-3.5 py-2 rounded-xl text-[14px] font-bold transition-all border ${
               metricId === m.id
                 ? 'bg-stone-800 text-white border-stone-800 shadow-md shadow-stone-300'
                 : 'bg-white text-stone-500 border-stone-200 hover:bg-stone-50 hover:text-stone-800'
@@ -889,10 +895,7 @@ function PresentationAnalysisDashboard() {
     goTo({ view: 'single', session: sessionId }); // 세션을 고르면 단일 분석 화면으로
   };
 
-  // 단일 분석 화면은 내용이 넓게 보이도록 왼쪽 사이드바 대신 상단 메뉴바를 쓴다.
-  const topNav = activeMenu === 'single';
-
-  // 메뉴 버튼 — 왼쪽 사이드바(세로)와 단일 분석의 상단 메뉴바(가로)가 같이 쓴다.
+  // 메뉴 버튼 — 왼쪽 사이드바(세로)와 모바일 상단 메뉴바(가로)가 같이 쓴다.
   const visibleMenus = MENUS.filter((m) => m.id !== 'compare' || isAdmin);
 
   // 관리자: 이 세션을 처음부터(음성 분석부터) 다시 분석한다. 이전 결과는 각 단계가 새 결과로 바꿔 넣는다.
@@ -937,21 +940,19 @@ function PresentationAnalysisDashboard() {
         <div className={`${horizontal ? 'p-1.5 min-[1700px]:p-2' : 'p-1.5'} rounded-lg transition-colors ${isActive ? 'bg-stone-200' : isDisabled ? 'bg-stone-50' : 'bg-stone-100 group-hover:bg-stone-200'}`}>
           <Icon className={`${horizontal ? 'w-5 h-5 min-[1700px]:w-6 min-[1700px]:h-6' : 'w-4 h-4'} ${isActive ? 'text-stone-900' : 'text-stone-500'}`} />
         </div>
-        <span className={`${horizontal ? 'hidden md:inline text-sm whitespace-nowrap' : 'text-[15px]'} ${isActive ? 'font-bold' : 'font-semibold'}`}>
+        <span className={`${horizontal ? 'hidden md:inline text-sm whitespace-nowrap' : 'text-[16px]'} ${isActive ? 'font-bold' : 'font-semibold'}`}>
           {menu.label}
         </span>
       </button>
     );
   };
 
-  // 아래 breadcrumb·logo 는 사이드바 화면과 상단 메뉴바(단일 분석)가 같이 쓴다.
-  // 상단 메뉴바일 때는 크게 (글자 1.1배: 14→15px, 로고 글자 20→22px / 아이콘·여백은 넓은 화면(1700px 이상)에서 1.5배).
-  // 1700px 보다 좁으면(브라우저 100% 등) 아이콘·여백을 줄이고, 폴더 이름과 휴지통·로그아웃 글자는 숨긴다(아이콘만).
+  // 아래 breadcrumb·logo 는 왼쪽 사이드바와 모바일 상단 메뉴바가 같이 쓴다.
 
   // 지금 보고 있는 폴더 > 세션 표시
   const breadcrumb = (
     <div className={`flex items-center gap-3 font-medium bg-stone-100 rounded-full text-stone-600 border border-stone-200 z-10 min-w-0
-      ${topNav ? 'text-sm px-4 py-2 min-[1700px]:px-5 min-[1700px]:py-2.5' : 'text-sm px-4 py-2'}`}>
+      text-sm px-4 py-2`}>
       {activeTopicName && activeSessionName ? (
         <>
           {/* 폴더 이름을 누르면 "내 기록"에서 그 폴더(세션 목록 + 종합추이)를 연다 — 뒤로가기와 같은 효과 */}
@@ -960,11 +961,11 @@ function PresentationAnalysisDashboard() {
             className="flex items-center gap-3 hover:text-stone-900 transition-colors min-w-0"
             title={`${activeTopicName} 폴더로 이동`}
           >
-            <FolderOpen className={`${topNav ? 'w-5 h-5 min-[1700px]:w-6 min-[1700px]:h-6' : 'w-4 h-4'} text-stone-400 shrink-0`} />
-            <span className={`hover:underline truncate ${topNav ? 'hidden min-[1700px]:inline' : ''}`}>{activeTopicName}</span>
+            <FolderOpen className="w-4 h-4 text-stone-400 shrink-0" />
+            <span className="hover:underline truncate">{activeTopicName}</span>
           </button>
-          <ChevronRight className={`${topNav ? 'w-5 h-5' : 'w-3.5 h-3.5'} text-stone-300 shrink-0`} />
-          <span className={`text-stone-900 font-bold bg-stone-200 rounded-md whitespace-nowrap ${topNav ? 'px-3 py-0.5 min-[1700px]:px-4 min-[1700px]:py-1' : 'px-2.5 py-0.5'}`}>{activeSessionName}</span>
+          <ChevronRight className="w-3.5 h-3.5 text-stone-300 shrink-0" />
+          <span className={`text-stone-900 font-bold bg-stone-200 rounded-md whitespace-nowrap px-2.5 py-0.5`}>{activeSessionName}</span>
         </>
       ) : (
         <span className="text-stone-400">선택된 세션이 없습니다</span>
@@ -979,26 +980,24 @@ function PresentationAnalysisDashboard() {
       className="flex items-center shrink-0 hover:opacity-70 transition-opacity"
     >
       {/* 홈 화면과 같은 Podium 워드마크 (ServiceGuide.tsx 의 PodiumLogo) */}
-      <PodiumLogo className={topNav ? 'h-5 md:h-7 min-[1700px]:h-8 w-auto' : 'h-5 md:h-7 w-auto'} />
+      <PodiumLogo className="h-5 md:h-7 w-auto" />
     </button>
   );
 
   return (
     // 글꼴은 홈 화면과 같은 Pretendard (layout.tsx 에서 불러옴)
-    <div className={`flex h-screen bg-stone-50 font-['Pretendard_Variable',Pretendard,sans-serif] overflow-hidden ${topNav ? 'flex-col' : 'flex-col md:flex-row'}`}>
+    <div className={`flex h-screen bg-stone-50 font-['Pretendard_Variable',Pretendard,sans-serif] overflow-hidden flex-col md:flex-row`}>
 
-      {/* 상단 메뉴바 (로고 · 메뉴 · 폴더>세션 · 휴지통 · 로그아웃)
-          단일 분석 화면에서는 항상 쓰고, 다른 화면에서도 모바일(768px 미만)에서는 사이드바 대신 이걸 쓴다.
-          모바일에서는 메뉴·휴지통·로그아웃을 아이콘만 보이고 폴더>세션 표시는 숨긴다. */}
+      {/* 상단 메뉴바 (로고 · 메뉴 · 휴지통 · 로그아웃) — 모바일(768px 미만)에서만 사이드바 대신 쓴다.
+          메뉴·휴지통·로그아웃은 아이콘만 보인다. */}
       {(
         // 넓은 화면(1700px 이상): 높이 h-24, 로고와 메뉴 사이 gap-14 / 그보다 좁으면 h-20, gap-8 / 모바일 h-16, gap-3
-        <header className={`${topNav ? 'flex' : 'flex md:hidden'} h-16 md:h-20 min-[1700px]:h-24 bg-white border-b border-stone-200 shadow-sm z-20 shrink-0 items-center gap-3 md:gap-8 min-[1700px]:gap-14 px-4 md:px-12 min-[1700px]:px-20`}>
+        <header className={`flex md:hidden h-16 md:h-20 min-[1700px]:h-24 bg-white border-b border-stone-200 shadow-sm z-20 shrink-0 items-center gap-3 md:gap-8 min-[1700px]:gap-14 px-4 md:px-12 min-[1700px]:px-20`}>
           {logo}
           <nav className="flex items-center gap-0.5 md:gap-2 min-w-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {visibleMenus.map(menu => renderMenuButton(menu, true))}
           </nav>
           <div className="ml-auto flex items-center gap-0.5 md:gap-2 min-[1700px]:gap-3 min-w-0">
-            <div className="hidden md:block min-w-0">{breadcrumb}</div>
             {/* 휴지통·로그아웃: 좁은 화면에서는 아이콘만 (마우스를 올리면 이름이 뜸) */}
             <button
               onClick={() => goTo({ view: 'trash' })}
@@ -1020,9 +1019,8 @@ function PresentationAnalysisDashboard() {
         </header>
       )}
 
-      {/* Sidebar Navigation (단일 분석 화면에서는 위의 상단 메뉴바로 대신함) */}
-      {!topNav && (
-      <aside className="hidden md:flex w-[280px] bg-white border-r border-stone-200 flex-col flex-shrink-0 z-20 shadow-sm">
+      {/* Sidebar Navigation — 모든 화면(내 기록·단일 분석·비교 분석·휴지통)에서 같이 쓴다. 가로 220px */}
+      <aside className="hidden md:flex w-[220px] bg-white border-r border-stone-200 flex-col flex-shrink-0 z-20 shadow-sm">
         <div className="h-20 flex items-center px-6 border-b border-stone-100 shrink-0">
           {logo}
         </div>
@@ -1037,7 +1035,7 @@ function PresentationAnalysisDashboard() {
         <div className="p-4 border-t border-stone-100 shrink-0 space-y-1">
           <button
             onClick={() => goTo({ view: 'trash' })}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors text-[14px] font-semibold
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors text-[15px] font-semibold
               ${activeMenu === 'trash' ? 'bg-stone-100/80 text-stone-900' : 'text-stone-500 hover:bg-stone-50 hover:text-stone-700'}`}
           >
             <Trash2 className="w-4 h-4" />
@@ -1045,20 +1043,18 @@ function PresentationAnalysisDashboard() {
           </button>
           <button
             onClick={logout}
-            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-stone-500 hover:bg-stone-50 hover:text-stone-700 transition-colors text-[14px] font-semibold"
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-stone-500 hover:bg-stone-50 hover:text-stone-700 transition-colors text-[15px] font-semibold"
           >
             <LogOut className="w-4 h-4" />
             로그아웃
           </button>
         </div>
       </aside>
-      )}
 
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col min-w-0 min-h-0 bg-stone-50 relative">
 
-        {/* Top Header bar (단일 분석 화면에서는 상단 메뉴바가 대신해서 숨김) */}
-        {!topNav && (
+        {/* Top Header bar */}
         <header className="hidden md:flex h-20 bg-white/80 backdrop-blur-md border-b border-stone-200 items-center justify-between px-8 flex-shrink-0 z-10 sticky top-0 relative">
           <div className="absolute left-1/2 -translate-x-1/2 flex justify-center w-full max-w-[50%] pointer-events-none">
             <h2 className="text-xl font-bold text-stone-800 text-center">
@@ -1068,11 +1064,11 @@ function PresentationAnalysisDashboard() {
           <div></div>{/* Spacer for left side to keep justify-between working */}
           {breadcrumb}
         </header>
-        )}
 
         {/* Scrollable Container for Content */}
-        {/* 본문 양옆 여백: 화면이 넓을수록 넉넉하게 (꽉 찬 느낌 방지), 모바일은 좁게 */}
-        <div className="flex-1 overflow-y-auto py-6 md:py-8 px-4 sm:px-8 lg:px-40 min-[1700px]:px-56 custom-scrollbar">
+        {/* 본문 양옆 여백: 화면이 넓을수록 넉넉하게, 모바일은 좁게.
+            본문은 최대 1200px 로 가운데 정렬돼서, 아주 넓은 화면에서는 여백이 저절로 커진다 */}
+        <div className="flex-1 overflow-y-auto py-6 md:py-8 px-4 sm:px-8 lg:px-12 min-[1700px]:px-20 custom-scrollbar">
           
           {/* VIEW 0: Session Management — 폴더 목록(아이콘) ↔ 폴더 안(세션 목록 + 종합추이) */}
           {activeMenu === 'sessions' && (() => {
@@ -1086,7 +1082,7 @@ function PresentationAnalysisDashboard() {
                   <div className="flex items-center gap-2 mb-6 min-w-0">
                     <button
                       onClick={() => goTo({ folder: null })}
-                      className="flex items-center gap-1.5 text-stone-500 hover:text-stone-800 font-semibold text-[15px] shrink-0"
+                      className="flex items-center gap-1.5 text-stone-500 hover:text-stone-800 font-semibold text-[16px] shrink-0"
                     >
                       <ArrowLeft className="w-4 h-4" />
                       내 기록
@@ -1099,12 +1095,12 @@ function PresentationAnalysisDashboard() {
                   <div className="grid grid-cols-1 lg:grid-cols-[2fr_3fr] gap-6 items-start">
                     {/* 왼쪽: 세션 목록 */}
                     <div className="bg-white rounded-2xl shadow-sm border border-stone-200 p-5 flex flex-col gap-3">
-                      <h4 className="font-bold text-stone-800 text-[16px]">
+                      <h4 className="font-bold text-stone-800 text-[17px]">
                         발표 세션 목록 <span className="text-stone-400 font-semibold">({openFolder.sessions.length})</span>
                       </h4>
                       <button
                         onClick={(e) => openSessionModal(e, openFolder.id)}
-                        className="w-full flex items-center justify-center gap-2 p-3.5 rounded-xl border-2 border-dashed border-stone-200 text-stone-500 hover:text-stone-900 hover:border-stone-400 hover:bg-stone-100 transition-all font-semibold text-[14px]"
+                        className="w-full flex items-center justify-center gap-2 p-3.5 rounded-xl border-2 border-dashed border-stone-200 text-stone-500 hover:text-stone-900 hover:border-stone-400 hover:bg-stone-100 transition-all font-semibold text-[15px]"
                       >
                         <Plus className="w-4 h-4" />
                         발표 추가
@@ -1127,8 +1123,8 @@ function PresentationAnalysisDashboard() {
                                   <Video className={`w-4 h-4 ${activeSessionId === session.id ? 'text-stone-900' : 'text-stone-400 group-hover:text-stone-700'}`} />
                                 </div>
                                 <div>
-                                  <p className={`font-bold text-[14px] ${activeSessionId === session.id ? 'text-stone-900' : 'text-stone-700'}`}>{session.name}</p>
-                                  <p className="text-[12px] text-stone-500 mt-0.5 font-medium">{session.date}</p>
+                                  <p className={`font-bold text-[15px] ${activeSessionId === session.id ? 'text-stone-900' : 'text-stone-700'}`}>{session.name}</p>
+                                  <p className="text-[13px] text-stone-500 mt-0.5 font-medium">{session.date}</p>
                                 </div>
                               </div>
                               <button
@@ -1144,7 +1140,7 @@ function PresentationAnalysisDashboard() {
                       ) : (
                         <div className="py-10 flex flex-col items-center justify-center text-stone-400 border border-dashed border-stone-200 rounded-xl bg-stone-50/50">
                           <FolderOpen className="w-8 h-8 text-stone-300 mb-2" />
-                          <p className="text-[13px] font-medium">등록된 세션이 없습니다</p>
+                          <p className="text-[14px] font-medium">등록된 세션이 없습니다</p>
                         </div>
                       )}
                     </div>
@@ -1289,19 +1285,19 @@ function PresentationAnalysisDashboard() {
                               if (e.key === 'Escape') cancelEditingTopic();
                             }}
                             autoFocus
-                            className="w-full font-bold text-stone-800 text-[14px] text-center border border-stone-400 rounded-lg px-2 py-0.5 outline-none focus:ring-2 focus:ring-stone-900"
+                            className="w-full font-bold text-stone-800 text-[15px] text-center border border-stone-400 rounded-lg px-2 py-0.5 outline-none focus:ring-2 focus:ring-stone-900"
                           />
                         ) : (
-                          <p className="w-full font-bold text-stone-800 text-[15px] truncate" title={topic.name}>{topic.name}</p>
+                          <p className="w-full font-bold text-stone-800 text-[16px] truncate" title={topic.name}>{topic.name}</p>
                         )}
-                        <p className="text-[12px] text-stone-500 mt-1 font-medium">연습 {topic.sessions.length}개</p>
+                        <p className="text-[13px] text-stone-500 mt-1 font-medium">연습 {topic.sessions.length}개</p>
                       </div>
                     ))}
                   </div>
                 ) : (
                   <div className="py-16 flex flex-col items-center justify-center text-stone-400 border border-dashed border-stone-200 rounded-2xl bg-white">
                     <Folder className="w-10 h-10 text-stone-300 mb-3" />
-                    <p className="text-[14px] font-medium">아직 폴더가 없습니다. &quot;새 주제 폴더 추가&quot;로 시작해 보세요.</p>
+                    <p className="text-[15px] font-medium">아직 폴더가 없습니다. &quot;새 주제 폴더 추가&quot;로 시작해 보세요.</p>
                   </div>
                 )}
               </div>
@@ -1313,7 +1309,7 @@ function PresentationAnalysisDashboard() {
             <div className="max-w-[1200px] mx-auto animate-in fade-in slide-in-from-bottom-2 duration-300">
               <div className="mb-8">
                 <h3 className="text-2xl font-extrabold text-stone-800">휴지통</h3>
-                <p className="text-[15px] text-stone-500 mt-2 font-medium">삭제한 폴더는 여기에 보관됩니다. 복원하거나 영구 삭제할 수 있습니다.</p>
+                <p className="text-[16px] text-stone-500 mt-2 font-medium">삭제한 폴더는 여기에 보관됩니다. 복원하거나 영구 삭제할 수 있습니다.</p>
               </div>
 
               {trashItems.length > 0 ? (
@@ -1323,8 +1319,8 @@ function PresentationAnalysisDashboard() {
                       <div className="flex items-center gap-3 min-w-0">
                         <Folder className="w-5 h-5 text-stone-400 shrink-0" />
                         <div className="min-w-0">
-                          <p className="font-bold text-stone-800 text-[15px] truncate">{project.title}</p>
-                          <p className="text-[12px] text-stone-500 mt-0.5 font-medium">
+                          <p className="font-bold text-stone-800 text-[16px] truncate">{project.title}</p>
+                          <p className="text-[13px] text-stone-500 mt-0.5 font-medium">
                             연습 {project.sessions.length}개 · {project.deleted_at.slice(0, 10).replace(/-/g, '.')} 삭제
                           </p>
                         </div>
@@ -1349,7 +1345,7 @@ function PresentationAnalysisDashboard() {
               ) : (
                 <div className="py-16 flex flex-col items-center justify-center text-stone-400 border border-dashed border-stone-200 rounded-2xl bg-white">
                   <Trash2 className="w-10 h-10 text-stone-300 mb-3" />
-                  <p className="text-[14px] font-medium">휴지통이 비어 있습니다</p>
+                  <p className="text-[15px] font-medium">휴지통이 비어 있습니다</p>
                 </div>
               )}
             </div>
@@ -1358,7 +1354,7 @@ function PresentationAnalysisDashboard() {
           {/* Analysis Views — 회차를 골랐을 때만 */}
           {activeMenu !== 'sessions' && activeMenu !== 'trash' && (activeSessionId || activeMenu === 'compare') ? (
             // 단일 분석은 왼쪽·오른쪽 두 칸으로 놓으므로 더 넓게 쓴다
-            <div className={`${topNav ? 'max-w-[1200px]' : 'max-w-[1200px]'} mx-auto space-y-6 pb-12`}>
+            <div className={`max-w-[1200px] mx-auto space-y-6 pb-12`}>
 
               {/* VIEW 3: Single Analysis */}
               {activeMenu === 'single' && (
@@ -1366,7 +1362,7 @@ function PresentationAnalysisDashboard() {
                   {/* 관리자: 다시 분석하기 */}
                   {isAdmin && (
                     <div className="flex flex-wrap items-center gap-3 bg-white border border-stone-200 rounded-xl px-5 py-3">
-                      <span className="text-[11px] font-bold px-1.5 py-0.5 rounded bg-stone-800 text-white">관리자</span>
+                      <span className="text-[12px] font-bold px-1.5 py-0.5 rounded bg-stone-800 text-white">관리자</span>
                       {reanalyzeStep ? (
                         <span className="text-sm font-semibold text-stone-700 flex items-center gap-2">
                           <Loader2 className="w-4 h-4 animate-spin" />{reanalyzeStep}
@@ -1391,7 +1387,7 @@ function PresentationAnalysisDashboard() {
                     <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl px-5 py-4">
                       <AlertCircle className="w-5 h-5 mt-0.5 shrink-0" />
                       <div>
-                        <p className="font-extrabold text-[15px]">분석을 다시 진행해주세요</p>
+                        <p className="font-extrabold text-[16px]">분석을 다시 진행해주세요</p>
                         <p className="text-sm font-medium mt-0.5">
                           분석이 끝까지 진행되지 않았어요. 아래에는 분석된 곳까지만 보여요.
                         </p>
@@ -1426,7 +1422,7 @@ function PresentationAnalysisDashboard() {
                               <button
                                 key={metric.id}
                                 onClick={() => setActiveSingleMetric(metric.id)}
-                                className={`px-2 py-2.5 text-[13px] min-[1700px]:px-3 min-[1700px]:text-[14px] rounded-xl font-bold transition-all border whitespace-nowrap truncate ${
+                                className={`px-2 py-2.5 text-[14px] min-[1700px]:px-3 min-[1700px]:text-[15px] rounded-xl font-bold transition-all border whitespace-nowrap truncate ${
                                   activeSingleMetric === metric.id
                                     ? 'bg-stone-800 text-white border-stone-800 shadow-md shadow-stone-300'
                                     : 'bg-white text-stone-500 border-stone-200 hover:bg-stone-50 hover:text-stone-800'
@@ -1447,7 +1443,7 @@ function PresentationAnalysisDashboard() {
                         return (
                           <div className="bg-white rounded-xl shadow-sm border border-stone-200 p-4 min-[1700px]:p-5 flex flex-col justify-between w-[140px] min-[1700px]:w-[200px] shrink-0">
                             <div className="flex justify-between items-start w-full gap-2">
-                              <p className="text-[13px] min-[1700px]:text-sm font-bold text-stone-500 mb-1 truncate">{activeStat.title}</p>
+                              <p className="text-[14px] min-[1700px]:text-sm font-bold text-stone-500 mb-1 truncate">{activeStat.title}</p>
                               <div className={`hidden min-[1700px]:block p-2 rounded-xl shrink-0 ${activeStat.bg}`}>
                                 <Icon className={`w-5 h-5 ${activeStat.color}`} />
                               </div>
@@ -1521,10 +1517,15 @@ function PresentationAnalysisDashboard() {
                         {overallHeadline && (
                           <p className="text-lg font-extrabold text-stone-800 mb-3">{overallHeadline}</p>
                         )}
-                        {/* 행간 1.625 → 1.95 (1.2배), 자간 0 → 0.03em */}
-                        <p className="text-stone-600 text-[14px] font-medium leading-[1.95] tracking-[0.03em]">
-                          <TimestampText text={overallFeedback} onSeek={(sec) => seekVideo(sec)} />
-                        </p>
+                        {/* 부가 설명을 문장마다 한 줄씩 목록으로 보여준다 */}
+                        <ul className="space-y-2.5">
+                          {splitSentences(overallFeedback).map((sentence, i) => (
+                            <li key={i} className="flex gap-2.5 text-stone-600 text-[17px] font-medium leading-[1.8]">
+                              <span className="mt-[0.7em] w-1.5 h-1.5 rounded-full bg-stone-400 shrink-0" />
+                              <span><TimestampText text={sentence} onSeek={(sec) => seekVideo(sec)} /></span>
+                            </li>
+                          ))}
+                        </ul>
                       </div>
                     ) : (
                       <div className="rounded-xl bg-stone-50 border border-dashed border-stone-200 py-8 px-4 text-center text-sm text-stone-400 font-medium">
@@ -1593,7 +1594,7 @@ function PresentationAnalysisDashboard() {
                               key={seg.segment_id}
                               onClick={() => selectSegment(idx)}
                               title={`${seg.title} (${fmtTime(seg.t_start)}~${fmtTime(seg.t_end)})`}
-                              className={`truncate py-3 px-4 rounded-xl text-[15px] font-extrabold border transition-all ${activeSegmentIndex === idx ? 'bg-stone-800 text-white border-stone-800 shadow-md shadow-stone-300' : 'bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100 hover:text-stone-800'}`}
+                              className={`truncate py-3 px-4 rounded-xl text-[16px] font-extrabold border transition-all ${activeSegmentIndex === idx ? 'bg-stone-800 text-white border-stone-800 shadow-md shadow-stone-300' : 'bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100 hover:text-stone-800'}`}
                             >
                               {segmentName(seg)}
                             </button>
@@ -1670,9 +1671,9 @@ function PresentationAnalysisDashboard() {
                             </div>
 
                             {seg.feedback ? (
-                              <div className="space-y-4 text-[14px]">
+                              <div className="space-y-4 text-[15px]">
                                 <div>
-                                  <h5 className="font-extrabold text-green-800 mb-2 text-[13px] flex items-center gap-1.5">
+                                  <h5 className="font-extrabold text-green-800 mb-2 text-[14px] flex items-center gap-1.5">
                                     <span className="bg-green-100 text-green-700 p-1 rounded-lg"><Award className="w-3.5 h-3.5"/></span>
                                     잘한 점
                                   </h5>
@@ -1686,7 +1687,7 @@ function PresentationAnalysisDashboard() {
                                   </ul>
                                 </div>
                                 <div className="bg-white p-4 rounded-xl border border-stone-200 shadow-sm">
-                                  <h5 className="font-extrabold text-amber-800 mb-2 text-[13px] flex items-center gap-1.5">
+                                  <h5 className="font-extrabold text-amber-800 mb-2 text-[14px] flex items-center gap-1.5">
                                     <span className="bg-amber-100 text-amber-700 p-1 rounded-lg"><Lightbulb className="w-3.5 h-3.5"/></span>
                                     개선점
                                   </h5>
@@ -1831,7 +1832,7 @@ function PresentationAnalysisDashboard() {
             <div className="p-6 space-y-5">
               {/* Go to Recording Page */}
               <div>
-                <label className="block text-[14px] font-bold text-stone-700 mb-2">발표 영상 <span className="text-red-500">*</span></label>
+                <label className="block text-[15px] font-bold text-stone-700 mb-2">발표 영상 <span className="text-red-500">*</span></label>
                 <button
                   type="button"
                   onClick={goToRecordPage}
@@ -1840,7 +1841,7 @@ function PresentationAnalysisDashboard() {
                   <div className="w-12 h-12 rounded-full bg-white shadow-sm flex items-center justify-center mb-3">
                     <Video className="w-6 h-6 text-stone-700" />
                   </div>
-                  <p className="font-bold text-stone-700 text-[15px]">영상촬영하기</p>
+                  <p className="font-bold text-stone-700 text-[16px]">영상촬영하기</p>
                   <p className="text-xs text-stone-400 mt-1">클릭하면 촬영 페이지로 이동합니다.</p>
                   <p className="text-xs text-stone-400 mt-0.5 whitespace-nowrap">(발표 자료 PDF는 촬영 페이지에서 올릴 수 있어요)</p>
                 </button>
@@ -1855,7 +1856,7 @@ function PresentationAnalysisDashboard() {
                     <Upload className="w-4 h-4 text-stone-500" />
                   </div>
                   <div className="text-left">
-                    <p className="font-bold text-stone-700 text-[15px]">영상 업로드하기</p>
+                    <p className="font-bold text-stone-700 text-[16px]">영상 업로드하기</p>
                     <p className="text-xs text-stone-400 mt-0.5">촬영된 영상 파일을 올려서 분석합니다</p>
                   </div>
                 </button>
@@ -1864,7 +1865,7 @@ function PresentationAnalysisDashboard() {
             <div className="px-6 py-4 bg-stone-50 flex justify-end gap-3 rounded-b-2xl">
               <button
                 onClick={closeSessionModal}
-                className="px-5 py-2.5 text-[14.5px] font-bold text-stone-600 hover:bg-stone-200 rounded-xl transition-colors"
+                className="px-5 py-2.5 text-[15.5px] font-bold text-stone-600 hover:bg-stone-200 rounded-xl transition-colors"
               >
                 취소
               </button>

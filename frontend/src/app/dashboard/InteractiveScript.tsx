@@ -73,7 +73,7 @@ export function TimestampText({ text, onSeek }: { text: string; onSeek: (sec: nu
               e.stopPropagation(); // 바깥 카드의 클릭(구간 선택)까지 같이 실행되지 않게
               onSeek(parseTime(part));
             }}
-            className="inline-block mx-0.5 px-1.5 py-0.5 rounded-md bg-stone-100 text-stone-900 border border-stone-300 text-[12px] font-bold hover:bg-stone-200 transition-colors"
+            className="inline-block mx-0.5 px-1.5 py-0.5 rounded-md bg-stone-100 text-stone-900 border border-stone-300 text-[13px] font-bold hover:bg-stone-200 transition-colors"
           >
             {part}
           </button>
@@ -186,7 +186,7 @@ export default function InteractiveScript({ script, videoChunks, currentTime, is
     // h-[400px]: 대략 10줄 정도가 보이는 높이. 그 이상은 스크롤로 본다.
     <div ref={containerRef} className="relative space-y-2 h-[400px] overflow-y-auto custom-scrollbar pr-2">
       {rows.map((row, i) => {
-        const time = <span className="text-stone-400 font-bold shrink-0 w-12 pt-1 text-[13px]">{fmtTime(row.t)}</span>;
+        const time = <span className="text-stone-400 font-bold shrink-0 w-12 pt-1 text-[14px]">{fmtTime(row.t)}</span>;
         // 새 구간의 첫 줄이면 위쪽에 얇은 구분선 + 위아래 여백.
         // 바깥 박스의 space-y-2 가 위 여백(margin-top)을 덮어쓰므로 !mt-5 로 강제한다.
         const divider = dividerBefore.has(i) ? 'border-t border-stone-400 pt-5 !mt-5' : '';
@@ -194,7 +194,7 @@ export default function InteractiveScript({ script, videoChunks, currentTime, is
         if (row.kind === 'sentence') {
           const isActive = i === activeIndex;
           return (
-            <div key={`s-${i}`} ref={isActive ? activeRef : null} className={`flex gap-3 text-[14px] ${divider}`}>
+            <div key={`s-${i}`} ref={isActive ? activeRef : null} className={`flex gap-3 text-[15px] ${divider}`}>
               {time}
               <div className="flex-1">
                 <button
@@ -237,7 +237,7 @@ export default function InteractiveScript({ script, videoChunks, currentTime, is
 
         if (row.kind === 'silence') {
           return (
-            <div key={`sil-${i}`} className={`flex gap-3 text-[14px] ${divider}`}>
+            <div key={`sil-${i}`} className={`flex gap-3 text-[15px] ${divider}`}>
               {time}
               <button
                 onClick={() => onSeek(Math.max(0, row.t - LEAD_SEC))}
@@ -253,7 +253,7 @@ export default function InteractiveScript({ script, videoChunks, currentTime, is
         // 동작 분석 조각 (구간 기준 최대 1분 단위 — 제스처 하나하나의 시각은 알 수 없고, 그 조각 안에서 센 횟수만 안다)
         const counts = Object.entries(row.chunk.gesture_counts || {}).filter(([, n]) => n > 0);
         return (
-          <div key={`m-${i}`} className={`flex gap-3 text-[14px] ${divider}`}>
+          <div key={`m-${i}`} className={`flex gap-3 text-[15px] ${divider}`}>
             {time}
             <div className="flex flex-wrap items-center gap-1.5">
               <button

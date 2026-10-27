@@ -60,7 +60,7 @@ const unitSuffix = (unit: string) => (unit === '%' || unit === '초' ? '' : unit
 function VerdictBadge({ verdict }: { verdict: Verdict }) {
   if (!verdict) return null;
   const s = VERDICT_STYLE[verdict];
-  return <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded-md border whitespace-nowrap ${s.cls}`}>{s.text}</span>;
+  return <span className={`text-[12px] font-bold px-1.5 py-0.5 rounded-md border whitespace-nowrap ${s.cls}`}>{s.text}</span>;
 }
 
 // 비교 화면용 영상. 티켓(30분)을 받아 붙이고, 만료돼 실패하면 다시 받아 같은 위치에서 잇는다.
@@ -194,7 +194,7 @@ function SessionPicker({ projects, projectId, onProjectChange, sessions, picks, 
       <div className={`flex flex-wrap items-center gap-3 rounded-xl border px-4 py-3 mb-5 ${projectId ? 'border-stone-200 bg-stone-50' : 'border-amber-300 bg-amber-50'}`}>
         <span className="text-sm font-bold text-stone-700">프로젝트</span>
         <select value={projectId} onChange={(e) => onProjectChange(e.target.value)}
-          className="flex-1 min-w-[200px] border border-stone-300 rounded-lg px-3 py-2.5 text-[15px] font-semibold text-stone-800 bg-white">
+          className="flex-1 min-w-[200px] border border-stone-300 rounded-lg px-3 py-2.5 text-[16px] font-semibold text-stone-800 bg-white">
           {!projectId && <option value="">비교할 프로젝트를 골라 주세요</option>}
           {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
@@ -410,7 +410,7 @@ export default function CompareView({ projects, projectId, onProjectChange, init
                   ${idx === labelIdx ? 'bg-stone-800 text-white border-stone-800' : 'bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100'}`}>
                 {l.label}
                 {l.status !== 'both' && (
-                  <span className={`text-[10px] font-bold px-1 rounded ${idx === labelIdx ? 'bg-white/20' : 'bg-stone-200 text-stone-500'}`}>
+                  <span className={`text-[11px] font-bold px-1 rounded ${idx === labelIdx ? 'bg-white/20' : 'bg-stone-200 text-stone-500'}`}>
                     {l.status === 'only_base' ? '이번엔 없음' : '새로 생김'}
                   </span>
                 )}
@@ -434,7 +434,7 @@ export default function CompareView({ projects, projectId, onProjectChange, init
                   <span className="text-sm font-bold text-stone-400">{fmtValue(m.base, m.unit)}</span>
                   <ArrowRight className="w-3 h-3 text-stone-300 self-center" />
                   <span className="text-base font-extrabold text-stone-800">{fmtValue(m.target, m.unit)}</span>
-                  <span className="text-[11px] text-stone-400">{unitSuffix(m.unit)}</span>
+                  <span className="text-[12px] text-stone-400">{unitSuffix(m.unit)}</span>
                 </div>
               </div>
             ))}
@@ -489,7 +489,7 @@ export default function CompareView({ projects, projectId, onProjectChange, init
                       {col.items.map((it, i) => (
                         <li key={i}>
                           <div className="flex items-center gap-2 mb-1">
-                            <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded-md border ${ITEM_STYLE[it.status].cls}`}>{ITEM_STYLE[it.status].text}</span>
+                            <span className={`text-[12px] font-bold px-1.5 py-0.5 rounded-md border ${ITEM_STYLE[it.status].cls}`}>{ITEM_STYLE[it.status].text}</span>
                             <span className="text-sm font-bold text-stone-800">{it.title}</span>
                           </div>
                           {it.previous && <p className="text-xs text-stone-400 mb-1">지난 지적: {it.previous}</p>}

@@ -55,6 +55,14 @@ const config: Config = {
         foreground: "var(--foreground)",
         ...themedColors,
       },
+      // 글씨 크기: 작은 글씨(xs~lg)를 기본값보다 1px씩 키운다. (xs 12→13, sm 14→15, base 16→17, lg 18→19px)
+      // 제목용(xl 이상)은 원래 크기 그대로.
+      fontSize: {
+        xs: ["0.8125rem", { lineHeight: "1.125rem" }],
+        sm: ["0.9375rem", { lineHeight: "1.375rem" }],
+        base: ["1.0625rem", { lineHeight: "1.625rem" }],
+        lg: ["1.1875rem", { lineHeight: "1.75rem" }],
+      },
       // 화면이 처음 뜰 때 살짝 나타나기 (흐릿하게 → 선명하게 + 8px 아래에서 올라옴, 0.3초).
       // 사용: className="motion-safe:animate-fade-up" — 운영체제에서 "애니메이션 줄이기"를 켠 사용자에겐 안 움직인다.
       keyframes: {
