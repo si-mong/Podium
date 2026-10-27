@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Play, Pause,
   CheckCircle, AlertCircle, TrendingUp,
-  BarChart2, Mic, Activity, Award, Clock, Video,
+  BarChart2, Mic, Activity, Award, Video,
   Folder, FolderOpen, ChevronRight, ChevronDown, ArrowLeft, Plus, Trash2, Upload, X, FileText, MessageSquare, Columns, ThumbsUp, Lightbulb, Pencil, LogOut
 } from 'lucide-react';
 import {
@@ -14,6 +14,7 @@ import {
   ComposedChart
 } from 'recharts';
 import InteractiveScript, { TimestampText, fmtTime, ScriptData, VideoChunk } from './InteractiveScript';
+import CompareView from './CompareView';
 import { PodiumLogo } from '@/components/ServiceGuide';
 
 const videoThumbnail = "/dashboard-video-thumbnail.png";
@@ -172,108 +173,10 @@ function buildSummaryStats(gestureTotals: GestureTotals | null, voice: VoiceSumm
   ];
 }
 
-const SEGMENTS = [
-  { id: "s1", name: "도입", percent: 20, color: "bg-blue-500" },
-  { id: "s2", name: "문제 제기", percent: 30, color: "bg-indigo-500" },
-  { id: "s3", name: "해결 방안", percent: 35, color: "bg-purple-500" },
-  { id: "s4", name: "결론", percent: 15, color: "bg-pink-500" },
-];
-
-const STT_DATA = [
-  { time: "00:00", text: "우선 저희팀은 조원이 3명에서 2명으로 바뀌는 과정에서 주제를 다시 정하게 되었습니다.", segment: "도입", type: "normal" },
-  { time: "00:03", gesture: "설명하는 제스처", type: "gesture", gestureType: "normal", segment: "도입" },
-  { time: "00:05", text: "어... 큰 틀에서 바꾸기 보다는", segment: "도입", type: "filler", highlight: "어..." },
-  { time: "00:08", gesture: "몸 움직임", type: "gesture", gestureType: "normal", segment: "도입" },
-  { time: "00:10", text: "기존에 ‘발표 연습’이라는 큰 틀에서 세부적인 주제를 변경하기로 하였고,", segment: "도입", type: "normal" },
-  { time: "00:15", text: "(2초 무음)", segment: "도입", type: "silence", highlight: "(2초 무음)" },
-  { time: "00:17", text: "지금 현재 주제 두개를 생각중에 있습니다. 그리고 오늘 발표에서는 생각중인 두개의 주제를 발표할 예정입니다.", segment: "도입", type: "normal" },
-  { time: "00:20", gesture: "산만한 제스처", type: "gesture", gestureType: "negative", segment: "도입" },
-  { time: "00:25", text: "먼저, 첫 번째 주제는 ‘발표 연습 분석 시스템’입니다.", segment: "문제 제기", type: "normal" },
-  { time: "00:28", gesture: "가리키기", type: "gesture", gestureType: "normal", segment: "문제 제기" },
-  { time: "00:30", text: "사용자가 영상을 업로드하면 촬영영상의 싱크를 맞춰주고 슬라이드를 구분하는 과정을 거치게 됩니다.", segment: "문제 제기", type: "normal" },
-  { time: "00:36", gesture: "얼굴이나 머리 만지기", type: "gesture", gestureType: "negative", segment: "문제 제기" },
-  { time: "00:40", text: "음... 그리고 저희가 원래는 영상을 분석을 스피치전문가에게 맡긴다는 가정을 했었는데,", segment: "문제 제기", type: "filler", highlight: "음..." },
-  { time: "00:45", gesture: "닫힌 자세 (팔짱 등)", type: "gesture", gestureType: "normal", segment: "문제 제기" },
-  { time: "00:48", text: "이번주제에서는 발표연습분석을 VLM모델을 이용해서 분석하기로 생각을 하고 있습니다.", segment: "문제 제기", type: "normal" },
-  { time: "00:55", text: "따라서 크게 저희팀은 [데이터 전처리]→[데이터 분석]→[데이터 후처리]중 데이터분석을 VLM모델에 맡기고 전처리와 후처리 모듈을 개발하기로 하였습니다.", segment: "문제 제기", type: "normal" },
-  { time: "01:05", gesture: "물건 만지작거리기", type: "gesture", gestureType: "negative", segment: "문제 제기" },
-  { time: "01:10", text: "저희 시스템의 프로세스에 대해 설명드리겠습니다.", segment: "해결 방안", type: "normal" },
-  { time: "01:13", text: "(3초 무음)", segment: "해결 방안", type: "silence", highlight: "(3초 무음)" },
-  { time: "01:15", gesture: "설명하는 제스처", type: "gesture", gestureType: "normal", segment: "해결 방안" },
-  { time: "01:16", text: "먼저, 핸드폰이나 노트북으로 촬영된 영상을 시스템에 업로드를 하면 STT기술을 이용해 텍스트 대본을 뽑아냅니다.", segment: "해결 방안", type: "normal" },
-  { time: "01:25", text: "그리고 [데이터분석]부분인데 저희는 적합한 VLM모델은 무엇인지에 대해 테스트해보았습니다. 크게 QWEN, GEMINI를 이용하였습니다.", segment: "해결 방안", type: "normal" },
-  { time: "01:34", gesture: "산만한 제스처", type: "gesture", gestureType: "negative", segment: "해결 방안" },
-  { time: "01:38", text: "그... 다양한 영상길이와 다양한 명령프롬포트로 테스트해봤고,", segment: "해결 방안", type: "filler", highlight: "그..." },
-  { time: "01:45", text: "이밖에도 같은 명령어를 여러번 명령프롬포트에 입력했을 때 같은 결과가 나오는지와 VLM모델에서 계산한 제스쳐횟수와 저희가 실제로 영상을 보면서 세본 제스쳐 횟수를 비교하는 등 여러가지로 VLM모델을 테스트하였습니다.", segment: "해결 방안", type: "normal" },
-  { time: "02:00", gesture: "몸 움직임", type: "gesture", gestureType: "normal", segment: "결론" },
-  { time: "02:05", text: "찾아본바에 따르면 VLM에 영상을 통째로 넣어 분석을 하게 되면 2초~3초 샘플링 프레임으로 분석을 하는 VLM특성상 제스쳐인식이 잘 안될 수도 있다고 해서", segment: "결론", type: "normal" },
-  { time: "02:18", gesture: "얼굴이나 머리 만지기", type: "gesture", gestureType: "negative", segment: "결론" },
-  { time: "02:20", text: "저희가 실제 발표연습 예시 영상들을 찍어서 VLM모델에 넣어본 결과 30초 이하 영상을 넣었을 때 제스처 인식이 안되는거 없이 정확도가 제일 높았습니다.", segment: "결론", type: "normal" },
-  { time: "02:35", text: "그리하여 예를 들어 5분짜리 영상이라고 하면 30초 단위로 영상을 나누어 VLM 모델에 전송할 계획입니다.", segment: "결론", type: "normal" },
-  { time: "02:42", gesture: "가리키기", type: "gesture", gestureType: "normal", segment: "결론" },
-  { time: "02:45", text: "그래서 ‘발표자의 시선과 제스쳐를 횟수를 세주고 .JSON형식으로 출력해줘’라는 명령과 함께 VLM명령프롬포트에 전달하게 됩니다.", segment: "결론", type: "normal" },
-  { time: "03:00", text: "VLM 결과 후처리 하기 위해 JSON 형태로 결과값을 받을 생각입니다.", segment: "결론", type: "normal" }
-];
-
-const COMPARE_FEEDBACK = {
-  strengths: [
-    "1회차에 비해 2회차에서 무음 비율이 12%에서 8%로 감소하여 훨씬 매끄러운 진행을 보여주었습니다.",
-    "발화 습관(어..., 음... 등)이 전반적으로 감소하여 전달력이 크게 향상되었습니다."
-  ],
-  improvements: [
-    "2회차에서 말하기 속도가 145 WPM으로 다소 빨라진 구간이 있습니다. 중요한 부분에서는 여유를 가지고 강조하는 연습이 필요합니다.",
-    "여전히 스크립트를 참고할 때 시선이 아래로 향하는 경향이 있으니, 스크린이나 청중을 더 자주 보는 연습을 추천합니다."
-  ]
-};
-
 const MENUS = [
   { id: 'sessions', label: '내 기록', icon: FolderOpen },
   { id: 'single', label: '단일 분석', icon: BarChart2 },
-  { id: 'compare', label: '비교분석(개발중)', icon: Columns },
-];
-
-const COMPARE_METRICS = [
-  { id: 'filler', title: '필러 단어 빈도', s1: '25회', s2: '15회', icon: MessageSquare, color: "text-rose-600", bg: "bg-rose-50" },
-  { id: 'wpm', title: '평균 말하기 속도', s1: '115 WPM', s2: '126 WPM', icon: Activity, color: "text-green-600", bg: "bg-green-50" },
-  { id: 'silence', title: '전체 무음 비율', s1: '12%', s2: '8%', icon: Mic, color: "text-purple-600", bg: "bg-purple-50" },
-  { id: 'habits', title: '말 더듬 횟수', s1: '24회', s2: '16회', icon: BarChart2, color: "text-orange-600", bg: "bg-orange-50" },
-  { id: 'pos_gesture', title: '긍정적 제스처', s1: '8회', s2: '12회', icon: ThumbsUp, color: "text-stone-900", bg: "bg-stone-100" },
-  { id: 'neg_gesture', title: '부정적 제스처', s1: '15회', s2: '5회', icon: AlertCircle, color: "text-rose-600", bg: "bg-rose-50" },
-];
-
-const COMPARE_SEGMENT_METRICS = [
-  [
-    { id: 'filler', title: '필러 단어 빈도', s1: '8회', s2: '5회', icon: MessageSquare, color: "text-rose-600", bg: "bg-rose-50" },
-    { id: 'wpm', title: '평균 말하기 속도', s1: '110 WPM', s2: '120 WPM', icon: Activity, color: "text-green-600", bg: "bg-green-50" },
-    { id: 'silence', title: '전체 무음 비율', s1: '15%', s2: '12%', icon: Mic, color: "text-purple-600", bg: "bg-purple-50" },
-    { id: 'habits', title: '말 더듬 횟수', s1: '6회', s2: '2회', icon: BarChart2, color: "text-orange-600", bg: "bg-orange-50" },
-    { id: 'pos_gesture', title: '긍정적 제스처', s1: '1회', s2: '3회', icon: ThumbsUp, color: "text-stone-900", bg: "bg-stone-100" },
-    { id: 'neg_gesture', title: '부정적 제스처', s1: '5회', s2: '1회', icon: AlertCircle, color: "text-rose-600", bg: "bg-rose-50" },
-  ],
-  [
-    { id: 'filler', title: '필러 단어 빈도', s1: '5회', s2: '2회', icon: MessageSquare, color: "text-rose-600", bg: "bg-rose-50" },
-    { id: 'wpm', title: '평균 말하기 속도', s1: '130 WPM', s2: '145 WPM', icon: Activity, color: "text-green-600", bg: "bg-green-50" },
-    { id: 'silence', title: '전체 무음 비율', s1: '8%', s2: '5%', icon: Mic, color: "text-purple-600", bg: "bg-purple-50" },
-    { id: 'habits', title: '말 더듬 횟수', s1: '4회', s2: '1회', icon: BarChart2, color: "text-orange-600", bg: "bg-orange-50" },
-    { id: 'pos_gesture', title: '긍정적 제스처', s1: '2회', s2: '4회', icon: ThumbsUp, color: "text-stone-900", bg: "bg-stone-100" },
-    { id: 'neg_gesture', title: '부정적 제스처', s1: '4회', s2: '2회', icon: AlertCircle, color: "text-rose-600", bg: "bg-rose-50" },
-  ],
-  [
-    { id: 'filler', title: '필러 단어 빈도', s1: '10회', s2: '8회', icon: MessageSquare, color: "text-rose-600", bg: "bg-rose-50" },
-    { id: 'wpm', title: '평균 말하기 속도', s1: '120 WPM', s2: '135 WPM', icon: Activity, color: "text-green-600", bg: "bg-green-50" },
-    { id: 'silence', title: '전체 무음 비율', s1: '18%', s2: '15%', icon: Mic, color: "text-purple-600", bg: "bg-purple-50" },
-    { id: 'habits', title: '말 더듬 횟수', s1: '10회', s2: '4회', icon: BarChart2, color: "text-orange-600", bg: "bg-orange-50" },
-    { id: 'pos_gesture', title: '긍정적 제스처', s1: '3회', s2: '2회', icon: ThumbsUp, color: "text-stone-900", bg: "bg-stone-100" },
-    { id: 'neg_gesture', title: '부정적 제스처', s1: '4회', s2: '1회', icon: AlertCircle, color: "text-rose-600", bg: "bg-rose-50" },
-  ],
-  [
-    { id: 'filler', title: '필러 단어 빈도', s1: '2회', s2: '0회', icon: MessageSquare, color: "text-rose-600", bg: "bg-rose-50" },
-    { id: 'wpm', title: '평균 말하기 속도', s1: '100 WPM', s2: '110 WPM', icon: Activity, color: "text-green-600", bg: "bg-green-50" },
-    { id: 'silence', title: '전체 무음 비율', s1: '6%', s2: '4%', icon: Mic, color: "text-purple-600", bg: "bg-purple-50" },
-    { id: 'habits', title: '말 더듬 횟수', s1: '4회', s2: '0회', icon: BarChart2, color: "text-orange-600", bg: "bg-orange-50" },
-    { id: 'pos_gesture', title: '긍정적 제스처', s1: '2회', s2: '3회', icon: ThumbsUp, color: "text-stone-900", bg: "bg-stone-100" },
-    { id: 'neg_gesture', title: '부정적 제스처', s1: '2회', s2: '1회', icon: AlertCircle, color: "text-rose-600", bg: "bg-rose-50" },
-  ]
+  { id: 'compare', label: '비교 분석', icon: Columns },
 ];
 
 const GROWTH_METRICS_CONFIG = [
@@ -755,11 +658,6 @@ function PresentationAnalysisDashboard() {
 
   // Single Analysis State
   const [activeSingleMetric, setActiveSingleMetric] = useState('fillerTotal');
-
-  // Compare Analysis State
-  const [isPlayingCompare1, setIsPlayingCompare1] = useState(false);
-  const [isPlayingCompare2, setIsPlayingCompare2] = useState(false);
-  const [activeCompareSegmentIndex, setActiveCompareSegmentIndex] = useState(0);
 
   // Modals State
   const [isTopicModalOpen, setIsTopicModalOpen] = useState(false);
@@ -1755,278 +1653,13 @@ function PresentationAnalysisDashboard() {
                 </div>
               )}
 
-              {/* VIEW: Compare Analysis */}
-              {activeMenu === 'compare' && (
-                <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 space-y-6">
-                  
-                  {/* Top: Videos side by side */}
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {/* Session 1 Video */}
-                    <div className="bg-white rounded-xl shadow-sm border border-stone-200 overflow-hidden flex flex-col">
-                      <div className="p-4 border-b border-stone-100 flex justify-between items-center bg-stone-50 shrink-0">
-                        <h3 className="font-bold text-stone-800 flex items-center gap-2">
-                          <span className="bg-stone-200 text-stone-600 px-2 py-0.5 rounded text-xs">기준</span>
-                          1회차 연습
-                        </h3>
-                      </div>
-                      <div className="relative bg-black h-[260px] flex group">
-                        <img src={videoThumbnail} alt="Session 1" className="absolute inset-0 w-full h-full object-cover opacity-60 grayscale" />
-                        <div className="absolute inset-0 flex items-center justify-center">
-                          <button onClick={() => setIsPlayingCompare1(!isPlayingCompare1)} className="bg-white/20 p-4 rounded-full backdrop-blur-sm hover:bg-white/30 transition">
-                            {isPlayingCompare1 ? <Pause className="w-8 h-8 text-white" /> : <Play className="w-8 h-8 text-white ml-1" />}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Session 2 Video */}
-                    <div className="bg-white rounded-xl shadow-sm border border-stone-200 overflow-hidden flex flex-col">
-                      <div className="p-4 border-b border-stone-100 flex justify-between items-center bg-stone-50 shrink-0">
-                        <h3 className="font-bold text-stone-800 flex items-center gap-2">
-                          <span className="bg-stone-200 text-stone-900 px-2 py-0.5 rounded text-xs">비교</span>
-                          2회차 연습
-                        </h3>
-                      </div>
-                      <div className="relative bg-black h-[260px] flex group">
-                        <img src={videoThumbnail} alt="Session 2" className="absolute inset-0 w-full h-full object-cover opacity-90" />
-                        <div className="absolute inset-0 flex items-center justify-center">
-                          <button onClick={() => setIsPlayingCompare2(!isPlayingCompare2)} className="bg-white/20 p-4 rounded-full backdrop-blur-sm hover:bg-white/30 transition">
-                            {isPlayingCompare2 ? <Pause className="w-8 h-8 text-white" /> : <Play className="w-8 h-8 text-white ml-1" />}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Segment Buttons between Video and Script */}
-                  <div className="bg-white rounded-xl shadow-sm border border-stone-200 p-4">
-                    <h3 className="font-extrabold text-stone-800 text-sm mb-3 flex items-center gap-2">
-                      <Video className="w-4 h-4 text-stone-700"/>
-                      비교할 구간을 선택하세요
-                    </h3>
-                    <div className="flex items-center gap-2">
-                      {SEGMENTS.map((seg, idx) => (
-                        <button 
-                          key={`compare-seg-${seg.id}`}
-                          onClick={() => setActiveCompareSegmentIndex(idx)}
-                          className={`flex-1 py-3 px-4 rounded-xl text-[15px] font-extrabold border transition-all ${activeCompareSegmentIndex === idx ? 'bg-stone-800 text-white border-stone-800 shadow-md shadow-stone-300' : 'bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100 hover:text-stone-800'}`}
-                        >
-                          <div className="flex items-center justify-center gap-2.5">
-                            <div className={`w-3 h-3 rounded-full shadow-sm ${seg.color}`}></div>
-                            {seg.name}
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Scripts side by side */}
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {/* Session 1 Column */}
-                    <div className="flex flex-col gap-4">
-                      <div className="bg-stone-50 rounded-xl shadow-sm border border-stone-200 overflow-hidden flex flex-col p-4 h-[280px]">
-                        <h4 className="font-extrabold text-stone-800 mb-3 flex items-center gap-2 text-[14px]">
-                          <FileText className="w-4 h-4 text-stone-500" />
-                          1회차 스크립트 ({SEGMENTS[activeCompareSegmentIndex].name})
-                        </h4>
-                        <div className="space-y-3 overflow-y-auto custom-scrollbar pr-2">
-                          {STT_DATA.filter(item => item.segment === SEGMENTS[activeCompareSegmentIndex].name).map((item, i) => (
-                            <div key={`s1-stt-${i}`} className="flex gap-3 text-[13px]">
-                              <span className="text-stone-400 font-bold shrink-0 w-10 mt-1">{item.time}</span>
-                              <div className="text-stone-700 leading-relaxed font-medium flex-1">
-                                {item.type === 'normal' && item.text}
-                                
-                                {item.type === 'gesture' && (
-                                  <button className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-bold border shadow-sm transition-all hover:-translate-y-0.5 ${item.gestureType === 'normal' ? 'bg-stone-100 text-stone-900 border-stone-300 hover:bg-stone-200' : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'}`}>
-                                    {item.gestureType === 'normal' ? <ThumbsUp className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
-                                    {item.gestureType === 'negative' ? '부정적 제스처' : '제스처'}: {item.gesture}
-                                  </button>
-                                )}
-  
-                                {item.type === 'filler' && (
-                                  <>
-                                    {(item.text ?? '').split(item.highlight!).map((part, idx, arr) => (
-                                      <React.Fragment key={`filler-${idx}`}>
-                                        {part}
-                                        {idx < arr.length - 1 && (
-                                          <button className="bg-orange-100 text-orange-700 px-2 py-1 rounded-lg text-xs font-bold border border-orange-200 mx-1 shadow-sm transition-all hover:-translate-y-0.5 inline-flex items-center gap-1">
-                                            <MessageSquare className="w-3 h-3" />
-                                            발화습관: {item.highlight}
-                                          </button>
-                                        )}
-                                      </React.Fragment>
-                                    ))}
-                                  </>
-                                )}
-                                
-                                {item.type === 'silence' && (
-                                  <button className="bg-stone-200 text-stone-600 px-2 py-1 rounded-lg text-xs font-bold border border-stone-300 inline-flex items-center gap-1.5 shadow-sm transition-all hover:-translate-y-0.5">
-                                    <Clock className="w-3 h-3" />
-                                    발화습관: {item.highlight}
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Session 1 Segment Metrics */}
-                      <div className="grid grid-cols-3 gap-3">
-                        {COMPARE_SEGMENT_METRICS[activeCompareSegmentIndex].map(m => {
-                          const Icon = m.icon;
-                          return (
-                            <div key={`s1-m-${m.id}`} className="bg-white rounded-xl border border-stone-200 p-3 flex flex-col items-center text-center shadow-sm">
-                              <Icon className={`w-4 h-4 mb-1.5 text-stone-500`} />
-                              <span className="text-[11px] font-bold text-stone-500 mb-1">{m.title}</span>
-                              <span className="text-[15px] font-extrabold text-stone-800">{m.s1}</span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {/* Session 2 Column */}
-                    <div className="flex flex-col gap-4">
-                      <div className="bg-blue-50/30 rounded-xl shadow-sm border border-blue-100 overflow-hidden flex flex-col p-4 h-[280px]">
-                        <h4 className="font-extrabold text-blue-800 mb-3 flex items-center gap-2 text-[14px]">
-                          <FileText className="w-4 h-4 text-stone-700" />
-                          2회차 스크립트 ({SEGMENTS[activeCompareSegmentIndex].name})
-                        </h4>
-                        <div className="space-y-3 overflow-y-auto custom-scrollbar pr-2">
-                          {STT_DATA.filter(item => item.segment === SEGMENTS[activeCompareSegmentIndex].name).map((item, i) => (
-                            <div key={`s2-stt-${i}`} className="flex gap-3 text-[13px]">
-                              <span className="text-stone-400 font-bold shrink-0 w-10 mt-1">{item.time}</span>
-                              <div className="text-stone-700 leading-relaxed font-medium flex-1">
-                                {item.type === 'normal' && item.text}
-                                
-                                {item.type === 'gesture' && (
-                                  <button className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-bold border shadow-sm transition-all hover:-translate-y-0.5 ${item.gestureType === 'normal' ? 'bg-stone-100 text-stone-900 border-stone-300 hover:bg-stone-200' : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'}`}>
-                                    {item.gestureType === 'normal' ? <ThumbsUp className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
-                                    {item.gestureType === 'negative' ? '부정적 제스처' : '제스처'}: {item.gesture}
-                                  </button>
-                                )}
-  
-                                {item.type === 'filler' && (
-                                  <>
-                                    {(item.text ?? '').split(item.highlight!).map((part, idx, arr) => (
-                                      <React.Fragment key={`filler-${idx}`}>
-                                        {part}
-                                        {idx < arr.length - 1 && (
-                                          <button className="bg-orange-100 text-orange-700 px-2 py-1 rounded-lg text-xs font-bold border border-orange-200 mx-1 shadow-sm transition-all hover:-translate-y-0.5 inline-flex items-center gap-1">
-                                            <MessageSquare className="w-3 h-3" />
-                                            발화습관: {item.highlight}
-                                          </button>
-                                        )}
-                                      </React.Fragment>
-                                    ))}
-                                  </>
-                                )}
-                                
-                                {item.type === 'silence' && (
-                                  <button className="bg-stone-200 text-stone-600 px-2 py-1 rounded-lg text-xs font-bold border border-stone-300 inline-flex items-center gap-1.5 shadow-sm transition-all hover:-translate-y-0.5">
-                                    <Clock className="w-3 h-3" />
-                                    발화습관: {item.highlight}
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Session 2 Segment Metrics */}
-                      <div className="grid grid-cols-3 gap-3">
-                        {COMPARE_SEGMENT_METRICS[activeCompareSegmentIndex].map(m => {
-                          const Icon = m.icon;
-                          return (
-                            <div key={`s2-m-${m.id}`} className="bg-white rounded-xl border border-stone-200 p-3 flex flex-col items-center text-center shadow-sm">
-                              <Icon className={`w-4 h-4 mb-1.5 text-stone-700`} />
-                              <span className="text-[11px] font-bold text-stone-900 mb-1">{m.title}</span>
-                              <span className="text-[15px] font-extrabold text-blue-900">{m.s2}</span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Middle: Metrics Comparison */}
-                  <div className="bg-white rounded-xl shadow-sm border border-stone-200 p-6">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-                      <h3 className="font-extrabold text-stone-800 text-lg flex items-center gap-2">
-                        <span className="bg-indigo-100 text-indigo-600 p-1.5 rounded-xl"><BarChart2 className="w-5 h-5"/></span>
-                        총 지표 비교
-                      </h3>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {COMPARE_METRICS.map(m => {
-                        const Icon = m.icon;
-                        return (
-                          <div key={m.id} className="bg-stone-50 rounded-xl border border-stone-200 p-4">
-                            <div className="flex items-center gap-2 mb-4">
-                              <div className={`p-1.5 rounded-lg ${m.bg}`}>
-                                <Icon className={`w-4 h-4 ${m.color}`} />
-                              </div>
-                              <span className="font-bold text-stone-600 text-sm">{m.title}</span>
-                            </div>
-                            <div className="flex justify-between items-end">
-                              <div className="flex flex-col">
-                                <span className="text-xs font-bold text-stone-500 mb-1">1회차</span>
-                                <span className="text-lg font-extrabold text-stone-500">{m.s1}</span>
-                              </div>
-                              <ChevronRight className="w-5 h-5 text-stone-300 mb-1" />
-                              <div className="flex flex-col items-end">
-                                <span className="text-xs font-bold text-stone-900 mb-1">2회차</span>
-                                <span className="text-2xl font-extrabold text-stone-800">{m.s2}</span>
-                              </div>
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Bottom: AI Feedback Comparison */}
-                  <div className="bg-white rounded-xl shadow-sm border border-stone-200 p-6">
-                    <h3 className="font-extrabold text-stone-800 text-lg flex items-center gap-2 mb-6">
-                      <span className="bg-teal-100 text-teal-600 p-1.5 rounded-xl"><Lightbulb className="w-5 h-5"/></span>
-                      AI 비교 피드백
-                    </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div className="bg-stone-100/50 rounded-xl p-5 border border-stone-200">
-                        <h4 className="font-bold text-blue-800 flex items-center gap-2 mb-4">
-                          <ThumbsUp className="w-5 h-5 text-stone-900" />
-                          잘한 점
-                        </h4>
-                        <ul className="space-y-3">
-                          {COMPARE_FEEDBACK.strengths.map((text, idx) => (
-                            <li key={idx} className="flex items-start gap-2.5">
-                              <div className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-2 shrink-0"></div>
-                              <p className="text-stone-700 text-sm leading-relaxed font-medium">{text}</p>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                      <div className="bg-orange-50/50 rounded-xl p-5 border border-orange-100">
-                        <h4 className="font-bold text-orange-800 flex items-center gap-2 mb-4">
-                          <AlertCircle className="w-5 h-5 text-orange-600" />
-                          개선할 점
-                        </h4>
-                        <ul className="space-y-3">
-                          {COMPARE_FEEDBACK.improvements.map((text, idx) => (
-                            <li key={idx} className="flex items-start gap-2.5">
-                              <div className="w-1.5 h-1.5 rounded-full bg-orange-500 mt-2 shrink-0"></div>
-                              <p className="text-stone-700 text-sm leading-relaxed font-medium">{text}</p>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    </div>
-                  </div>
-
-                </div>
+              {/* VIEW: Compare Analysis — 같은 폴더의 두 회차 비교 (CompareView.tsx) */}
+              {activeMenu === 'compare' && activeTopicId && (
+                <CompareView
+                  projectId={activeTopicId}
+                  targetSessionId={activeSessionId}
+                  onTargetChange={(id) => goTo({ session: id })}
+                />
               )}
 
             </div>
