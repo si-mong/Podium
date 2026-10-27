@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.api import admin, auth, projects, sessions
+from app.api import admin, auth, auth_google, projects, sessions
 from app.core.config import settings
 
 # 우리 코드(app.*)의 로그는 INFO 부터 출력한다. uvicorn 은 자기 로거만 설정해서, 그대로 두면
@@ -41,6 +41,7 @@ app.add_middleware(
 )
 
 app.include_router(auth.router)
+app.include_router(auth_google.router)
 app.include_router(projects.router)
 app.include_router(sessions.router)
 app.include_router(admin.router)

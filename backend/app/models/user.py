@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, String, false, func
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, String, UniqueConstraint, false, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -11,7 +11,9 @@ class User(Base):
 
     user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
-    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    # 구글 로그인으로 만든 계정은 비밀번호가 없다(NULL). 이메일 가입은 없앴고,
+    # 예전 이메일 계정과 개발용 계정만 값이 있다 — 비밀번호 로그인은 DEBUG 에서만 열린다.
+    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # 관리자 여부. 회원가입·API 로는 바꿀 수 없고 서버에서 `python -m app.scripts.set_admin`
     # 으로만 지정한다 — 화면에서 스스로 관리자가 되는 경로를 아예 두지 않기 위함.
     is_admin: Mapped[bool] = mapped_column(
@@ -37,6 +39,34 @@ class User(Base):
         back_populates="user",
         cascade="all, delete-orphan",
     )
+    oauth_accounts: Mapped[list["OAuthAccount"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+
+
+class OAuthAccount(Base):
+    """소셜 로그인 연결 — (제공자, 제공자 쪽 사용자 id) 하나가 우리 회원 하나에 붙는다.
+
+    이메일이 아니라 `subject`(구글의 sub)로 찾는다. 이메일은 사용자가 바꿀 수 있지만
+    sub 는 그 구글 계정에 고정이다. 나중에 카카오·네이버를 붙여도 provider 값만 늘어난다.
+    """
+
+    __tablename__ = "oauth_accounts"
+    __table_args__ = (UniqueConstraint("provider", "subject", name="uq_oauth_accounts_provider_subject"),)
+
+    oauth_account_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)      # "google"
+    subject: Mapped[str] = mapped_column(String(255), nullable=False)
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True)  # 마지막 로그인 때의 이메일 (참고용)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    user: Mapped["User"] = relationship(back_populates="oauth_accounts")
 
 
 class RefreshToken(Base):

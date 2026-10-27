@@ -99,6 +99,8 @@ class SttResult:
     # load_sec 은 **처음 쓰는 모델이면 다운로드 시간까지 포함**하므로 속도 지표가 못 됨.
     load_sec: float = 0.0
     decode_sec: float = 0.0
+    # Modal 원격 실행일 때만: GPU 종류, 콜드 스타트 여부, 대기 시간 등 (stt_remote.py)
+    remote: dict = field(default_factory=dict)
 
     @property
     def full_text(self) -> str:

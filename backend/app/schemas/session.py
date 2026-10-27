@@ -111,6 +111,7 @@ class VoiceAnalysisResult(BaseModel):
     speaking_rate_spm: float        # 무음 포함 — 전체 템포
     articulation_rate_spm: float    # 무음 제외 — 조음 속도
     elapsed_sec: float
+    timings: dict | None = None     # 세부 시간 (무음 검출 / GPU 대기 / 인식 / 필러) — sessions._voice_timings
 
 
 class ScriptSentence(BaseModel):

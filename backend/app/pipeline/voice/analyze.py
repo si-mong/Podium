@@ -190,6 +190,7 @@ def build_result(ctx: Context, ablate_lexical: bool = False,
         "diagnostics": {
             "source": str(ctx.wav_path),
             "model_size": ctx.stt.model_size,
+            "stt_remote": ctx.stt.remote,          # Modal 일 때 GPU 종류·콜드 스타트·배정 대기
             "verbatim_prompt": ctx.verbatim_prompt,
             "keywords": ctx.keywords,
             "ablate_lexical": ablate_lexical,

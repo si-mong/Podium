@@ -33,15 +33,14 @@ export default function LandingPage() {
             로그인
           </Link>
           <Link
-            href="/signup"
+            href="/login"
             className="h-10 px-4 rounded-full text-sm font-semibold text-white bg-stone-900 hover:bg-stone-700 flex items-center transition-colors"
           >
-            회원가입
+            시작하기
           </Link>
         </>
       }
-      primaryAction={{ label: "무료로 시작하기", onClick: () => router.push("/signup") }}
-      secondaryAction={{ label: "로그인", onClick: () => router.push("/login") }}
+      primaryAction={{ label: "구글 계정으로 시작하기", onClick: () => router.push("/login") }}
     />
   );
 }
