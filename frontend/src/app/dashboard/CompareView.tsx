@@ -184,21 +184,24 @@ function SessionPicker({ projects, projectId, onProjectChange, sessions, picks, 
 
   return (
     <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 bg-white rounded-xl shadow-sm border border-stone-200 p-5 sm:p-6">
-      <div className="flex flex-wrap items-center gap-3 mb-1">
-        <h3 className="font-extrabold text-stone-800 text-lg flex items-center gap-2 mr-auto">
-          <span className="bg-stone-100 text-stone-700 p-1.5 rounded-xl"><Columns className="w-5 h-5" /></span>
-          비교할 회차 2개를 골라 주세요
-        </h3>
+      <h3 className="font-extrabold text-stone-800 text-lg flex items-center gap-2 mb-1">
+        <span className="bg-stone-100 text-stone-700 p-1.5 rounded-xl"><Columns className="w-5 h-5" /></span>
+        비교할 회차 2개를 골라 주세요
+      </h3>
+      <p className="text-xs text-stone-500 mb-4">같은 프로젝트 안에서 분석이 끝난 회차끼리 비교할 수 있어요. 앞 회차가 &lsquo;이전&rsquo;, 뒤 회차가 &lsquo;이번&rsquo;이 돼요.</p>
+
+      {/* 프로젝트 선택 — 설명 바로 아래에 크게. 아직 안 골랐으면 주황 테두리로 강조 */}
+      <div className={`flex flex-wrap items-center gap-3 rounded-xl border px-4 py-3 mb-5 ${projectId ? 'border-stone-200 bg-stone-50' : 'border-amber-300 bg-amber-50'}`}>
+        <span className="text-sm font-bold text-stone-700">프로젝트</span>
         <select value={projectId} onChange={(e) => onProjectChange(e.target.value)}
-          className="border border-stone-200 rounded-lg px-3 py-2 text-sm font-semibold text-stone-700 bg-white max-w-full">
-          {!projectId && <option value="">프로젝트 선택</option>}
+          className="flex-1 min-w-[200px] border border-stone-300 rounded-lg px-3 py-2.5 text-[15px] font-semibold text-stone-800 bg-white">
+          {!projectId && <option value="">비교할 프로젝트를 골라 주세요</option>}
           {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
       </div>
-      <p className="text-xs text-stone-500 mb-5">같은 프로젝트 안에서 분석이 끝난 회차끼리 비교할 수 있어요. 앞 회차가 &lsquo;이전&rsquo;, 뒤 회차가 &lsquo;이번&rsquo;이 돼요.</p>
 
       {!projectId ? (
-        <p className="text-sm text-stone-400 text-center py-10">먼저 프로젝트를 골라 주세요</p>
+        <p className="text-sm text-stone-400 text-center py-6">프로젝트를 고르면 회차 목록이 나와요</p>
       ) : !sessions ? (
         <div className="flex justify-center py-10"><Loader2 className="w-5 h-5 animate-spin text-stone-400" /></div>
       ) : sessions.length === 0 ? (
