@@ -6,7 +6,7 @@ import {
   Play, Pause,
   CheckCircle, AlertCircle, TrendingUp,
   BarChart2, Mic, Activity, Award, Video,
-  Folder, FolderOpen, ChevronRight, ChevronDown, ArrowLeft, Plus, Trash2, Upload, X, FileText, MessageSquare, Columns, ThumbsUp, Lightbulb, Pencil, LogOut, Loader2, RotateCcw
+  Folder, FolderOpen, ChevronRight, ChevronDown, ArrowLeft, Plus, Trash2, Upload, X, FileText, MessageSquare, Columns, ThumbsUp, Lightbulb, Pencil, LogOut
 } from 'lucide-react';
 import {
   Line, Bar, XAxis, YAxis,
@@ -22,7 +22,6 @@ const videoThumbnail = "/dashboard-video-thumbnail.png";
 // API 호출은 apiFetch (로그인 토큰 자동 첨부, 만료 시 자동 갱신) — frontend/src/utils/api.ts
 import { API_BASE, apiFetch } from '@/utils/api';
 import { clearTokens, getRefreshToken, isLoggedIn } from '@/utils/auth';
-import { runAnalysis } from '@/utils/analysis';
 
 // 백엔드 응답 형태 (app/schemas/project.py, app/schemas/session.py)
 interface ApiSession {
@@ -451,7 +450,7 @@ function PresentationAnalysisDashboard() {
       return;
     }
     fetchTopics();
-    // 관리자만 보이는 것: 비교 분석 메뉴, 단일 분석의 "다시 분석하기". 실패하면 일반 회원 화면 그대로.
+    // 관리자만 보이는 것: 비교 분석 메뉴. 실패하면 일반 회원 화면 그대로.
     apiFetch('/auth/me')
       .then((res) => (res.ok ? res.json() : null))
       .then((me) => setIsAdmin(Boolean(me?.is_admin)))
@@ -492,10 +491,6 @@ function PresentationAnalysisDashboard() {
   // 분석이 끝까지 안 된 세션인지 (분석 중에 새로고침·창 닫기를 했거나, 중간 단계가 실패하면 앞 단계 결과만 남는다).
   // 마지막 단계인 구간 피드백·종합 피드백이 하나라도 없으면 "분석을 다시 진행해주세요" 안내를 띄운다.
   const [analysisIncomplete, setAnalysisIncomplete] = useState(false);
-  // 관리자 "다시 분석하기" — 진행 중인 단계 문구(null 이면 실행 중 아님), 끝나면 reloadKey 를 올려 결과를 다시 불러온다
-  const [reanalyzeStep, setReanalyzeStep] = useState<string | null>(null);
-  const [reanalyzeMsg, setReanalyzeMsg] = useState<{ text: string; ok: boolean } | null>(null);
-  const [reloadKey, setReloadKey] = useState(0);
   const [currentTime, setCurrentTime] = useState(0); // 영상의 현재 재생 위치(초)
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -565,7 +560,7 @@ function PresentationAnalysisDashboard() {
     return () => {
       cancelled = true;
     };
-  }, [activeSessionId, reloadKey]);
+  }, [activeSessionId]);
 
   // 영상 재생 티켓 — <video src> 는 Authorization 헤더를 못 실어서, 이 세션 영상에만 30분간 통하는
   // 티켓을 받아 주소 뒤에 붙인다 (백엔드 POST /sessions/{id}/video/ticket).
@@ -897,24 +892,6 @@ function PresentationAnalysisDashboard() {
 
   // 메뉴 버튼 — 왼쪽 사이드바(세로)와 모바일 상단 메뉴바(가로)가 같이 쓴다.
   const visibleMenus = MENUS.filter((m) => m.id !== 'compare' || isAdmin);
-
-  // 관리자: 이 세션을 처음부터(음성 분석부터) 다시 분석한다. 이전 결과는 각 단계가 새 결과로 바꿔 넣는다.
-  const reanalyze = async () => {
-    const sessionId = activeSessionId;
-    if (!sessionId || reanalyzeStep) return;
-    if (!window.confirm('이 발표를 처음부터 다시 분석할까요? 몇 분 걸리고, 지금 결과는 새 결과로 바뀌어요.')) return;
-    setReanalyzeMsg(null);
-    setReanalyzeStep('분석을 시작하는 중이에요');
-    try {
-      await runAnalysis(sessionId, { onStep: setReanalyzeStep });
-      setReanalyzeMsg({ text: '다시 분석을 마쳤어요.', ok: true });
-    } catch (err) {
-      setReanalyzeMsg({ text: `다시 분석하지 못했어요. (${err instanceof Error ? err.message : String(err)})`, ok: false });
-    } finally {
-      setReanalyzeStep(null);
-      if (sessionId === activeSessionId) setReloadKey((k) => k + 1);
-    }
-  };
 
   const renderMenuButton = (menu: typeof MENUS[number], horizontal: boolean) => {
     const Icon = menu.icon;
@@ -1359,29 +1336,6 @@ function PresentationAnalysisDashboard() {
               {/* VIEW 3: Single Analysis */}
               {activeMenu === 'single' && (
                 <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 space-y-6">
-                  {/* 관리자: 다시 분석하기 */}
-                  {isAdmin && (
-                    <div className="flex flex-wrap items-center gap-3 bg-white border border-stone-200 rounded-xl px-5 py-3">
-                      <span className="text-[12px] font-bold px-1.5 py-0.5 rounded bg-stone-800 text-white">관리자</span>
-                      {reanalyzeStep ? (
-                        <span className="text-sm font-semibold text-stone-700 flex items-center gap-2">
-                          <Loader2 className="w-4 h-4 animate-spin" />{reanalyzeStep}
-                        </span>
-                      ) : reanalyzeMsg ? (
-                        <span className={`text-sm font-semibold ${reanalyzeMsg.ok ? 'text-emerald-700' : 'text-rose-700'}`}>{reanalyzeMsg.text}</span>
-                      ) : (
-                        <span className="text-sm text-stone-500">분석 설정을 바꿨거나 분석이 중간에 멈췄을 때 이 발표를 처음부터 다시 분석해요.</span>
-                      )}
-                      <button
-                        onClick={reanalyze}
-                        disabled={!!reanalyzeStep}
-                        className="ml-auto text-sm font-bold text-stone-700 border border-stone-200 rounded-lg px-3 py-1.5 hover:bg-stone-50 flex items-center gap-1.5 disabled:opacity-50"
-                      >
-                        <RotateCcw className="w-3.5 h-3.5" />다시 분석하기
-                      </button>
-                    </div>
-                  )}
-
                   {/* 분석이 중간에 멈춘 세션 안내 */}
                   {analysisIncomplete && (
                     <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl px-5 py-4">

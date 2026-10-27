@@ -60,7 +60,7 @@ const unitSuffix = (unit: string) => (unit === '%' || unit === '초' ? '' : unit
 function VerdictBadge({ verdict }: { verdict: Verdict }) {
   if (!verdict) return null;
   const s = VERDICT_STYLE[verdict];
-  return <span className={`text-[12px] font-bold px-1.5 py-0.5 rounded-md border whitespace-nowrap ${s.cls}`}>{s.text}</span>;
+  return <span className={`text-[14px] font-bold px-1.5 py-0.5 rounded-md border whitespace-nowrap ${s.cls}`}>{s.text}</span>;
 }
 
 // 비교 화면용 영상. 티켓(30분)을 받아 붙이고, 만료돼 실패하면 다시 받아 같은 위치에서 잇는다.
@@ -99,7 +99,7 @@ function CompareVideo({ sessionId, hasVideo, seek }: { sessionId: number; hasVid
   useEffect(() => { moveTo(seek.t); }, [seek.n]);
 
   if (!hasVideo) {
-    return <div className="aspect-video bg-stone-100 rounded-lg flex items-center justify-center text-sm text-stone-400">영상이 없어요</div>;
+    return <div className="aspect-video bg-stone-100 rounded-lg flex items-center justify-center text-base text-stone-400">영상이 없어요</div>;
   }
   if (!ticket) {
     return <div className="aspect-video bg-stone-100 rounded-lg flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-stone-400" /></div>;
@@ -141,26 +141,26 @@ function SessionColumn({ title, tone, session, segments }: {
   return (
     <div className="flex flex-col gap-3 min-w-0">
       <div className="flex items-center gap-2">
-        <span className={`text-xs font-bold px-2 py-0.5 rounded ${tone === 'target' ? 'bg-stone-800 text-white' : 'bg-stone-200 text-stone-600'}`}>{title}</span>
+        <span className={`text-sm font-bold px-2 py-0.5 rounded ${tone === 'target' ? 'bg-stone-800 text-white' : 'bg-stone-200 text-stone-600'}`}>{title}</span>
         <span className="font-bold text-stone-800">{session.session_no}회차</span>
       </div>
       <CompareVideo sessionId={session.session_id} hasVideo={session.has_video} seek={seek} />
       {segments.length === 0 ? (
-        <div className="text-sm text-stone-400 bg-stone-50 rounded-lg px-4 py-6 text-center">이 회차에는 이 구간이 없어요</div>
+        <div className="text-base text-stone-400 bg-stone-50 rounded-lg px-4 py-6 text-center">이 회차에는 이 구간이 없어요</div>
       ) : (
         <>
           <div className="flex flex-wrap gap-1.5">
             {segments.map((s) => (
               <button key={s.segment_id} onClick={() => setSeek((p) => ({ t: s.t_start, n: p.n + 1 }))}
-                className="text-xs font-semibold px-2.5 py-1 rounded-lg border border-stone-200 bg-white text-stone-600 hover:bg-stone-100">
+                className="text-sm font-semibold px-2.5 py-1 rounded-lg border border-stone-200 bg-white text-stone-600 hover:bg-stone-100">
                 {fmtTime(s.t_start)}~{fmtTime(s.t_end)} · {s.title}
               </button>
             ))}
           </div>
           <div className="bg-stone-50 rounded-lg p-4 max-h-56 overflow-y-auto">
-            <h4 className="text-xs font-bold text-stone-500 mb-2 flex items-center gap-1.5"><FileText className="w-3.5 h-3.5" />스크립트</h4>
+            <h4 className="text-sm font-bold text-stone-500 mb-2 flex items-center gap-1.5"><FileText className="w-3.5 h-3.5" />스크립트</h4>
             {segments.map((s) => (
-              <p key={s.segment_id} className="text-sm text-stone-700 leading-relaxed mb-2 last:mb-0">{s.stt_text || '(전사문 없음)'}</p>
+              <p key={s.segment_id} className="text-base text-stone-700 leading-relaxed mb-2 last:mb-0">{s.stt_text || '(전사문 없음)'}</p>
             ))}
           </div>
         </>
@@ -184,28 +184,28 @@ function SessionPicker({ projects, projectId, onProjectChange, sessions, picks, 
 
   return (
     <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 bg-white rounded-xl shadow-sm border border-stone-200 p-5 sm:p-6">
-      <h3 className="font-extrabold text-stone-800 text-lg flex items-center gap-2 mb-1">
+      <h3 className="font-extrabold text-stone-800 text-xl flex items-center gap-2 mb-1">
         <span className="bg-stone-100 text-stone-700 p-1.5 rounded-xl"><Columns className="w-5 h-5" /></span>
         비교할 회차 2개를 골라 주세요
       </h3>
-      <p className="text-xs text-stone-500 mb-4">같은 프로젝트 안에서 분석이 끝난 회차끼리 비교할 수 있어요. 앞 회차가 &lsquo;이전&rsquo;, 뒤 회차가 &lsquo;이번&rsquo;이 돼요.</p>
+      <p className="text-sm text-stone-500 mb-4">같은 프로젝트 안에서 분석이 끝난 회차끼리 비교할 수 있어요. 앞 회차가 &lsquo;이전&rsquo;, 뒤 회차가 &lsquo;이번&rsquo;이 돼요.</p>
 
       {/* 프로젝트 선택 — 설명 바로 아래에 크게. 아직 안 골랐으면 주황 테두리로 강조 */}
       <div className={`flex flex-wrap items-center gap-3 rounded-xl border px-4 py-3 mb-5 ${projectId ? 'border-stone-200 bg-stone-50' : 'border-amber-300 bg-amber-50'}`}>
-        <span className="text-sm font-bold text-stone-700">프로젝트</span>
+        <span className="text-base font-bold text-stone-700">프로젝트</span>
         <select value={projectId} onChange={(e) => onProjectChange(e.target.value)}
-          className="flex-1 min-w-[200px] border border-stone-300 rounded-lg px-3 py-2.5 text-[16px] font-semibold text-stone-800 bg-white">
+          className="flex-1 min-w-[200px] border border-stone-300 rounded-lg px-3 py-2.5 text-[18px] font-semibold text-stone-800 bg-white">
           {!projectId && <option value="">비교할 프로젝트를 골라 주세요</option>}
           {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
       </div>
 
       {!projectId ? (
-        <p className="text-sm text-stone-400 text-center py-6">프로젝트를 고르면 회차 목록이 나와요</p>
+        <p className="text-base text-stone-400 text-center py-6">프로젝트를 고르면 회차 목록이 나와요</p>
       ) : !sessions ? (
         <div className="flex justify-center py-10"><Loader2 className="w-5 h-5 animate-spin text-stone-400" /></div>
       ) : sessions.length === 0 ? (
-        <p className="text-sm text-stone-400 text-center py-10">이 프로젝트에는 아직 회차가 없어요</p>
+        <p className="text-base text-stone-400 text-center py-10">이 프로젝트에는 아직 회차가 없어요</p>
       ) : (
         <>
           <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3">
@@ -221,23 +221,23 @@ function SessionPicker({ projects, projectId, onProjectChange, sessions, picks, 
                   </span>
                   <span className="min-w-0">
                     <span className="block font-bold text-stone-800">{s.session_no}회차</span>
-                    <span className="block text-xs text-stone-500">{s.created_at.slice(0, 10).replace(/-/g, '.')}{s.comparable ? '' : ' · 분석 전'}</span>
+                    <span className="block text-sm text-stone-500">{s.created_at.slice(0, 10).replace(/-/g, '.')}{s.comparable ? '' : ' · 분석 전'}</span>
                   </span>
                 </button>
               );
             })}
           </div>
           {comparableCount < 2 && (
-            <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 mt-4">
+            <p className="text-base text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 mt-4">
               분석이 끝난 회차가 2개 이상 있어야 비교할 수 있어요. (지금 {comparableCount}개)
             </p>
           )}
           <div className="flex flex-wrap items-center justify-end gap-3 mt-5">
-            <span className="text-sm font-semibold text-stone-600">
+            <span className="text-base font-semibold text-stone-600">
               {chosen.length === 2 ? `${chosen[0].session_no}회차 → ${chosen[1].session_no}회차` : `${chosen.length}/2 선택`}
             </span>
             <button onClick={onCompare} disabled={chosen.length !== 2}
-              className="bg-stone-900 text-white font-bold text-sm rounded-xl px-5 py-2.5 hover:bg-stone-800 disabled:opacity-40 flex items-center gap-1.5">
+              className="bg-stone-900 text-white font-bold text-base rounded-xl px-5 py-2.5 hover:bg-stone-800 disabled:opacity-40 flex items-center gap-1.5">
               비교하기 <ArrowRight className="w-4 h-4" />
             </button>
           </div>
@@ -327,7 +327,7 @@ export default function CompareView({ projects, projectId, onProjectChange, init
   };
 
   if (loadError) {
-    return <div className="bg-rose-50 border border-rose-200 text-rose-700 text-sm rounded-xl px-4 py-3">{loadError}</div>;
+    return <div className="bg-rose-50 border border-rose-200 text-rose-700 text-base rounded-xl px-4 py-3">{loadError}</div>;
   }
   if (!pair) {
     return (
@@ -349,46 +349,46 @@ export default function CompareView({ projects, projectId, onProjectChange, init
     <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 space-y-6">
       {/* 비교 중인 두 회차 */}
       <div className="bg-white rounded-xl shadow-sm border border-stone-200 p-4 sm:p-5 flex flex-wrap items-center gap-3">
-        <h3 className="font-extrabold text-stone-800 text-lg flex items-center gap-2 mr-auto">
+        <h3 className="font-extrabold text-stone-800 text-xl flex items-center gap-2 mr-auto">
           <span className="bg-stone-100 text-stone-700 p-1.5 rounded-xl"><Columns className="w-5 h-5" /></span>
-          <span className="text-xs font-bold px-2 py-0.5 rounded bg-stone-200 text-stone-600">이전</span>{base.session_no}회차
+          <span className="text-sm font-bold px-2 py-0.5 rounded bg-stone-200 text-stone-600">이전</span>{base.session_no}회차
           <ArrowRight className="w-4 h-4 text-stone-400" />
-          <span className="text-xs font-bold px-2 py-0.5 rounded bg-stone-800 text-white">이번</span>{target.session_no}회차
+          <span className="text-sm font-bold px-2 py-0.5 rounded bg-stone-800 text-white">이번</span>{target.session_no}회차
         </h3>
         <button onClick={() => setPair(null)}
-          className="text-sm font-semibold text-stone-600 border border-stone-200 rounded-lg px-3 py-1.5 hover:bg-stone-50 flex items-center gap-1.5">
+          className="text-base font-semibold text-stone-600 border border-stone-200 rounded-lg px-3 py-1.5 hover:bg-stone-50 flex items-center gap-1.5">
           <ArrowLeft className="w-3.5 h-3.5" />회차 다시 고르기
         </button>
       </div>
 
       {data.warnings.map((w) => (
-        <div key={w} className="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-xl px-4 py-3 flex items-start gap-2">
+        <div key={w} className="bg-amber-50 border border-amber-200 text-amber-800 text-base rounded-xl px-4 py-3 flex items-start gap-2">
           <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />{w}
         </div>
       ))}
 
       {/* ① 총 지표 비교 — 한 박스 안에 구분선 */}
       <div className="bg-white rounded-xl shadow-sm border border-stone-200 p-5 sm:p-6">
-        <h3 className="font-extrabold text-stone-800 text-lg flex items-center gap-2 mb-1">
+        <h3 className="font-extrabold text-stone-800 text-xl flex items-center gap-2 mb-1">
           <span className="bg-stone-100 text-stone-700 p-1.5 rounded-xl"><BarChart2 className="w-5 h-5" /></span>
           총 지표 비교
         </h3>
-        <p className="text-xs text-stone-500 mb-4">발표 길이가 회차마다 달라서 횟수는 분당 횟수로 비교해요. 작은 차이는 &lsquo;비슷함&rsquo;으로 봐요.</p>
+        <p className="text-sm text-stone-500 mb-4">발표 길이가 회차마다 달라서 횟수는 분당 횟수로 비교해요. 작은 차이는 &lsquo;비슷함&rsquo;으로 봐요.</p>
         <div className="grid grid-cols-2 xl:grid-cols-4 gap-px bg-stone-100 border border-stone-100 rounded-xl overflow-hidden">
           {data.metrics.map((m) => (
             <div key={m.key} className="bg-white p-4 flex flex-col gap-2 min-w-0">
               <div className="flex items-start justify-between gap-2 flex-wrap">
-                <span className="text-sm font-bold text-stone-600 break-keep">{m.label}</span>
+                <span className="text-base font-bold text-stone-600 break-keep">{m.label}</span>
                 <VerdictBadge verdict={m.verdict} />
               </div>
               <div className="flex items-baseline gap-1.5 flex-wrap">
-                <span className="text-base font-bold text-stone-400">{fmtValue(m.base, m.unit)}</span>
+                <span className="text-lg font-bold text-stone-400">{fmtValue(m.base, m.unit)}</span>
                 <ArrowRight className="w-3.5 h-3.5 text-stone-300 self-center" />
-                <span className="text-xl font-extrabold text-stone-800">{fmtValue(m.target, m.unit)}</span>
-                <span className="text-xs text-stone-400">{unitSuffix(m.unit)}</span>
+                <span className="text-2xl font-extrabold text-stone-800">{fmtValue(m.target, m.unit)}</span>
+                <span className="text-sm text-stone-400">{unitSuffix(m.unit)}</span>
               </div>
               {m.base_count != null && m.target_count != null && (
-                <span className="text-xs text-stone-400">{m.base_count}회 → {m.target_count}회</span>
+                <span className="text-sm text-stone-400">{m.base_count}회 → {m.target_count}회</span>
               )}
             </div>
           ))}
@@ -398,19 +398,19 @@ export default function CompareView({ projects, projectId, onProjectChange, init
       {/* ② 구간별 비교 */}
       {label && (
         <div className="bg-white rounded-xl shadow-sm border border-stone-200 p-5 sm:p-6">
-          <h3 className="font-extrabold text-stone-800 text-lg flex items-center gap-2 mb-1">
+          <h3 className="font-extrabold text-stone-800 text-xl flex items-center gap-2 mb-1">
             <span className="bg-stone-100 text-stone-700 p-1.5 rounded-xl"><Columns className="w-5 h-5" /></span>
             구간별 비교
           </h3>
-          <p className="text-xs text-stone-500 mb-4">같은 성격의 구간(라벨)끼리 묶어서 비교해요.</p>
+          <p className="text-sm text-stone-500 mb-4">같은 성격의 구간(라벨)끼리 묶어서 비교해요.</p>
           <div className="grid grid-cols-2 xl:grid-cols-4 gap-2 mb-5">
             {data.labels.map((l, idx) => (
               <button key={l.label} onClick={() => setLabelIdx(idx)}
-                className={`py-2.5 px-3 rounded-xl text-sm font-bold border transition-all flex flex-wrap items-center justify-center gap-1.5 break-keep
+                className={`py-2.5 px-3 rounded-xl text-base font-bold border transition-all flex flex-wrap items-center justify-center gap-1.5 break-keep
                   ${idx === labelIdx ? 'bg-stone-800 text-white border-stone-800' : 'bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100'}`}>
                 {l.label}
                 {l.status !== 'both' && (
-                  <span className={`text-[11px] font-bold px-1 rounded ${idx === labelIdx ? 'bg-white/20' : 'bg-stone-200 text-stone-500'}`}>
+                  <span className={`text-[13px] font-bold px-1 rounded ${idx === labelIdx ? 'bg-white/20' : 'bg-stone-200 text-stone-500'}`}>
                     {l.status === 'only_base' ? '이번엔 없음' : '새로 생김'}
                   </span>
                 )}
@@ -427,14 +427,14 @@ export default function CompareView({ projects, projectId, onProjectChange, init
             {label.metrics.map((m) => (
               <div key={m.key} className="bg-white p-3 flex flex-col gap-1 min-w-0">
                 <div className="flex items-start justify-between gap-2 flex-wrap">
-                  <span className="text-xs font-bold text-stone-500 break-keep">{m.label}</span>
+                  <span className="text-sm font-bold text-stone-500 break-keep">{m.label}</span>
                   <VerdictBadge verdict={m.verdict} />
                 </div>
                 <div className="flex items-baseline gap-1 flex-wrap">
-                  <span className="text-sm font-bold text-stone-400">{fmtValue(m.base, m.unit)}</span>
+                  <span className="text-base font-bold text-stone-400">{fmtValue(m.base, m.unit)}</span>
                   <ArrowRight className="w-3 h-3 text-stone-300 self-center" />
-                  <span className="text-base font-extrabold text-stone-800">{fmtValue(m.target, m.unit)}</span>
-                  <span className="text-[12px] text-stone-400">{unitSuffix(m.unit)}</span>
+                  <span className="text-lg font-extrabold text-stone-800">{fmtValue(m.target, m.unit)}</span>
+                  <span className="text-[14px] text-stone-400">{unitSuffix(m.unit)}</span>
                 </div>
               </div>
             ))}
@@ -445,55 +445,55 @@ export default function CompareView({ projects, projectId, onProjectChange, init
       {/* ③ AI 비교 피드백 */}
       <div className="bg-white rounded-xl shadow-sm border border-stone-200 p-5 sm:p-6">
         <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-4">
-          <h3 className="font-extrabold text-stone-800 text-lg flex items-center gap-2 sm:mr-auto">
+          <h3 className="font-extrabold text-stone-800 text-xl flex items-center gap-2 sm:mr-auto">
             <span className="bg-stone-100 text-stone-700 p-1.5 rounded-xl"><Lightbulb className="w-5 h-5" /></span>
             AI 비교 피드백
           </h3>
           {fb && (
             <button onClick={generate} disabled={generating}
-              className="text-sm font-semibold text-stone-600 border border-stone-200 rounded-lg px-3 py-1.5 hover:bg-stone-50 flex items-center gap-1.5 disabled:opacity-50">
+              className="text-base font-semibold text-stone-600 border border-stone-200 rounded-lg px-3 py-1.5 hover:bg-stone-50 flex items-center gap-1.5 disabled:opacity-50">
               <RefreshCw className={`w-3.5 h-3.5 ${generating ? 'animate-spin' : ''}`} />다시 만들기
             </button>
           )}
         </div>
 
         {fb?.stale && (
-          <div className="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-xl px-4 py-2.5 mb-4">
+          <div className="bg-amber-50 border border-amber-200 text-amber-800 text-base rounded-xl px-4 py-2.5 mb-4">
             피드백을 만든 뒤 회차가 다시 분석됐어요. &lsquo;다시 만들기&rsquo;로 최신 결과를 반영하세요.
           </div>
         )}
-        {genError && <div className="bg-rose-50 border border-rose-200 text-rose-700 text-sm rounded-xl px-4 py-2.5 mb-4">{genError}</div>}
+        {genError && <div className="bg-rose-50 border border-rose-200 text-rose-700 text-base rounded-xl px-4 py-2.5 mb-4">{genError}</div>}
 
         {!fb ? (
           <div className="text-center py-8">
-            <p className="text-sm text-stone-500 mb-4">
+            <p className="text-base text-stone-500 mb-4">
               {base.session_no}회차에서 받은 개선점을 {target.session_no}회차에서 고쳤는지 AI 가 확인해 드려요.
             </p>
             <button onClick={generate} disabled={generating}
-              className="bg-stone-900 text-white font-bold text-sm rounded-xl px-5 py-3 inline-flex items-center gap-2 hover:bg-stone-800 disabled:opacity-60">
+              className="bg-stone-900 text-white font-bold text-base rounded-xl px-5 py-3 inline-flex items-center gap-2 hover:bg-stone-800 disabled:opacity-60">
               {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
               {generating ? '비교하는 중… (10초 정도)' : 'AI 비교 피드백 만들기'}
             </button>
           </div>
         ) : (
           <>
-            {fb.headline && <p className="text-base font-bold text-stone-800 mb-4">{fb.headline}</p>}
+            {fb.headline && <p className="text-lg font-bold text-stone-800 mb-4">{fb.headline}</p>}
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-px bg-stone-100 border border-stone-100 rounded-xl overflow-hidden">
               {[{ title: '나아진 점', icon: ThumbsUp, items: better }, { title: '남은 과제', icon: AlertCircle, items: remain }].map((col) => (
                 <div key={col.title} className="bg-white p-5">
                   <h4 className="font-bold text-stone-700 flex items-center gap-2 mb-3"><col.icon className="w-4 h-4" />{col.title}</h4>
                   {col.items.length === 0 ? (
-                    <p className="text-sm text-stone-400">없어요</p>
+                    <p className="text-base text-stone-400">없어요</p>
                   ) : (
                     <ul className="space-y-4">
                       {col.items.map((it, i) => (
                         <li key={i}>
                           <div className="flex items-center gap-2 mb-1">
-                            <span className={`text-[12px] font-bold px-1.5 py-0.5 rounded-md border ${ITEM_STYLE[it.status].cls}`}>{ITEM_STYLE[it.status].text}</span>
-                            <span className="text-sm font-bold text-stone-800">{it.title}</span>
+                            <span className={`text-[14px] font-bold px-1.5 py-0.5 rounded-md border ${ITEM_STYLE[it.status].cls}`}>{ITEM_STYLE[it.status].text}</span>
+                            <span className="text-base font-bold text-stone-800">{it.title}</span>
                           </div>
-                          {it.previous && <p className="text-xs text-stone-400 mb-1">지난 지적: {it.previous}</p>}
-                          <p className="text-sm text-stone-700 leading-relaxed">{it.detail}</p>
+                          {it.previous && <p className="text-sm text-stone-400 mb-1">지난 지적: {it.previous}</p>}
+                          <p className="text-base text-stone-700 leading-relaxed">{it.detail}</p>
                         </li>
                       ))}
                     </ul>
