@@ -13,8 +13,9 @@ export const STEP_LABELS: Record<string, string> = {
   segments: "구간 분리",
   segment_feedback: "구간 피드백",
   overall_feedback: "종합 피드백",
+  comparison: "비교 피드백",   // 분석 단계가 아니라 비교 분석 화면에서 만드는 것 — 아래 STEP_ORDER 에는 넣지 않는다
 };
-export const STEP_ORDER = Object.keys(STEP_LABELS);
+export const STEP_ORDER = ["preprocess", "motion", "voice", "segments", "segment_feedback", "overall_feedback"];
 
 const STATUS_STYLE: Record<string, { label: string; cls: string; dot: string }> = {
   succeeded: { label: "성공", cls: "bg-emerald-50 text-emerald-700 border-emerald-200", dot: "bg-emerald-500" },

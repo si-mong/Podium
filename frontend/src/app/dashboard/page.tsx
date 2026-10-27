@@ -5,8 +5,8 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Play, Pause,
   CheckCircle, AlertCircle, TrendingUp,
-  BarChart2, Mic, Activity, Award, Clock, Video,
-  Folder, FolderOpen, ChevronRight, ChevronDown, ArrowLeft, Plus, Trash2, Upload, X, FileText, MessageSquare, Columns, ThumbsUp, Lightbulb, Pencil, LogOut
+  BarChart2, Mic, Activity, Award, Video,
+  Folder, FolderOpen, ChevronRight, ChevronDown, ArrowLeft, Plus, Trash2, Upload, X, FileText, MessageSquare, Columns, ThumbsUp, Lightbulb, Pencil, LogOut, Loader2, RotateCcw
 } from 'lucide-react';
 import {
   Line, Bar, XAxis, YAxis,
@@ -14,6 +14,7 @@ import {
   ComposedChart
 } from 'recharts';
 import InteractiveScript, { TimestampText, fmtTime, ScriptData, VideoChunk } from './InteractiveScript';
+import CompareView from './CompareView';
 import { PodiumLogo } from '@/components/ServiceGuide';
 
 const videoThumbnail = "/dashboard-video-thumbnail.png";
@@ -21,6 +22,7 @@ const videoThumbnail = "/dashboard-video-thumbnail.png";
 // API 호출은 apiFetch (로그인 토큰 자동 첨부, 만료 시 자동 갱신) — frontend/src/utils/api.ts
 import { API_BASE, apiFetch } from '@/utils/api';
 import { clearTokens, getRefreshToken, isLoggedIn } from '@/utils/auth';
+import { runAnalysis } from '@/utils/analysis';
 
 // 백엔드 응답 형태 (app/schemas/project.py, app/schemas/session.py)
 interface ApiSession {
@@ -172,109 +174,10 @@ function buildSummaryStats(gestureTotals: GestureTotals | null, voice: VoiceSumm
   ];
 }
 
-const SEGMENTS = [
-  { id: "s1", name: "도입", percent: 20, color: "bg-blue-500" },
-  { id: "s2", name: "문제 제기", percent: 30, color: "bg-indigo-500" },
-  { id: "s3", name: "해결 방안", percent: 35, color: "bg-purple-500" },
-  { id: "s4", name: "결론", percent: 15, color: "bg-pink-500" },
-];
-
-const STT_DATA = [
-  { time: "00:00", text: "우선 저희팀은 조원이 3명에서 2명으로 바뀌는 과정에서 주제를 다시 정하게 되었습니다.", segment: "도입", type: "normal" },
-  { time: "00:03", gesture: "설명하는 제스처", type: "gesture", gestureType: "normal", segment: "도입" },
-  { time: "00:05", text: "어... 큰 틀에서 바꾸기 보다는", segment: "도입", type: "filler", highlight: "어..." },
-  { time: "00:08", gesture: "몸 움직임", type: "gesture", gestureType: "normal", segment: "도입" },
-  { time: "00:10", text: "기존에 ‘발표 연습’이라는 큰 틀에서 세부적인 주제를 변경하기로 하였고,", segment: "도입", type: "normal" },
-  { time: "00:15", text: "(2초 무음)", segment: "도입", type: "silence", highlight: "(2초 무음)" },
-  { time: "00:17", text: "지금 현재 주제 두개를 생각중에 있습니다. 그리고 오늘 발표에서는 생각중인 두개의 주제를 발표할 예정입니다.", segment: "도입", type: "normal" },
-  { time: "00:20", gesture: "산만한 제스처", type: "gesture", gestureType: "negative", segment: "도입" },
-  { time: "00:25", text: "먼저, 첫 번째 주제는 ‘발표 연습 분석 시스템’입니다.", segment: "문제 제기", type: "normal" },
-  { time: "00:28", gesture: "가리키기", type: "gesture", gestureType: "normal", segment: "문제 제기" },
-  { time: "00:30", text: "사용자가 영상을 업로드하면 촬영영상의 싱크를 맞춰주고 슬라이드를 구분하는 과정을 거치게 됩니다.", segment: "문제 제기", type: "normal" },
-  { time: "00:36", gesture: "얼굴이나 머리 만지기", type: "gesture", gestureType: "negative", segment: "문제 제기" },
-  { time: "00:40", text: "음... 그리고 저희가 원래는 영상을 분석을 스피치전문가에게 맡긴다는 가정을 했었는데,", segment: "문제 제기", type: "filler", highlight: "음..." },
-  { time: "00:45", gesture: "닫힌 자세 (팔짱 등)", type: "gesture", gestureType: "normal", segment: "문제 제기" },
-  { time: "00:48", text: "이번주제에서는 발표연습분석을 VLM모델을 이용해서 분석하기로 생각을 하고 있습니다.", segment: "문제 제기", type: "normal" },
-  { time: "00:55", text: "따라서 크게 저희팀은 [데이터 전처리]→[데이터 분석]→[데이터 후처리]중 데이터분석을 VLM모델에 맡기고 전처리와 후처리 모듈을 개발하기로 하였습니다.", segment: "문제 제기", type: "normal" },
-  { time: "01:05", gesture: "물건 만지작거리기", type: "gesture", gestureType: "negative", segment: "문제 제기" },
-  { time: "01:10", text: "저희 시스템의 프로세스에 대해 설명드리겠습니다.", segment: "해결 방안", type: "normal" },
-  { time: "01:13", text: "(3초 무음)", segment: "해결 방안", type: "silence", highlight: "(3초 무음)" },
-  { time: "01:15", gesture: "설명하는 제스처", type: "gesture", gestureType: "normal", segment: "해결 방안" },
-  { time: "01:16", text: "먼저, 핸드폰이나 노트북으로 촬영된 영상을 시스템에 업로드를 하면 STT기술을 이용해 텍스트 대본을 뽑아냅니다.", segment: "해결 방안", type: "normal" },
-  { time: "01:25", text: "그리고 [데이터분석]부분인데 저희는 적합한 VLM모델은 무엇인지에 대해 테스트해보았습니다. 크게 QWEN, GEMINI를 이용하였습니다.", segment: "해결 방안", type: "normal" },
-  { time: "01:34", gesture: "산만한 제스처", type: "gesture", gestureType: "negative", segment: "해결 방안" },
-  { time: "01:38", text: "그... 다양한 영상길이와 다양한 명령프롬포트로 테스트해봤고,", segment: "해결 방안", type: "filler", highlight: "그..." },
-  { time: "01:45", text: "이밖에도 같은 명령어를 여러번 명령프롬포트에 입력했을 때 같은 결과가 나오는지와 VLM모델에서 계산한 제스쳐횟수와 저희가 실제로 영상을 보면서 세본 제스쳐 횟수를 비교하는 등 여러가지로 VLM모델을 테스트하였습니다.", segment: "해결 방안", type: "normal" },
-  { time: "02:00", gesture: "몸 움직임", type: "gesture", gestureType: "normal", segment: "결론" },
-  { time: "02:05", text: "찾아본바에 따르면 VLM에 영상을 통째로 넣어 분석을 하게 되면 2초~3초 샘플링 프레임으로 분석을 하는 VLM특성상 제스쳐인식이 잘 안될 수도 있다고 해서", segment: "결론", type: "normal" },
-  { time: "02:18", gesture: "얼굴이나 머리 만지기", type: "gesture", gestureType: "negative", segment: "결론" },
-  { time: "02:20", text: "저희가 실제 발표연습 예시 영상들을 찍어서 VLM모델에 넣어본 결과 30초 이하 영상을 넣었을 때 제스처 인식이 안되는거 없이 정확도가 제일 높았습니다.", segment: "결론", type: "normal" },
-  { time: "02:35", text: "그리하여 예를 들어 5분짜리 영상이라고 하면 30초 단위로 영상을 나누어 VLM 모델에 전송할 계획입니다.", segment: "결론", type: "normal" },
-  { time: "02:42", gesture: "가리키기", type: "gesture", gestureType: "normal", segment: "결론" },
-  { time: "02:45", text: "그래서 ‘발표자의 시선과 제스쳐를 횟수를 세주고 .JSON형식으로 출력해줘’라는 명령과 함께 VLM명령프롬포트에 전달하게 됩니다.", segment: "결론", type: "normal" },
-  { time: "03:00", text: "VLM 결과 후처리 하기 위해 JSON 형태로 결과값을 받을 생각입니다.", segment: "결론", type: "normal" }
-];
-
-const COMPARE_FEEDBACK = {
-  strengths: [
-    "1회차에 비해 2회차에서 무음 비율이 12%에서 8%로 감소하여 훨씬 매끄러운 진행을 보여주었습니다.",
-    "발화 습관(어..., 음... 등)이 전반적으로 감소하여 전달력이 크게 향상되었습니다."
-  ],
-  improvements: [
-    "2회차에서 말하기 속도가 145 WPM으로 다소 빨라진 구간이 있습니다. 중요한 부분에서는 여유를 가지고 강조하는 연습이 필요합니다.",
-    "여전히 스크립트를 참고할 때 시선이 아래로 향하는 경향이 있으니, 스크린이나 청중을 더 자주 보는 연습을 추천합니다."
-  ]
-};
-
 const MENUS = [
   { id: 'sessions', label: '내 기록', icon: FolderOpen },
   { id: 'single', label: '단일 분석', icon: BarChart2 },
-  { id: 'compare', label: '비교분석(개발중)', icon: Columns },
-  { id: 'growth', label: '종합추이(개발중)', icon: TrendingUp },
-];
-
-const COMPARE_METRICS = [
-  { id: 'filler', title: '필러 단어 빈도', s1: '25회', s2: '15회', icon: MessageSquare, color: "text-rose-600", bg: "bg-rose-50" },
-  { id: 'wpm', title: '평균 말하기 속도', s1: '115 WPM', s2: '126 WPM', icon: Activity, color: "text-green-600", bg: "bg-green-50" },
-  { id: 'silence', title: '전체 무음 비율', s1: '12%', s2: '8%', icon: Mic, color: "text-purple-600", bg: "bg-purple-50" },
-  { id: 'habits', title: '말 더듬 횟수', s1: '24회', s2: '16회', icon: BarChart2, color: "text-orange-600", bg: "bg-orange-50" },
-  { id: 'pos_gesture', title: '긍정적 제스처', s1: '8회', s2: '12회', icon: ThumbsUp, color: "text-stone-900", bg: "bg-stone-100" },
-  { id: 'neg_gesture', title: '부정적 제스처', s1: '15회', s2: '5회', icon: AlertCircle, color: "text-rose-600", bg: "bg-rose-50" },
-];
-
-const COMPARE_SEGMENT_METRICS = [
-  [
-    { id: 'filler', title: '필러 단어 빈도', s1: '8회', s2: '5회', icon: MessageSquare, color: "text-rose-600", bg: "bg-rose-50" },
-    { id: 'wpm', title: '평균 말하기 속도', s1: '110 WPM', s2: '120 WPM', icon: Activity, color: "text-green-600", bg: "bg-green-50" },
-    { id: 'silence', title: '전체 무음 비율', s1: '15%', s2: '12%', icon: Mic, color: "text-purple-600", bg: "bg-purple-50" },
-    { id: 'habits', title: '말 더듬 횟수', s1: '6회', s2: '2회', icon: BarChart2, color: "text-orange-600", bg: "bg-orange-50" },
-    { id: 'pos_gesture', title: '긍정적 제스처', s1: '1회', s2: '3회', icon: ThumbsUp, color: "text-stone-900", bg: "bg-stone-100" },
-    { id: 'neg_gesture', title: '부정적 제스처', s1: '5회', s2: '1회', icon: AlertCircle, color: "text-rose-600", bg: "bg-rose-50" },
-  ],
-  [
-    { id: 'filler', title: '필러 단어 빈도', s1: '5회', s2: '2회', icon: MessageSquare, color: "text-rose-600", bg: "bg-rose-50" },
-    { id: 'wpm', title: '평균 말하기 속도', s1: '130 WPM', s2: '145 WPM', icon: Activity, color: "text-green-600", bg: "bg-green-50" },
-    { id: 'silence', title: '전체 무음 비율', s1: '8%', s2: '5%', icon: Mic, color: "text-purple-600", bg: "bg-purple-50" },
-    { id: 'habits', title: '말 더듬 횟수', s1: '4회', s2: '1회', icon: BarChart2, color: "text-orange-600", bg: "bg-orange-50" },
-    { id: 'pos_gesture', title: '긍정적 제스처', s1: '2회', s2: '4회', icon: ThumbsUp, color: "text-stone-900", bg: "bg-stone-100" },
-    { id: 'neg_gesture', title: '부정적 제스처', s1: '4회', s2: '2회', icon: AlertCircle, color: "text-rose-600", bg: "bg-rose-50" },
-  ],
-  [
-    { id: 'filler', title: '필러 단어 빈도', s1: '10회', s2: '8회', icon: MessageSquare, color: "text-rose-600", bg: "bg-rose-50" },
-    { id: 'wpm', title: '평균 말하기 속도', s1: '120 WPM', s2: '135 WPM', icon: Activity, color: "text-green-600", bg: "bg-green-50" },
-    { id: 'silence', title: '전체 무음 비율', s1: '18%', s2: '15%', icon: Mic, color: "text-purple-600", bg: "bg-purple-50" },
-    { id: 'habits', title: '말 더듬 횟수', s1: '10회', s2: '4회', icon: BarChart2, color: "text-orange-600", bg: "bg-orange-50" },
-    { id: 'pos_gesture', title: '긍정적 제스처', s1: '3회', s2: '2회', icon: ThumbsUp, color: "text-stone-900", bg: "bg-stone-100" },
-    { id: 'neg_gesture', title: '부정적 제스처', s1: '4회', s2: '1회', icon: AlertCircle, color: "text-rose-600", bg: "bg-rose-50" },
-  ],
-  [
-    { id: 'filler', title: '필러 단어 빈도', s1: '2회', s2: '0회', icon: MessageSquare, color: "text-rose-600", bg: "bg-rose-50" },
-    { id: 'wpm', title: '평균 말하기 속도', s1: '100 WPM', s2: '110 WPM', icon: Activity, color: "text-green-600", bg: "bg-green-50" },
-    { id: 'silence', title: '전체 무음 비율', s1: '6%', s2: '4%', icon: Mic, color: "text-purple-600", bg: "bg-purple-50" },
-    { id: 'habits', title: '말 더듬 횟수', s1: '4회', s2: '0회', icon: BarChart2, color: "text-orange-600", bg: "bg-orange-50" },
-    { id: 'pos_gesture', title: '긍정적 제스처', s1: '2회', s2: '3회', icon: ThumbsUp, color: "text-stone-900", bg: "bg-stone-100" },
-    { id: 'neg_gesture', title: '부정적 제스처', s1: '2회', s2: '1회', icon: AlertCircle, color: "text-rose-600", bg: "bg-rose-50" },
-  ]
+  { id: 'compare', label: '비교 분석', icon: Columns },
 ];
 
 const GROWTH_METRICS_CONFIG = [
@@ -305,43 +208,85 @@ async function getJson<T>(path: string): Promise<T | null> {
   }
 }
 
-// 회차별 성장 추이 그래프 (지표 버튼 + 그래프). "종합추이" 메뉴와 폴더 화면 오른쪽에서 같이 쓴다.
-// 아직 회차별 지표 API 가 없어서 회차 수에 맞춘 Mock 값을 보여준다.
-function GrowthTrendChart({ sessions }: { sessions: TopicSession[] }) {
-  const [metricId, setMetricId] = useState('fillerTotal');
+// 종합추이 — GET /projects/{id}/trend. 회차마다 저장된 분석 결과(단일 분석 상단 카드와 같은 기준).
+interface ProjectTrendPoint {
+  session_id: number;
+  session_no: number;
+  duration_sec: number | null;
+  filler_count: number | null;
+  repetition_count: number | null;
+  silence_ratio: number | null;      // 0~1
+  speaking_rate_spm: number | null;
+  general_gesture: number | null;
+  negative_gesture: number | null;
+}
 
-  if (sessions.length === 0) {
-    return (
-      <div className="h-full min-h-[300px] flex flex-col items-center justify-center text-stone-400 bg-stone-50 rounded-2xl border border-dashed border-stone-200">
-        <TrendingUp className="w-12 h-12 mb-3 text-stone-300" />
-        <p className="font-bold text-[15px]">해당 주제에 발표 연습 기록이 없습니다.</p>
-      </div>
-    );
+// lowerIsBetter: 줄어들면 좋아진 것 (초록), 늘면 나빠진 것 (빨강). null 이면 좋고 나쁨을 따지지 않는다.
+const TREND_METRICS = [
+  { id: 'filler', label: '필러', unit: '회', color: '#f43f5e', type: 'line', lowerIsBetter: true,
+    get: (p: ProjectTrendPoint) => p.filler_count },
+  { id: 'rate', label: '말하기 속도', unit: '음절/분', color: '#3b82f6', type: 'line', lowerIsBetter: null,
+    get: (p: ProjectTrendPoint) => (p.speaking_rate_spm == null ? null : Math.round(p.speaking_rate_spm)) },
+  { id: 'silence', label: '무음 비율', unit: '%', color: '#c084fc', type: 'bar', lowerIsBetter: true,
+    get: (p: ProjectTrendPoint) => (p.silence_ratio == null ? null : Math.round(p.silence_ratio * 1000) / 10) },
+  { id: 'repetition', label: '말 더듬', unit: '회', color: '#fb923c', type: 'bar', lowerIsBetter: true,
+    get: (p: ProjectTrendPoint) => p.repetition_count },
+  { id: 'generalGesture', label: '일반 제스처', unit: '회', color: '#0ea5e9', type: 'line', lowerIsBetter: null,
+    get: (p: ProjectTrendPoint) => p.general_gesture },
+  { id: 'negativeGesture', label: '부정적 제스처', unit: '회', color: '#ef4444', type: 'line', lowerIsBetter: true,
+    get: (p: ProjectTrendPoint) => p.negative_gesture },
+] as const;
+
+// 회차별 종합추이 그래프 (지표 버튼 + 첫 회차 대비 변화 + 그래프). "종합추이" 메뉴와 폴더 화면 오른쪽에서 같이 쓴다.
+// 새로 분석하지 않고 저장된 결과만 모은다. 분석이 안 끝난 회차는 그래프에서 비워 둔다.
+function GrowthTrendChart({ projectId }: { projectId: string }) {
+  const [metricId, setMetricId] = useState<string>('filler');
+  const [points, setPoints] = useState<ProjectTrendPoint[] | null>(null);   // null = 불러오는 중
+
+  useEffect(() => {
+    setPoints(null);
+    getJson<{ points: ProjectTrendPoint[] }>(`/projects/${projectId}/trend`).then((d) => setPoints(d?.points ?? []));
+  }, [projectId]);
+
+  const empty = (text: string) => (
+    <div className="h-full min-h-[300px] flex flex-col items-center justify-center text-stone-400 bg-stone-50 rounded-2xl border border-dashed border-stone-200">
+      <TrendingUp className="w-12 h-12 mb-3 text-stone-300" />
+      <p className="font-bold text-[15px]">{text}</p>
+    </div>
+  );
+  if (points === null) return empty('불러오는 중…');
+  if (points.length === 0) return empty('해당 주제에 발표 연습 기록이 없습니다.');
+  if (!points.some((p) => p.filler_count != null || p.general_gesture != null)) return empty('아직 분석이 끝난 회차가 없어요.');
+
+  const metric = TREND_METRICS.find((m) => m.id === metricId)!;
+  const chartData = points.map((p) => ({ session: `${p.session_no}회차`, value: metric.get(p) }));
+
+  // 첫 회차 대비 변화 — 값이 있는 회차 중 처음과 마지막
+  const valued = points.filter((p) => metric.get(p) != null);
+  let change: { text: string; tone: string } | null = null;
+  if (valued.length >= 2) {
+    const a = metric.get(valued[0])!, b = metric.get(valued[valued.length - 1])!;
+    const diff = Math.round((b - a) * 10) / 10;
+    const head = `${valued[0].session_no}회차 ${a}${metric.unit} → ${valued[valued.length - 1].session_no}회차 ${b}${metric.unit}`;
+    if (diff === 0) change = { text: `${head} (변화 없음)`, tone: 'text-stone-500' };
+    else {
+      const better = metric.lowerIsBetter == null ? null : (diff < 0) === metric.lowerIsBetter;
+      change = {
+        text: `${head} (${diff > 0 ? '+' : ''}${diff}${metric.unit})`,
+        tone: better == null ? 'text-stone-600' : better ? 'text-emerald-600' : 'text-rose-600',
+      };
+    }
   }
-
-  // Mock 값 — 회차가 지날수록 좋아지는 모양으로 만든다
-  const chartData = sessions.map((s, index) => {
-    const maxImprovementFactor = Math.max(1, 4 - index);
-    return {
-      session: s.name.replace(' 연습', ''),
-      fillerTotal: 10 + maxImprovementFactor * 5,  // 필러 단어 빈도
-      wpm: 120 + maxImprovementFactor * 10,         // 평균 말하기 속도
-      silenceRatio: 5 + maxImprovementFactor * 2,   // 전체 무음 비율 (%)
-      habits: 4 + maxImprovementFactor * 3,         // 말 더듬 횟수
-    };
-  });
-
-  const metric = GROWTH_METRICS_CONFIG.find(m => m.id === metricId)!;
 
   return (
     <div className="h-full flex flex-col">
-      {/* Metric Selection Buttons */}
-      <div className="flex flex-wrap gap-3 mb-6">
-        {GROWTH_METRICS_CONFIG.map(m => (
+      {/* 지표 선택 */}
+      <div className="flex flex-wrap gap-2 mb-3">
+        {TREND_METRICS.map((m) => (
           <button
             key={m.id}
             onClick={() => setMetricId(m.id)}
-            className={`px-4 py-2 rounded-xl text-[14px] font-bold transition-all border ${
+            className={`px-3.5 py-2 rounded-xl text-[13px] font-bold transition-all border ${
               metricId === m.id
                 ? 'bg-stone-800 text-white border-stone-800 shadow-md shadow-stone-300'
                 : 'bg-white text-stone-500 border-stone-200 hover:bg-stone-50 hover:text-stone-800'
@@ -351,8 +296,11 @@ function GrowthTrendChart({ sessions }: { sessions: TopicSession[] }) {
           </button>
         ))}
       </div>
+      <p className={`text-sm font-semibold mb-4 min-h-[20px] ${change?.tone ?? 'text-stone-400'}`}>
+        {change ? change.text : '두 번 이상 분석하면 첫 회차 대비 변화가 보여요.'}
+      </p>
 
-      <div className="flex-1 min-h-[300px] w-full pr-4">
+      <div className="flex-1 min-h-[260px] w-full pr-4">
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={chartData} margin={{ top: 20, right: 20, bottom: 20, left: 0 }}>
             <CartesianGrid key="grid" strokeDasharray="3 3" vertical={false} stroke="var(--chart-grid)" />
@@ -362,31 +310,33 @@ function GrowthTrendChart({ sessions }: { sessions: TopicSession[] }) {
               axisLine={false}
               tickLine={false}
               tick={{fill: metric.color, fontSize: 13, fontWeight: 700}}
-              domain={['auto', 'auto']}
+              domain={[0, 'auto']}
+              allowDecimals={metric.id === 'silence'}
               dx={-10}
-              unit={metric.unit}
+              unit={metric.unit === '음절/분' ? '' : metric.unit}
             />
             <Tooltip
               key={`tooltip-${metric.id}`}
               cursor={{fill: 'var(--chart-cursor)', stroke: metric.type === 'line' ? 'var(--chart-cursor-line)' : 'none', strokeWidth: 1, strokeDasharray: '4 4'}}
               contentStyle={{ borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 10px 25px -5px rgb(0 0 0 / 0.1)', padding: '16px 20px', fontWeight: 600 }}
-              formatter={(value) => [`${value}${metric.unit}`, metric.label]}
+              formatter={(value) => [value == null ? '분석 전' : `${value}${metric.unit}`, metric.label]}
             />
             {metric.type === 'line' ? (
               <Line
                 key={`line-${metric.id}`}
                 type="monotone"
-                dataKey={metric.id}
+                dataKey="value"
                 name={metric.label}
                 stroke={metric.color}
                 strokeWidth={4}
+                connectNulls
                 dot={{r: 6, fill: metric.color, strokeWidth: 3, stroke: 'var(--chart-dot-ring)'}}
                 activeDot={{r: 8}}
               />
             ) : (
               <Bar
                 key={`bar-${metric.id}`}
-                dataKey={metric.id}
+                dataKey="value"
                 name={metric.label}
                 fill={metric.color}
                 radius={[6, 6, 0, 0]}
@@ -406,14 +356,16 @@ function PresentationAnalysisDashboard() {
 
   // 화면 상태(어느 메뉴 / 어느 폴더 / 어느 세션)는 변수가 아니라 **주소(URL)** 에 담는다.
   // 화면을 옮길 때마다 주소가 바뀌어 방문 기록이 쌓이므로, 브라우저 뒤로가기·새로고침이 화면과 맞게 동작한다.
-  //   view    : sessions(내 기록, 기본) | single | compare | growth | trash
+  //   view    : sessions(내 기록, 기본) | single | compare | trash
+  //   (종합추이는 폴더 화면 오른쪽에 있어서 메뉴를 따로 두지 않는다. 예전 ?view=growth 주소는 내 기록으로)
   //   folder  : "내 기록"에서 열어 둔 폴더(프로젝트) id. 없으면 폴더 목록(아이콘)을 보여준다.
   //   session : 선택한 세션 id
   // 예) /dashboard?view=single&folder=3&session=12
   // 촬영 화면은 /dashboard?session=12 로 돌아오는데, view 가 없고 session 만 있으면 단일 분석으로 본다.
   const openFolderId = searchParams.get('folder');
   const activeSessionId = searchParams.get('session') || '';
-  const activeMenu = searchParams.get('view') || (activeSessionId ? 'single' : 'sessions');
+  const viewParam = searchParams.get('view');
+  const activeMenu = (viewParam === 'growth' ? 'sessions' : viewParam) || (activeSessionId ? 'single' : 'sessions');
 
   // 화면 이동 — 바꿀 값만 넘기면 나머지는 지금 값을 그대로 쓴다 (null 을 넘기면 그 값을 지운다).
   // replace=true 면 방문 기록을 새로 쌓지 않고 지금 주소를 바꿔치기한다 (자동 정리용).
@@ -483,6 +435,9 @@ function PresentationAnalysisDashboard() {
     if (activeMenu === 'trash') fetchTrash();
   }, [activeMenu]);
 
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [adminChecked, setAdminChecked] = useState(false);
+
   useEffect(() => {
     // 로그인 안 한 상태로 들어오면 바로 로그인 화면으로
     if (!isLoggedIn()) {
@@ -490,7 +445,18 @@ function PresentationAnalysisDashboard() {
       return;
     }
     fetchTopics();
+    // 관리자만 보이는 것: 비교 분석 메뉴, 단일 분석의 "다시 분석하기". 실패하면 일반 회원 화면 그대로.
+    apiFetch('/auth/me')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((me) => setIsAdmin(Boolean(me?.is_admin)))
+      .catch(() => {})
+      .finally(() => setAdminChecked(true));
   }, []);
+
+  // 비교 분석은 아직 관리자에게만 공개 — 일반 회원이 주소로 들어오면 단일 분석으로 보낸다
+  useEffect(() => {
+    if (adminChecked && !isAdmin && activeMenu === 'compare') goTo({ view: 'single' }, true);
+  }, [adminChecked, isAdmin, activeMenu]);
 
   // 로그아웃: 서버에 refresh 토큰 폐기를 알리고(실패해도 무시), 저장된 토큰을 지운 뒤 첫 화면(랜딩)으로.
   const logout = async () => {
@@ -520,6 +486,10 @@ function PresentationAnalysisDashboard() {
   // 분석이 끝까지 안 된 세션인지 (분석 중에 새로고침·창 닫기를 했거나, 중간 단계가 실패하면 앞 단계 결과만 남는다).
   // 마지막 단계인 구간 피드백·종합 피드백이 하나라도 없으면 "분석을 다시 진행해주세요" 안내를 띄운다.
   const [analysisIncomplete, setAnalysisIncomplete] = useState(false);
+  // 관리자 "다시 분석하기" — 진행 중인 단계 문구(null 이면 실행 중 아님), 끝나면 reloadKey 를 올려 결과를 다시 불러온다
+  const [reanalyzeStep, setReanalyzeStep] = useState<string | null>(null);
+  const [reanalyzeMsg, setReanalyzeMsg] = useState<{ text: string; ok: boolean } | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
   const [currentTime, setCurrentTime] = useState(0); // 영상의 현재 재생 위치(초)
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -589,7 +559,7 @@ function PresentationAnalysisDashboard() {
     return () => {
       cancelled = true;
     };
-  }, [activeSessionId]);
+  }, [activeSessionId, reloadKey]);
 
   // 영상 재생 티켓 — <video src> 는 Authorization 헤더를 못 실어서, 이 세션 영상에만 30분간 통하는
   // 티켓을 받아 주소 뒤에 붙인다 (백엔드 POST /sessions/{id}/video/ticket).
@@ -705,16 +675,8 @@ function PresentationAnalysisDashboard() {
     };
   });
 
-  // Growth Chart State
-  const [selectedGrowthTopicId, setSelectedGrowthTopicId] = useState('t1');
-
   // Single Analysis State
   const [activeSingleMetric, setActiveSingleMetric] = useState('fillerTotal');
-
-  // Compare Analysis State
-  const [isPlayingCompare1, setIsPlayingCompare1] = useState(false);
-  const [isPlayingCompare2, setIsPlayingCompare2] = useState(false);
-  const [activeCompareSegmentIndex, setActiveCompareSegmentIndex] = useState(0);
 
   // Modals State
   const [isTopicModalOpen, setIsTopicModalOpen] = useState(false);
@@ -931,6 +893,26 @@ function PresentationAnalysisDashboard() {
   const topNav = activeMenu === 'single';
 
   // 메뉴 버튼 — 왼쪽 사이드바(세로)와 단일 분석의 상단 메뉴바(가로)가 같이 쓴다.
+  const visibleMenus = MENUS.filter((m) => m.id !== 'compare' || isAdmin);
+
+  // 관리자: 이 세션을 처음부터(음성 분석부터) 다시 분석한다. 이전 결과는 각 단계가 새 결과로 바꿔 넣는다.
+  const reanalyze = async () => {
+    const sessionId = activeSessionId;
+    if (!sessionId || reanalyzeStep) return;
+    if (!window.confirm('이 발표를 처음부터 다시 분석할까요? 몇 분 걸리고, 지금 결과는 새 결과로 바뀌어요.')) return;
+    setReanalyzeMsg(null);
+    setReanalyzeStep('분석을 시작하는 중이에요');
+    try {
+      await runAnalysis(sessionId, { onStep: setReanalyzeStep });
+      setReanalyzeMsg({ text: '다시 분석을 마쳤어요.', ok: true });
+    } catch (err) {
+      setReanalyzeMsg({ text: `다시 분석하지 못했어요. (${err instanceof Error ? err.message : String(err)})`, ok: false });
+    } finally {
+      setReanalyzeStep(null);
+      if (sessionId === activeSessionId) setReloadKey((k) => k + 1);
+    }
+  };
+
   const renderMenuButton = (menu: typeof MENUS[number], horizontal: boolean) => {
     const Icon = menu.icon;
     const isActive = activeMenu === menu.id;
@@ -1013,7 +995,7 @@ function PresentationAnalysisDashboard() {
         <header className={`${topNav ? 'flex' : 'flex md:hidden'} h-16 md:h-20 min-[1700px]:h-24 bg-white border-b border-stone-200 shadow-sm z-20 shrink-0 items-center gap-3 md:gap-8 min-[1700px]:gap-14 px-4 md:px-12 min-[1700px]:px-20`}>
           {logo}
           <nav className="flex items-center gap-0.5 md:gap-2 min-w-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {MENUS.map(menu => renderMenuButton(menu, true))}
+            {visibleMenus.map(menu => renderMenuButton(menu, true))}
           </nav>
           <div className="ml-auto flex items-center gap-0.5 md:gap-2 min-[1700px]:gap-3 min-w-0">
             <div className="hidden md:block min-w-0">{breadcrumb}</div>
@@ -1047,7 +1029,7 @@ function PresentationAnalysisDashboard() {
 
         <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col pb-6">
           <nav className="p-4 space-y-1.5 shrink-0 mt-2">
-            {MENUS.map(menu => renderMenuButton(menu, false))}
+            {visibleMenus.map(menu => renderMenuButton(menu, false))}
           </nav>
         </div>
 
@@ -1167,15 +1149,14 @@ function PresentationAnalysisDashboard() {
                       )}
                     </div>
 
-                    {/* 오른쪽: 이 폴더의 종합추이 (아직 Mock 데이터) */}
+                    {/* 오른쪽: 이 폴더의 종합추이 (회차별 저장된 분석 결과) */}
                     <div className="bg-white rounded-2xl shadow-sm border border-stone-200 p-6 h-[560px] flex flex-col">
                       <div className="flex items-center gap-2.5 mb-5">
                         <span className="bg-green-100 text-green-600 p-1.5 rounded-xl"><TrendingUp className="w-5 h-5" /></span>
                         <h4 className="font-extrabold text-stone-800 text-lg">종합추이</h4>
-                        <span className="text-[12px] font-bold text-amber-600 bg-amber-50 border border-amber-100 px-2 py-0.5 rounded-md">예시 데이터</span>
                       </div>
                       <div className="flex-1 min-h-0">
-                        <GrowthTrendChart sessions={openFolder.sessions} />
+                        <GrowthTrendChart projectId={openFolder.id} />
                       </div>
                     </div>
                   </div>
@@ -1374,7 +1355,7 @@ function PresentationAnalysisDashboard() {
             </div>
           )}
 
-          {/* Analysis Views (Only show if a session is selected and we are not in 'sessions' tab) */}
+          {/* Analysis Views — 회차를 골랐을 때만 */}
           {activeMenu !== 'sessions' && activeMenu !== 'trash' && activeSessionId ? (
             // 단일 분석은 왼쪽·오른쪽 두 칸으로 놓으므로 더 넓게 쓴다
             <div className={`${topNav ? 'max-w-[1200px]' : 'max-w-[1200px]'} mx-auto space-y-6 pb-12`}>
@@ -1382,6 +1363,29 @@ function PresentationAnalysisDashboard() {
               {/* VIEW 3: Single Analysis */}
               {activeMenu === 'single' && (
                 <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 space-y-6">
+                  {/* 관리자: 다시 분석하기 */}
+                  {isAdmin && (
+                    <div className="flex flex-wrap items-center gap-3 bg-white border border-stone-200 rounded-xl px-5 py-3">
+                      <span className="text-[11px] font-bold px-1.5 py-0.5 rounded bg-stone-800 text-white">관리자</span>
+                      {reanalyzeStep ? (
+                        <span className="text-sm font-semibold text-stone-700 flex items-center gap-2">
+                          <Loader2 className="w-4 h-4 animate-spin" />{reanalyzeStep}
+                        </span>
+                      ) : reanalyzeMsg ? (
+                        <span className={`text-sm font-semibold ${reanalyzeMsg.ok ? 'text-emerald-700' : 'text-rose-700'}`}>{reanalyzeMsg.text}</span>
+                      ) : (
+                        <span className="text-sm text-stone-500">분석 설정을 바꿨거나 분석이 중간에 멈췄을 때 이 발표를 처음부터 다시 분석해요.</span>
+                      )}
+                      <button
+                        onClick={reanalyze}
+                        disabled={!!reanalyzeStep}
+                        className="ml-auto text-sm font-bold text-stone-700 border border-stone-200 rounded-lg px-3 py-1.5 hover:bg-stone-50 flex items-center gap-1.5 disabled:opacity-50"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" />다시 분석하기
+                      </button>
+                    </div>
+                  )}
+
                   {/* 분석이 중간에 멈춘 세션 안내 */}
                   {analysisIncomplete && (
                     <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl px-5 py-4">
@@ -1711,312 +1715,13 @@ function PresentationAnalysisDashboard() {
                 </div>
               )}
 
-              {/* VIEW: Compare Analysis */}
-              {activeMenu === 'compare' && (
-                <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 space-y-6">
-                  
-                  {/* Top: Videos side by side */}
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {/* Session 1 Video */}
-                    <div className="bg-white rounded-xl shadow-sm border border-stone-200 overflow-hidden flex flex-col">
-                      <div className="p-4 border-b border-stone-100 flex justify-between items-center bg-stone-50 shrink-0">
-                        <h3 className="font-bold text-stone-800 flex items-center gap-2">
-                          <span className="bg-stone-200 text-stone-600 px-2 py-0.5 rounded text-xs">기준</span>
-                          1회차 연습
-                        </h3>
-                      </div>
-                      <div className="relative bg-black h-[260px] flex group">
-                        <img src={videoThumbnail} alt="Session 1" className="absolute inset-0 w-full h-full object-cover opacity-60 grayscale" />
-                        <div className="absolute inset-0 flex items-center justify-center">
-                          <button onClick={() => setIsPlayingCompare1(!isPlayingCompare1)} className="bg-white/20 p-4 rounded-full backdrop-blur-sm hover:bg-white/30 transition">
-                            {isPlayingCompare1 ? <Pause className="w-8 h-8 text-white" /> : <Play className="w-8 h-8 text-white ml-1" />}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Session 2 Video */}
-                    <div className="bg-white rounded-xl shadow-sm border border-stone-200 overflow-hidden flex flex-col">
-                      <div className="p-4 border-b border-stone-100 flex justify-between items-center bg-stone-50 shrink-0">
-                        <h3 className="font-bold text-stone-800 flex items-center gap-2">
-                          <span className="bg-stone-200 text-stone-900 px-2 py-0.5 rounded text-xs">비교</span>
-                          2회차 연습
-                        </h3>
-                      </div>
-                      <div className="relative bg-black h-[260px] flex group">
-                        <img src={videoThumbnail} alt="Session 2" className="absolute inset-0 w-full h-full object-cover opacity-90" />
-                        <div className="absolute inset-0 flex items-center justify-center">
-                          <button onClick={() => setIsPlayingCompare2(!isPlayingCompare2)} className="bg-white/20 p-4 rounded-full backdrop-blur-sm hover:bg-white/30 transition">
-                            {isPlayingCompare2 ? <Pause className="w-8 h-8 text-white" /> : <Play className="w-8 h-8 text-white ml-1" />}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Segment Buttons between Video and Script */}
-                  <div className="bg-white rounded-xl shadow-sm border border-stone-200 p-4">
-                    <h3 className="font-extrabold text-stone-800 text-sm mb-3 flex items-center gap-2">
-                      <Video className="w-4 h-4 text-stone-700"/>
-                      비교할 구간을 선택하세요
-                    </h3>
-                    <div className="flex items-center gap-2">
-                      {SEGMENTS.map((seg, idx) => (
-                        <button 
-                          key={`compare-seg-${seg.id}`}
-                          onClick={() => setActiveCompareSegmentIndex(idx)}
-                          className={`flex-1 py-3 px-4 rounded-xl text-[15px] font-extrabold border transition-all ${activeCompareSegmentIndex === idx ? 'bg-stone-800 text-white border-stone-800 shadow-md shadow-stone-300' : 'bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100 hover:text-stone-800'}`}
-                        >
-                          <div className="flex items-center justify-center gap-2.5">
-                            <div className={`w-3 h-3 rounded-full shadow-sm ${seg.color}`}></div>
-                            {seg.name}
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Scripts side by side */}
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {/* Session 1 Column */}
-                    <div className="flex flex-col gap-4">
-                      <div className="bg-stone-50 rounded-xl shadow-sm border border-stone-200 overflow-hidden flex flex-col p-4 h-[280px]">
-                        <h4 className="font-extrabold text-stone-800 mb-3 flex items-center gap-2 text-[14px]">
-                          <FileText className="w-4 h-4 text-stone-500" />
-                          1회차 스크립트 ({SEGMENTS[activeCompareSegmentIndex].name})
-                        </h4>
-                        <div className="space-y-3 overflow-y-auto custom-scrollbar pr-2">
-                          {STT_DATA.filter(item => item.segment === SEGMENTS[activeCompareSegmentIndex].name).map((item, i) => (
-                            <div key={`s1-stt-${i}`} className="flex gap-3 text-[13px]">
-                              <span className="text-stone-400 font-bold shrink-0 w-10 mt-1">{item.time}</span>
-                              <div className="text-stone-700 leading-relaxed font-medium flex-1">
-                                {item.type === 'normal' && item.text}
-                                
-                                {item.type === 'gesture' && (
-                                  <button className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-bold border shadow-sm transition-all hover:-translate-y-0.5 ${item.gestureType === 'normal' ? 'bg-stone-100 text-stone-900 border-stone-300 hover:bg-stone-200' : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'}`}>
-                                    {item.gestureType === 'normal' ? <ThumbsUp className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
-                                    {item.gestureType === 'negative' ? '부정적 제스처' : '제스처'}: {item.gesture}
-                                  </button>
-                                )}
-  
-                                {item.type === 'filler' && (
-                                  <>
-                                    {(item.text ?? '').split(item.highlight!).map((part, idx, arr) => (
-                                      <React.Fragment key={`filler-${idx}`}>
-                                        {part}
-                                        {idx < arr.length - 1 && (
-                                          <button className="bg-orange-100 text-orange-700 px-2 py-1 rounded-lg text-xs font-bold border border-orange-200 mx-1 shadow-sm transition-all hover:-translate-y-0.5 inline-flex items-center gap-1">
-                                            <MessageSquare className="w-3 h-3" />
-                                            발화습관: {item.highlight}
-                                          </button>
-                                        )}
-                                      </React.Fragment>
-                                    ))}
-                                  </>
-                                )}
-                                
-                                {item.type === 'silence' && (
-                                  <button className="bg-stone-200 text-stone-600 px-2 py-1 rounded-lg text-xs font-bold border border-stone-300 inline-flex items-center gap-1.5 shadow-sm transition-all hover:-translate-y-0.5">
-                                    <Clock className="w-3 h-3" />
-                                    발화습관: {item.highlight}
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Session 1 Segment Metrics */}
-                      <div className="grid grid-cols-3 gap-3">
-                        {COMPARE_SEGMENT_METRICS[activeCompareSegmentIndex].map(m => {
-                          const Icon = m.icon;
-                          return (
-                            <div key={`s1-m-${m.id}`} className="bg-white rounded-xl border border-stone-200 p-3 flex flex-col items-center text-center shadow-sm">
-                              <Icon className={`w-4 h-4 mb-1.5 text-stone-500`} />
-                              <span className="text-[11px] font-bold text-stone-500 mb-1">{m.title}</span>
-                              <span className="text-[15px] font-extrabold text-stone-800">{m.s1}</span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {/* Session 2 Column */}
-                    <div className="flex flex-col gap-4">
-                      <div className="bg-blue-50/30 rounded-xl shadow-sm border border-blue-100 overflow-hidden flex flex-col p-4 h-[280px]">
-                        <h4 className="font-extrabold text-blue-800 mb-3 flex items-center gap-2 text-[14px]">
-                          <FileText className="w-4 h-4 text-stone-700" />
-                          2회차 스크립트 ({SEGMENTS[activeCompareSegmentIndex].name})
-                        </h4>
-                        <div className="space-y-3 overflow-y-auto custom-scrollbar pr-2">
-                          {STT_DATA.filter(item => item.segment === SEGMENTS[activeCompareSegmentIndex].name).map((item, i) => (
-                            <div key={`s2-stt-${i}`} className="flex gap-3 text-[13px]">
-                              <span className="text-stone-400 font-bold shrink-0 w-10 mt-1">{item.time}</span>
-                              <div className="text-stone-700 leading-relaxed font-medium flex-1">
-                                {item.type === 'normal' && item.text}
-                                
-                                {item.type === 'gesture' && (
-                                  <button className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-bold border shadow-sm transition-all hover:-translate-y-0.5 ${item.gestureType === 'normal' ? 'bg-stone-100 text-stone-900 border-stone-300 hover:bg-stone-200' : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'}`}>
-                                    {item.gestureType === 'normal' ? <ThumbsUp className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
-                                    {item.gestureType === 'negative' ? '부정적 제스처' : '제스처'}: {item.gesture}
-                                  </button>
-                                )}
-  
-                                {item.type === 'filler' && (
-                                  <>
-                                    {(item.text ?? '').split(item.highlight!).map((part, idx, arr) => (
-                                      <React.Fragment key={`filler-${idx}`}>
-                                        {part}
-                                        {idx < arr.length - 1 && (
-                                          <button className="bg-orange-100 text-orange-700 px-2 py-1 rounded-lg text-xs font-bold border border-orange-200 mx-1 shadow-sm transition-all hover:-translate-y-0.5 inline-flex items-center gap-1">
-                                            <MessageSquare className="w-3 h-3" />
-                                            발화습관: {item.highlight}
-                                          </button>
-                                        )}
-                                      </React.Fragment>
-                                    ))}
-                                  </>
-                                )}
-                                
-                                {item.type === 'silence' && (
-                                  <button className="bg-stone-200 text-stone-600 px-2 py-1 rounded-lg text-xs font-bold border border-stone-300 inline-flex items-center gap-1.5 shadow-sm transition-all hover:-translate-y-0.5">
-                                    <Clock className="w-3 h-3" />
-                                    발화습관: {item.highlight}
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Session 2 Segment Metrics */}
-                      <div className="grid grid-cols-3 gap-3">
-                        {COMPARE_SEGMENT_METRICS[activeCompareSegmentIndex].map(m => {
-                          const Icon = m.icon;
-                          return (
-                            <div key={`s2-m-${m.id}`} className="bg-white rounded-xl border border-stone-200 p-3 flex flex-col items-center text-center shadow-sm">
-                              <Icon className={`w-4 h-4 mb-1.5 text-stone-700`} />
-                              <span className="text-[11px] font-bold text-stone-900 mb-1">{m.title}</span>
-                              <span className="text-[15px] font-extrabold text-blue-900">{m.s2}</span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Middle: Metrics Comparison */}
-                  <div className="bg-white rounded-xl shadow-sm border border-stone-200 p-6">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-                      <h3 className="font-extrabold text-stone-800 text-lg flex items-center gap-2">
-                        <span className="bg-indigo-100 text-indigo-600 p-1.5 rounded-xl"><BarChart2 className="w-5 h-5"/></span>
-                        총 지표 비교
-                      </h3>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {COMPARE_METRICS.map(m => {
-                        const Icon = m.icon;
-                        return (
-                          <div key={m.id} className="bg-stone-50 rounded-xl border border-stone-200 p-4">
-                            <div className="flex items-center gap-2 mb-4">
-                              <div className={`p-1.5 rounded-lg ${m.bg}`}>
-                                <Icon className={`w-4 h-4 ${m.color}`} />
-                              </div>
-                              <span className="font-bold text-stone-600 text-sm">{m.title}</span>
-                            </div>
-                            <div className="flex justify-between items-end">
-                              <div className="flex flex-col">
-                                <span className="text-xs font-bold text-stone-500 mb-1">1회차</span>
-                                <span className="text-lg font-extrabold text-stone-500">{m.s1}</span>
-                              </div>
-                              <ChevronRight className="w-5 h-5 text-stone-300 mb-1" />
-                              <div className="flex flex-col items-end">
-                                <span className="text-xs font-bold text-stone-900 mb-1">2회차</span>
-                                <span className="text-2xl font-extrabold text-stone-800">{m.s2}</span>
-                              </div>
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Bottom: AI Feedback Comparison */}
-                  <div className="bg-white rounded-xl shadow-sm border border-stone-200 p-6">
-                    <h3 className="font-extrabold text-stone-800 text-lg flex items-center gap-2 mb-6">
-                      <span className="bg-teal-100 text-teal-600 p-1.5 rounded-xl"><Lightbulb className="w-5 h-5"/></span>
-                      AI 비교 피드백
-                    </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div className="bg-stone-100/50 rounded-xl p-5 border border-stone-200">
-                        <h4 className="font-bold text-blue-800 flex items-center gap-2 mb-4">
-                          <ThumbsUp className="w-5 h-5 text-stone-900" />
-                          잘한 점
-                        </h4>
-                        <ul className="space-y-3">
-                          {COMPARE_FEEDBACK.strengths.map((text, idx) => (
-                            <li key={idx} className="flex items-start gap-2.5">
-                              <div className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-2 shrink-0"></div>
-                              <p className="text-stone-700 text-sm leading-relaxed font-medium">{text}</p>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                      <div className="bg-orange-50/50 rounded-xl p-5 border border-orange-100">
-                        <h4 className="font-bold text-orange-800 flex items-center gap-2 mb-4">
-                          <AlertCircle className="w-5 h-5 text-orange-600" />
-                          개선할 점
-                        </h4>
-                        <ul className="space-y-3">
-                          {COMPARE_FEEDBACK.improvements.map((text, idx) => (
-                            <li key={idx} className="flex items-start gap-2.5">
-                              <div className="w-1.5 h-1.5 rounded-full bg-orange-500 mt-2 shrink-0"></div>
-                              <p className="text-stone-700 text-sm leading-relaxed font-medium">{text}</p>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    </div>
-                  </div>
-
-                </div>
-              )}
-
-              {/* VIEW 4: Growth Trend */}
-              {activeMenu === 'growth' && (
-                <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
-                  <div className="bg-white rounded-xl shadow-sm border border-stone-200 p-8 h-[650px] flex flex-col">
-                    <div className="mb-6 border-b border-stone-100 pb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                      <div>
-                        <h3 className="font-extrabold text-stone-800 text-xl flex items-center gap-2.5">
-                          <span className="bg-green-100 text-green-600 p-1.5 rounded-xl shadow-sm"><TrendingUp className="w-5 h-5"/></span>
-                          회차별 성장 추이
-                        </h3>
-                        <p className="text-[15px] text-stone-500 mt-2 font-medium">선택된 주제 내 발표 연습 회차들의 주요 4가지 지표 변화를 확인합니다.</p>
-                      </div>
-                      
-                      <div className="flex items-center gap-3 shrink-0">
-                        <label className="text-sm font-bold text-stone-600">주제 선택:</label>
-                        <select 
-                          value={selectedGrowthTopicId}
-                          onChange={(e) => setSelectedGrowthTopicId(e.target.value)}
-                          className="bg-stone-50 border border-stone-200 text-stone-700 text-sm rounded-xl focus:ring-stone-900 focus:border-stone-900 block p-2.5 font-bold outline-none cursor-pointer"
-                        >
-                          {topics.map(t => (
-                            <option key={t.id} value={t.id}>{t.name}</option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-
-                    <div className="flex-1 min-h-0">
-                      <GrowthTrendChart sessions={(topics.find(t => t.id === selectedGrowthTopicId) || topics[0])?.sessions ?? []} />
-                    </div>
-                  </div>
-                </div>
+              {/* VIEW: Compare Analysis — 같은 폴더의 두 회차 비교 (CompareView.tsx) */}
+              {activeMenu === 'compare' && isAdmin && activeTopicId && (
+                <CompareView
+                  projectId={activeTopicId}
+                  targetSessionId={activeSessionId}
+                  onTargetChange={(id) => goTo({ session: id })}
+                />
               )}
 
             </div>

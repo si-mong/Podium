@@ -18,15 +18,18 @@ from sqlalchemy.orm import Session as DbSession, selectinload
 
 from app.api._deps import get_current_user_id, get_owned_project
 from app.core.database import get_db
-from app.models import Project
+from app.models import Project, Session
 from app.schemas.project import (
     ProjectCreate,
     ProjectRead,
     ProjectTrashItem,
+    ProjectTrend,
+    TrendPoint,
     ProjectUpdate,
     ProjectWithSessions,
 )
 from app.services import storage
+from app.services.compare import load_sessions, overall_metrics
 
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -104,6 +107,47 @@ def restore_project(
     db.commit()
     db.refresh(project)
     return project
+
+
+# ---------------------------------------------------------------------------
+# 종합추이 (회차별 지표)
+# ---------------------------------------------------------------------------
+
+@router.get("/{project_id}/trend", response_model=ProjectTrend)
+def get_project_trend(
+    project_id: int,
+    db: DbSession = Depends(get_db),
+    user_id: int = Depends(get_current_user_id),
+):
+    """폴더 안 회차들의 전체 지표를 회차 순으로. 새로 계산하지 않고 **저장된 분석 결과만** 모은다.
+
+    값은 단일 분석 화면 상단 카드와 같은 기준이다 (voice-summary 와 동작 분석 합계).
+    비교 분석(app/services/compare.py)과 같은 계산 함수를 쓴다.
+    분석이 안 끝난 단계의 값은 None — 그래프에서 그 회차는 비워 둔다.
+    """
+    get_owned_project(db, project_id, user_id)
+    sessions = db.scalars(
+        select(Session).where(Session.project_id == project_id).order_by(Session.session_no)
+    ).all()
+    data = load_sessions(db, [s.session_id for s in sessions])
+
+    points = []
+    for s in sessions:
+        d = data[s.session_id]
+        m = overall_metrics(d["voice"], d["summary"], d["vas"])
+        points.append(TrendPoint(
+            session_id=s.session_id,
+            session_no=s.session_no,
+            created_at=s.created_at,
+            duration_sec=m["duration_sec"],
+            filler_count=m["filler_count"],
+            repetition_count=m["repetition_count"],
+            silence_ratio=m["silence_ratio"],
+            speaking_rate_spm=m["speaking_rate_spm"],
+            general_gesture=m["general_gesture"],
+            negative_gesture=m["negative_gesture"],
+        ))
+    return ProjectTrend(project_id=project_id, points=points)
 
 
 # ---------------------------------------------------------------------------

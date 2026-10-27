@@ -8,6 +8,7 @@ from app.models.analysis import (
     VoiceRaw,
 )
 from app.models.analysis_event import AnalysisEvent
+from app.models.comparison import SessionComparison
 from app.models.project import Project
 from app.models.session import Chunk, Session
 from app.models.user import OAuthAccount, RefreshToken, User
@@ -27,4 +28,5 @@ __all__ = [
     "Feedback",
     "SessionSummary",
     "AnalysisEvent",
+    "SessionComparison",
 ]

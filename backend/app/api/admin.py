@@ -170,6 +170,7 @@ def _latest_run(evs: list[AnalysisEvent]) -> tuple[dict[str, AnalysisEvent], int
     아직 실행 중인 단계가 있으면 총 소요는 None.
     evs 는 시작 시각 순이어야 한다.
     """
+    evs = [ev for ev in evs if ev.step in STEPS]   # 비교 피드백(comparison)은 분석 1회에 속하지 않는다
     if not evs:
         return {}, None, False
     starts = [i for i, ev in enumerate(evs) if ev.step == "preprocess"]

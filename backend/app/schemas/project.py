@@ -41,6 +41,26 @@ class ProjectWithSessions(ProjectRead):
     sessions: list[SessionRead] = []
 
 
+class TrendPoint(BaseModel):
+    """종합추이 — 회차 하나의 전체 지표. 분석이 안 끝난 값은 None."""
+
+    session_id: int
+    session_no: int
+    created_at: datetime
+    duration_sec: float | None          # 발표 길이
+    filler_count: int | None            # 필러 횟수 (STEP 3)
+    repetition_count: int | None        # 반복(말더듬) 횟수 (STEP 3)
+    silence_ratio: float | None         # 전체 무음 비율 0~1 (STEP 3)
+    speaking_rate_spm: float | None     # 평균 말하기 속도, 음절/분 (STEP 4)
+    general_gesture: int | None         # 일반 제스처 횟수 (STEP 2)
+    negative_gesture: int | None        # 부정적 제스처 횟수 (STEP 2)
+
+
+class ProjectTrend(BaseModel):
+    project_id: int
+    points: list[TrendPoint]            # 회차 번호 순
+
+
 class ProjectTrashItem(ProjectWithSessions):
     """휴지통 목록 항목.
 

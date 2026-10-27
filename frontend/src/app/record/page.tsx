@@ -6,6 +6,7 @@ import { ArrowLeft, Circle, Square, Sparkles, Loader2, AlertCircle, RotateCcw, C
 
 // API 호출은 apiFetch (로그인 토큰 자동 첨부, 만료 시 자동 갱신) — frontend/src/utils/api.ts
 import { apiFetch } from "@/utils/api";
+import { runAnalysis } from "@/utils/analysis";
 import { isLoggedIn } from "@/utils/auth";
 import { startBackgroundBlur, BlurredCamera } from "./backgroundBlur";
 const CHUNK_MS = 30_000; // 전송용 청크 길이 (STEP1 전처리 단위, app/api/sessions.py CHUNK_DURATION_SEC와 동일)
@@ -322,65 +323,16 @@ function RecordPage() {
     setPhase("ready");
   };
 
-  // 분석 단계 하나를 호출한다. 실패하면 서버가 알려준 이유(detail)를 담아 에러를 던진다.
-  const callStep = async (path: string) => {
-    const res = await apiFetch(`/sessions/${sessionIdRef.current}${path}`, { method: "POST" });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
-    return data;
-  };
-
   const errText = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
-  // STEP 2~5를 차례로 실행한다. (실패하면 "ready" 상태로 돌아가 같은 세션으로 다시 시도할 수 있다)
+  // STEP 3~5를 차례로 실행한다 (utils/analysis.ts). 실패하면 "ready" 상태로 돌아가 같은 세션으로 다시 시도할 수 있다.
   const analyze = async () => {
     if (!sessionIdRef.current) return;
     setPhase("analyzing");
     setErrorMsg(null);
     setAnalysisFailed(false);
     try {
-      // 순서: 음성 → 구간 분리 → 영상. 영상은 구간을 기준으로 잘라서 보내므로 구간 분리가 먼저 끝나야 한다.
-      setStepLabel("목소리를 분석하는 중이에요 (몇 분 정도 걸려요)");
-      log("목소리를 살펴보고 있어요...");
-      try {
-        await callStep("/analyze/voice");
-      } catch (err) {
-        // 음성 결과 없이는 구간을 나눌 수 없어서 실패하면 멈춘다.
-        throw new Error(`음성 분석 실패: ${errText(err)}`);
-      }
-      log("목소리 분석을 마쳤어요.", "success");
-
-      setStepLabel("발표 내용을 구간으로 나누는 중이에요");
-      const seg = await callStep("/analyze/segments");
-      log(`발표를 ${seg.segment_count}개 구간으로 나눴어요.`, "success");
-
-      setStepLabel("구간별로 동작을 분석하는 중이에요");
-      log("동작을 살펴보고 있어요...");
-      try {
-        await callStep("/analyze/motion-by-segment");
-        log("동작 분석을 마쳤어요.", "success");
-      } catch {
-        // 영상 분석은 실패해도 계속 진행한다 (제스처 값만 비게 됨).
-        log("동작 분석에 문제가 있었지만, 나머지는 계속 진행할게요.", "warn");
-      }
-
-      // 구간별 피드백은 실패해도 앞 단계 결과는 볼 수 있으니 경고만 남기고 넘어간다.
-      setStepLabel("구간별로 자세한 피드백을 만드는 중이에요");
-      try {
-        await callStep("/analyze/segment-feedback");
-        log("구간별 피드백이 완성됐어요!", "success");
-      } catch {
-        log("구간별 피드백 생성에는 실패했어요. 다른 결과는 확인할 수 있어요.", "warn");
-      }
-
-      // 종합 피드백(발표 전체 총평)도 마찬가지로 실패해도 넘어간다.
-      setStepLabel("전체 총평을 정리하는 중이에요");
-      try {
-        await callStep("/analyze/overall-feedback");
-        log("전체 총평까지 완성됐어요!", "success");
-      } catch {
-        log("총평 생성에는 실패했어요. 나머지 결과는 확인할 수 있어요.", "warn");
-      }
+      await runAnalysis(sessionIdRef.current, { onStep: setStepLabel, onLog: log });
 
       log("분석이 모두 끝났습니다! 결과 화면으로 이동할게요.", "success");
       setPhase("done");
