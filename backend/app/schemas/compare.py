@@ -68,7 +68,7 @@ class CompareFeedback(BaseModel):
 class ProjectCompare(BaseModel):
     project_id: int
     sessions: list[CompareSession]      # 폴더의 전체 회차 (회차 선택용)
-    base: CompareSession | None         # 비교할 수 있는 회차가 2개 미만이면 None
+    base: CompareSession | None         # 두 회차를 아직 안 골랐으면 None
     target: CompareSession | None
     metrics: list[MetricDiff]
     labels: list[LabelCompare]

@@ -916,7 +916,7 @@ function PresentationAnalysisDashboard() {
   const renderMenuButton = (menu: typeof MENUS[number], horizontal: boolean) => {
     const Icon = menu.icon;
     const isActive = activeMenu === menu.id;
-    const isDisabled = !activeSessionId && menu.id !== 'sessions';
+    const isDisabled = !activeSessionId && menu.id !== 'sessions' && menu.id !== 'compare';
 
     return (
       <button
@@ -1356,7 +1356,7 @@ function PresentationAnalysisDashboard() {
           )}
 
           {/* Analysis Views — 회차를 골랐을 때만 */}
-          {activeMenu !== 'sessions' && activeMenu !== 'trash' && activeSessionId ? (
+          {activeMenu !== 'sessions' && activeMenu !== 'trash' && (activeSessionId || activeMenu === 'compare') ? (
             // 단일 분석은 왼쪽·오른쪽 두 칸으로 놓으므로 더 넓게 쓴다
             <div className={`${topNav ? 'max-w-[1200px]' : 'max-w-[1200px]'} mx-auto space-y-6 pb-12`}>
 
@@ -1716,11 +1716,12 @@ function PresentationAnalysisDashboard() {
               )}
 
               {/* VIEW: Compare Analysis — 같은 폴더의 두 회차 비교 (CompareView.tsx) */}
-              {activeMenu === 'compare' && isAdmin && activeTopicId && (
+              {activeMenu === 'compare' && isAdmin && (
                 <CompareView
-                  projectId={activeTopicId}
-                  targetSessionId={activeSessionId}
-                  onTargetChange={(id) => goTo({ session: id })}
+                  projects={topics.map((t) => ({ id: t.id, name: t.name }))}
+                  projectId={activeTopicId || openFolderId || ''}
+                  onProjectChange={(id) => goTo({ folder: id, session: null })}
+                  initialSessionId={activeSessionId}
                 />
               )}
 

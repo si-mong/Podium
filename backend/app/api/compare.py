@@ -6,7 +6,7 @@
 
 두 회차는 같은 폴더에 있고 구간 분리(STEP4)까지 끝나 있어야 한다. 아니면 400.
 **지금은 관리자만** 쓸 수 있다 (더 다듬은 뒤 공개). 관리자도 자기 폴더만 비교할 수 있다.
-base/target 을 안 주면 비교할 수 있는 회차 중 마지막 회차(target)와 그 직전 회차(base).
+GET 에 base/target 을 둘 다 주지 않으면 회차 목록만 돌려준다 — 화면에서 사용자가 두 회차를 먼저 고른다.
 """
 from __future__ import annotations
 
@@ -47,23 +47,17 @@ def _project_sessions(db: DbSession, project_id: int) -> tuple[list[CompareSessi
 
 
 def _pick(items: list[CompareSession], base: int | None, target: int | None) -> tuple[CompareSession | None, CompareSession | None]:
-    """비교할 두 회차를 고른다. 직접 고른 회차가 이 폴더에 없거나 아직 비교할 수 없으면 400."""
-    ok = [s for s in items if s.comparable]
+    """사용자가 고른 두 회차. 둘 중 하나라도 안 골랐으면 (None, None).
+    고른 회차가 이 폴더에 없거나 아직 비교할 수 없으면(구간 분리 전) 400."""
     by_id = {s.session_id: s for s in items}
     for sid in (base, target):
         if sid is not None and (sid not in by_id or not by_id[sid].comparable):
             raise HTTPException(400, "비교할 수 없는 회차예요. 같은 폴더에서 분석이 끝난 회차를 골라 주세요.")
     if base is not None and base == target:
         raise HTTPException(400, "서로 다른 두 회차를 골라 주세요.")
-    if len(ok) < 2:
+    if base is None or target is None:
         return None, None
-    t = by_id[target] if target is not None else ok[-1]
-    if base is not None:
-        return by_id[base], t
-    # 기본 비교 대상: 이번 회차 바로 앞의 회차. 첫 회차를 골랐으면 바로 뒤 회차.
-    before = [s for s in ok if s.session_no < t.session_no]
-    after = [s for s in ok if s.session_no > t.session_no]
-    return (before[-1] if before else after[0]), t
+    return by_id[base], by_id[target]
 
 
 def _to_feedback(db: DbSession, c: SessionComparison) -> CompareFeedback:
@@ -98,7 +92,10 @@ def get_compare(
     db: DbSession = Depends(get_db),
     user_id: int = Depends(get_current_user_id),
 ):
-    """두 회차의 전체 지표·구간별 지표·스크립트. 저장하지 않고 저장된 분석 결과로 그때그때 계산한다."""
+    """두 회차의 전체 지표·구간별 지표·스크립트. 저장하지 않고 저장된 분석 결과로 그때그때 계산한다.
+
+    base/target 을 둘 다 주지 않으면 회차 목록(sessions)만 채워서 돌려준다 (회차 고르는 화면용).
+    """
     get_owned_project(db, project_id, user_id)
     items, data = _project_sessions(db, project_id)
     b, t = _pick(items, base, target)

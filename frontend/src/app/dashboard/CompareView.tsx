@@ -1,12 +1,13 @@
 "use client";
 
 // 비교 분석 화면 — 같은 폴더의 두 회차를 비교한다 (설계: docs/Dev-비교분석.md).
+// 먼저 프로젝트와 회차 2개를 고르고(SessionPicker) "비교하기"를 누르면 아래 결과를 보여 준다.
 //   ① 총 지표 비교   : GET /projects/{id}/compare 의 metrics (분당 횟수로 맞춰 비교, 판정은 백엔드가 함)
 //   ② 구간별 비교    : 같은 라벨(도입·해결방안 …) 구간끼리. 두 회차 영상·스크립트·지표를 나란히
 //   ③ AI 비교 피드백 : POST /projects/{id}/compare/feedback — 지난 회차 개선점이 고쳐졌는지 GPT 가 판정 (저장됨)
 
 import { useEffect, useRef, useState } from 'react';
-import { AlertCircle, ArrowRight, BarChart2, Columns, FileText, Lightbulb, Loader2, RefreshCw, Sparkles, ThumbsUp } from 'lucide-react';
+import { AlertCircle, ArrowLeft, ArrowRight, BarChart2, Check, Columns, FileText, Lightbulb, Loader2, RefreshCw, Sparkles, ThumbsUp } from 'lucide-react';
 import { API_BASE, apiFetch } from '@/utils/api';
 import { fmtTime } from './InteractiveScript';
 
@@ -168,31 +169,128 @@ function SessionColumn({ title, tone, session, segments }: {
   );
 }
 
-export default function CompareView({ projectId, targetSessionId, onTargetChange }: {
-  projectId: string; targetSessionId: string; onTargetChange: (sessionId: string) => void;
+// 회차 고르기 — 폴더의 회차를 카드로 보여 주고 2개를 고르게 한다. 분석이 안 끝난 회차는 고를 수 없다.
+// 고른 순서와 상관없이 앞 회차가 "이전", 뒤 회차가 "이번"이 된다.
+function SessionPicker({ projects, projectId, onProjectChange, sessions, picks, setPicks, onCompare }: {
+  projects: { id: string; name: string }[]; projectId: string; onProjectChange: (id: string) => void;
+  sessions: CompareSession[] | null; picks: number[]; setPicks: (p: number[]) => void; onCompare: () => void;
 }) {
-  const [baseId, setBaseId] = useState<number | null>(null);
+  const toggle = (id: number) => {
+    if (picks.includes(id)) setPicks(picks.filter((p) => p !== id));
+    else setPicks([...picks.slice(-1), id]); // 이미 2개면 먼저 고른 것을 빼고 새로 고른 것을 넣는다
+  };
+  const chosen = (sessions ?? []).filter((s) => picks.includes(s.session_id)).sort((a, b) => a.session_no - b.session_no);
+  const comparableCount = (sessions ?? []).filter((s) => s.comparable).length;
+
+  return (
+    <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 bg-white rounded-xl shadow-sm border border-stone-200 p-5 sm:p-6">
+      <div className="flex flex-wrap items-center gap-3 mb-1">
+        <h3 className="font-extrabold text-stone-800 text-lg flex items-center gap-2 mr-auto">
+          <span className="bg-stone-100 text-stone-700 p-1.5 rounded-xl"><Columns className="w-5 h-5" /></span>
+          비교할 회차 2개를 골라 주세요
+        </h3>
+        <select value={projectId} onChange={(e) => onProjectChange(e.target.value)}
+          className="border border-stone-200 rounded-lg px-3 py-2 text-sm font-semibold text-stone-700 bg-white max-w-full">
+          {!projectId && <option value="">프로젝트 선택</option>}
+          {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+      </div>
+      <p className="text-xs text-stone-500 mb-5">같은 프로젝트 안에서 분석이 끝난 회차끼리 비교할 수 있어요. 앞 회차가 &lsquo;이전&rsquo;, 뒤 회차가 &lsquo;이번&rsquo;이 돼요.</p>
+
+      {!projectId ? (
+        <p className="text-sm text-stone-400 text-center py-10">먼저 프로젝트를 골라 주세요</p>
+      ) : !sessions ? (
+        <div className="flex justify-center py-10"><Loader2 className="w-5 h-5 animate-spin text-stone-400" /></div>
+      ) : sessions.length === 0 ? (
+        <p className="text-sm text-stone-400 text-center py-10">이 프로젝트에는 아직 회차가 없어요</p>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3">
+            {sessions.map((s) => {
+              const on = picks.includes(s.session_id);
+              return (
+                <button key={s.session_id} disabled={!s.comparable} onClick={() => toggle(s.session_id)}
+                  className={`text-left rounded-xl border px-4 py-3 transition-all flex items-start gap-3
+                    ${on ? 'border-stone-800 bg-stone-50 ring-1 ring-stone-800' : 'border-stone-200 bg-white hover:bg-stone-50'}
+                    disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white`}>
+                  <span className={`mt-0.5 w-4 h-4 rounded border flex items-center justify-center shrink-0 ${on ? 'bg-stone-800 border-stone-800' : 'border-stone-300'}`}>
+                    {on && <Check className="w-3 h-3 text-white" />}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block font-bold text-stone-800">{s.session_no}회차</span>
+                    <span className="block text-xs text-stone-500">{s.created_at.slice(0, 10).replace(/-/g, '.')}{s.comparable ? '' : ' · 분석 전'}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          {comparableCount < 2 && (
+            <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 mt-4">
+              분석이 끝난 회차가 2개 이상 있어야 비교할 수 있어요. (지금 {comparableCount}개)
+            </p>
+          )}
+          <div className="flex flex-wrap items-center justify-end gap-3 mt-5">
+            <span className="text-sm font-semibold text-stone-600">
+              {chosen.length === 2 ? `${chosen[0].session_no}회차 → ${chosen[1].session_no}회차` : `${chosen.length}/2 선택`}
+            </span>
+            <button onClick={onCompare} disabled={chosen.length !== 2}
+              className="bg-stone-900 text-white font-bold text-sm rounded-xl px-5 py-2.5 hover:bg-stone-800 disabled:opacity-40 flex items-center gap-1.5">
+              비교하기 <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+export default function CompareView({ projects, projectId, onProjectChange, initialSessionId }: {
+  projects: { id: string; name: string }[];
+  projectId: string;                       // 지금 열린 프로젝트 (없으면 '')
+  onProjectChange: (projectId: string) => void;
+  initialSessionId: string;                // 보던 회차가 있으면 미리 골라 둔다
+}) {
+  const [sessions, setSessions] = useState<CompareSession[] | null>(null);
+  const [picks, setPicks] = useState<number[]>([]);
+  const [pair, setPair] = useState<{ base: number; target: number } | null>(null); // "비교하기"를 누른 두 회차
   const [data, setData] = useState<ProjectCompare | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [labelIdx, setLabelIdx] = useState(0);
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
 
-  // 이번 회차를 바꾸면 이전 회차는 다시 기본값(바로 앞 회차)으로
-  useEffect(() => { setBaseId(null); }, [targetSessionId]);
-
+  // 프로젝트가 바뀌면 회차 목록을 새로 받고 고르기부터 다시
   useEffect(() => {
+    setSessions(null);
+    setPair(null);
+    setData(null);
+    setLoadError(null);
     if (!projectId) return;
     let cancelled = false;
+    (async () => {
+      const res = await apiFetch(`/projects/${projectId}/compare`);
+      if (cancelled) return;
+      if (!res.ok) {
+        setLoadError('회차 목록을 불러오지 못했어요.');
+        return;
+      }
+      const list: CompareSession[] = (await res.json()).sessions;
+      setSessions(list);
+      const init = list.find((s) => String(s.session_id) === initialSessionId && s.comparable);
+      setPicks(init ? [init.session_id] : []);
+    })();
+    return () => { cancelled = true; };
+  }, [projectId]);
+
+  // 두 회차를 고르고 "비교하기"를 누르면 비교 결과를 받는다
+  useEffect(() => {
+    if (!pair) return;
+    let cancelled = false;
+    setData(null);
     setLoadError(null);
     setGenError(null);
-    const q = new URLSearchParams();
-    if (targetSessionId) q.set('target', targetSessionId);
-    if (baseId != null) q.set('base', String(baseId));
     (async () => {
-      let res = await apiFetch(`/projects/${projectId}/compare?${q}`);
-      // 지금 보던 회차가 아직 비교할 수 없는 회차면(분석 전) 기본 회차로 다시 받는다
-      if (res.status === 400 && targetSessionId && baseId == null) res = await apiFetch(`/projects/${projectId}/compare`);
+      const res = await apiFetch(`/projects/${projectId}/compare?base=${pair.base}&target=${pair.target}`);
       if (cancelled) return;
       if (!res.ok) {
         setLoadError('비교 결과를 불러오지 못했어요.');
@@ -202,7 +300,12 @@ export default function CompareView({ projectId, targetSessionId, onTargetChange
       setLabelIdx(0);
     })();
     return () => { cancelled = true; };
-  }, [projectId, targetSessionId, baseId]);
+  }, [pair]);
+
+  const startCompare = () => {
+    const chosen = (sessions ?? []).filter((s) => picks.includes(s.session_id)).sort((a, b) => a.session_no - b.session_no);
+    if (chosen.length === 2) setPair({ base: chosen[0].session_id, target: chosen[1].session_id });
+  };
 
   const generate = async () => {
     if (!data?.base || !data.target) return;
@@ -223,19 +326,14 @@ export default function CompareView({ projectId, targetSessionId, onTargetChange
   if (loadError) {
     return <div className="bg-rose-50 border border-rose-200 text-rose-700 text-sm rounded-xl px-4 py-3">{loadError}</div>;
   }
-  if (!data) {
-    return <div className="flex justify-center py-20"><Loader2 className="w-6 h-6 animate-spin text-stone-400" /></div>;
-  }
-
-  const comparable = data.sessions.filter((s) => s.comparable);
-  if (!data.base || !data.target) {
+  if (!pair) {
     return (
-      <div className="bg-white rounded-xl shadow-sm border border-stone-200 p-10 text-center">
-        <Columns className="w-8 h-8 text-stone-300 mx-auto mb-3" />
-        <p className="font-bold text-stone-700">분석이 끝난 회차가 2개 이상 있어야 비교할 수 있어요</p>
-        <p className="text-sm text-stone-500 mt-1">지금 이 폴더에서 비교할 수 있는 회차: {comparable.length}개</p>
-      </div>
+      <SessionPicker projects={projects} projectId={projectId} onProjectChange={onProjectChange}
+        sessions={sessions} picks={picks} setPicks={setPicks} onCompare={startCompare} />
     );
+  }
+  if (!data || !data.base || !data.target) {
+    return <div className="flex justify-center py-20"><Loader2 className="w-6 h-6 animate-spin text-stone-400" /></div>;
   }
 
   const { base, target } = data;
@@ -246,27 +344,18 @@ export default function CompareView({ projectId, targetSessionId, onTargetChange
 
   return (
     <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 space-y-6">
-      {/* 회차 선택 */}
+      {/* 비교 중인 두 회차 */}
       <div className="bg-white rounded-xl shadow-sm border border-stone-200 p-4 sm:p-5 flex flex-wrap items-center gap-3">
         <h3 className="font-extrabold text-stone-800 text-lg flex items-center gap-2 mr-auto">
           <span className="bg-stone-100 text-stone-700 p-1.5 rounded-xl"><Columns className="w-5 h-5" /></span>
-          회차 비교
+          <span className="text-xs font-bold px-2 py-0.5 rounded bg-stone-200 text-stone-600">이전</span>{base.session_no}회차
+          <ArrowRight className="w-4 h-4 text-stone-400" />
+          <span className="text-xs font-bold px-2 py-0.5 rounded bg-stone-800 text-white">이번</span>{target.session_no}회차
         </h3>
-        <div className="flex items-center gap-2">
-          <select value={base.session_id} onChange={(e) => setBaseId(Number(e.target.value))}
-            className="border border-stone-200 rounded-lg px-3 py-2 text-sm font-semibold text-stone-700 bg-white">
-            {comparable.filter((s) => s.session_id !== target.session_id).map((s) => (
-              <option key={s.session_id} value={s.session_id}>이전: {s.session_no}회차</option>
-            ))}
-          </select>
-          <ArrowRight className="w-4 h-4 text-stone-400 shrink-0" />
-          <select value={target.session_id} onChange={(e) => onTargetChange(e.target.value)}
-            className="border border-stone-200 rounded-lg px-3 py-2 text-sm font-semibold text-stone-800 bg-white">
-            {comparable.filter((s) => s.session_id !== base.session_id).map((s) => (
-              <option key={s.session_id} value={s.session_id}>이번: {s.session_no}회차</option>
-            ))}
-          </select>
-        </div>
+        <button onClick={() => setPair(null)}
+          className="text-sm font-semibold text-stone-600 border border-stone-200 rounded-lg px-3 py-1.5 hover:bg-stone-50 flex items-center gap-1.5">
+          <ArrowLeft className="w-3.5 h-3.5" />회차 다시 고르기
+        </button>
       </div>
 
       {data.warnings.map((w) => (
