@@ -15,7 +15,7 @@ import { ArrowRight, ChevronDown, Eye, Gauge, Hand, MessageCircleMore, Pause, Pe
 import UsageSteps from "./UsageSteps";
 
 interface Props {
-  headerActions: ReactNode; // 상단 오른쪽 버튼들 (로그인/회원가입 또는 내 기록/로그아웃)
+  headerActions: ReactNode; // 상단 오른쪽 버튼들 (로그인/시작하기 또는 내 기록/로그아웃)
   primaryAction: { label: string; onClick: () => void }; // 소개 아래 검은 버튼
   secondaryAction?: { label: string; onClick: () => void };
 }
