@@ -34,13 +34,23 @@ app = modal.App("podium-stt", image=image)
 class SeloWhisper:
     @modal.enter()
     def load(self):
+        import time
+        import torch
         from app.pipeline.voice.stt_hf import get_model
+        t0 = time.perf_counter()
         get_model(MODEL_ID, "cuda")    # 컨테이너가 뜰 때 한 번만 GPU 에 올린다
+        self.model_load_sec = round(time.perf_counter() - t0, 2)
+        self.gpu = torch.cuda.get_device_name(0)
+        self.calls = 0                 # 0 이면 이번 호출이 이 컨테이너의 첫 호출 = 콜드 스타트
 
     @modal.method()
     def transcribe(self, samples: bytes, sr: int, model_id: str, language: str = "ko") -> dict:
         """samples: 16kHz mono PCM16 (little-endian) 바이트."""
+        import time
         import numpy as np
+        started_at = time.time()       # 호출부가 "보낸 시각 → 여기 도착" 으로 GPU 배정 대기를 잰다
+        cold = self.calls == 0
+        self.calls += 1
         from app.pipeline.voice.stt_hf import transcribe_samples
 
         if model_id != MODEL_ID:
@@ -52,4 +62,8 @@ class SeloWhisper:
             "sentences": [vars(s) for s in r.sentences],
             "decode_sec": r.decode_sec,
             "device": "cuda",
+            "started_at": started_at,
+            "gpu": self.gpu,
+            "cold": cold,
+            "model_load_sec": self.model_load_sec if cold else 0.0,
         }

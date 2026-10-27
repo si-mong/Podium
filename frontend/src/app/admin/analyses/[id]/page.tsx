@@ -45,9 +45,39 @@ function RunTimeline({ run }: { run: Run }) {
   );
 }
 
+// 음성 분석 안의 세부 시간 (analysis_events.detail). 1분 넘게 걸린 GPU 대기는 빨갛게.
+function VoiceTimings({ d, totalMs }: { d: NonNullable<Event["detail"]>; totalMs: number | null }) {
+  const n = (k: string) => (typeof d[k] === "number" ? (d[k] as number) : null);
+  const sec = (v: number | null) => fmtMs(v == null ? null : Math.round(v * 1000));
+  const waitKey = n("stt_queue_sec") != null ? "stt_queue_sec" : "stt_wait_sec";
+  const known = (n("vad_sec") ?? 0) + (n("stt_sec") ?? 0) + (n("filler_sec") ?? 0);
+  const etc = totalMs == null ? null : Math.max(totalMs / 1000 - known, 0);
+  const items: [string, number | null, boolean?][] = [
+    ["무음 검출", n("vad_sec")],
+    [waitKey === "stt_queue_sec" ? "GPU 배정 대기" : "인식 준비", n(waitKey), (n(waitKey) ?? 0) > 60],
+    ...(n("stt_model_load_sec") ? [["모델 로딩", n("stt_model_load_sec")] as [string, number | null]] : []),
+    ["음성 인식", n("stt_decode_sec")],
+    ["필러·반복", n("filler_sec")],
+    ["기타(파일·저장)", etc],
+  ];
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
+      {items.map(([label, v, warn]) => (
+        <span key={label} className={warn ? "text-red-600 font-semibold" : ""}>
+          {label} <span className="text-slate-700">{sec(v)}</span>
+        </span>
+      ))}
+      {typeof d.stt_gpu === "string" && (
+        <code className="text-[11px]">{d.stt_gpu}{d.stt_cold ? " · 콜드 스타트" : ""}</code>
+      )}
+    </div>
+  );
+}
+
 interface Event {
   event_id: number; step: string; status: string; model: string | null; duration_ms: number | null;
   error: string | null; started_at: string; finished_at: string | null;
+  detail: Record<string, number | string | boolean> | null;
 }
 interface SegmentFb {
   segment_id: number; label: string; title: string; t_start: number; t_end: number;
@@ -181,8 +211,8 @@ export default function AdminAnalysisDetailPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {data.events.map((ev) => (
-                        <tr key={ev.event_id} className="border-b border-slate-50 last:border-0 align-top">
+                      {data.events.flatMap((ev) => [
+                        <tr key={ev.event_id} className={`${ev.detail ? "" : "border-b border-slate-50 last:border-0"} align-top`}>
                           <td className="py-2 pr-4 text-slate-600 whitespace-nowrap">
                             {new Date(ev.started_at).toLocaleTimeString("ko-KR")}
                           </td>
@@ -191,8 +221,14 @@ export default function AdminAnalysisDetailPage() {
                           <td className="py-2 pr-4 text-right text-slate-700 whitespace-nowrap">{fmtMs(ev.duration_ms)}</td>
                           <td className="py-2 pr-4 text-slate-500"><code className="text-xs">{ev.model ?? "-"}</code></td>
                           <td className="py-2 text-red-700 text-xs break-all">{ev.error ?? ""}</td>
-                        </tr>
-                      ))}
+                        </tr>,
+                        ev.detail && (
+                          <tr key={`${ev.event_id}-detail`} className="border-b border-slate-50 last:border-0">
+                            <td />
+                            <td colSpan={5} className="pb-2 -mt-1"><VoiceTimings d={ev.detail} totalMs={ev.duration_ms} /></td>
+                          </tr>
+                        ),
+                      ])}
                     </tbody>
                   </table>
                 </div>

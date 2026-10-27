@@ -34,6 +34,7 @@ def transcribe_modal(wav_path: Path, model_id: str, language: str = "ko") -> Stt
         stt = modal.Cls.from_name(APP_NAME, CLASS_NAME)()
         # load_wav 는 PCM16 을 32768 로 나눈 값이라 PCM16 으로 되돌려 보내도 손실이 없다 (float32 대비 전송량 절반).
         pcm16 = np.round(samples * 32768.0).clip(-32768, 32767).astype("<i2").tobytes()
+        sent_at = time.time()
         out = stt.transcribe.remote(pcm16, sr, model_id, language)
     except Exception as e:   # 인증 실패, 미배포, 사용 한도 초과 등은 Modal 예외 종류가 제각각이라 묶어서 알린다
         raise RuntimeError(
@@ -41,6 +42,12 @@ def transcribe_modal(wav_path: Path, model_id: str, language: str = "ko") -> Stt
             "토큰 설정, `modal deploy modal_stt.py` 배포 여부, Modal 사용 한도를 확인하세요."
         ) from e
     total = round(time.perf_counter() - t0, 2)
+    remote = {"gpu": out.get("gpu"), "cold": out.get("cold")}
+    if "started_at" in out:   # 예전 배포본(modal_stt.py 재배포 전)은 이 값이 없다
+        # 보낸 뒤 GPU 에서 실행이 시작될 때까지 = 업로드 + GPU 배정 대기 + 컨테이너 부팅 + 모델 로딩(콜드일 때)
+        until_start = max(out["started_at"] - sent_at, 0.0)
+        remote["model_load_sec"] = out["model_load_sec"]
+        remote["queue_sec"] = round(max(until_start - out["model_load_sec"], 0.0), 2)
 
     words = [Word(**w) for w in out["words"]]
     sentences = [Sentence(**s) for s in out["sentences"]]
@@ -50,4 +57,5 @@ def transcribe_modal(wav_path: Path, model_id: str, language: str = "ko") -> Stt
         sentences=sentences, words=words, language=language,
         model_size=f"modal:{model_id} ({out['device']})",
         load_sec=round(total - out["decode_sec"], 2), decode_sec=out["decode_sec"],
+        remote=remote,
     )
