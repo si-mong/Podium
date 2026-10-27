@@ -7,9 +7,10 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { BarChart2, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
+import { PodiumLogo } from "@/components/ServiceGuide";
 import Link from "next/link";
-import { API_BASE, errorMessage } from "@/utils/api";
+import { API_BASE, apiFetch, errorMessage } from "@/utils/api";
 import { saveTokens } from "@/utils/auth";
 
 function GoogleLogo() {
@@ -74,7 +75,9 @@ export default function LoginPage() {
       }
       const data = await res.json();
       saveTokens(data.access_token, data.refresh_token);
-      router.push("/dashboard");
+      // 프로필 화면을 아직 안 거쳤으면(첫 로그인) 먼저 보낸다. 확인에 실패하면 그냥 대시보드로.
+      const me = await apiFetch("/auth/me").then((r) => (r.ok ? r.json() : null)).catch(() => null);
+      router.push(me && !me.profile_completed_at ? "/profile?welcome=1" : "/dashboard");
     } catch {
       setError("서버에 연결하지 못했어요. 잠시 후 다시 시도해주세요.");
     } finally {
@@ -83,24 +86,21 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-sans">
+    <div className="min-h-screen bg-stone-50 flex items-center justify-center p-4 font-['Pretendard_Variable',Pretendard,sans-serif]">
       <div className="w-full max-w-sm">
         {/* 로고 — 누르면 첫 화면(랜딩)으로 */}
-        <Link href="/" className="flex flex-col items-center gap-3 mb-8 group">
-          <div className="bg-blue-600 p-3 rounded-2xl shadow-sm shadow-blue-200 group-hover:bg-blue-700 transition-colors">
-            <BarChart2 className="w-7 h-7 text-white" />
-          </div>
-          <h1 className="text-xl font-extrabold text-slate-800 tracking-tight group-hover:text-blue-700 transition-colors">Podium</h1>
+        <Link href="/" className="flex justify-center mb-8 group">
+          <PodiumLogo className="h-10 w-auto group-hover:opacity-70 transition-opacity" />
         </Link>
 
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8">
-          <h2 className="text-lg font-bold text-slate-800">시작하기</h2>
-          <p className="text-sm text-slate-500 mt-1 mb-6">구글 계정으로 바로 로그인하세요. 처음이면 자동으로 가입돼요.</p>
+        <div className="bg-white rounded-2xl shadow-sm border border-stone-200 p-8">
+          <h2 className="text-lg font-bold text-stone-800">시작하기</h2>
+          <p className="text-sm text-stone-500 mt-1 mb-6">구글 계정으로 바로 로그인하세요. 처음이면 자동으로 가입돼요.</p>
 
           <button
             onClick={loginWithGoogle}
             disabled={redirecting || providers?.google === false}
-            className="w-full flex items-center justify-center gap-3 bg-white border border-slate-300 hover:bg-slate-50 disabled:opacity-60 text-slate-700 text-sm font-bold py-3 rounded-xl transition-colors"
+            className="w-full flex items-center justify-center gap-3 bg-white border border-stone-300 hover:bg-stone-50 disabled:opacity-60 text-stone-700 text-sm font-bold py-3 rounded-xl transition-colors"
           >
             {redirecting ? <Loader2 className="w-5 h-5 animate-spin" /> : <GoogleLogo />}
             Google로 계속하기
@@ -109,35 +109,35 @@ export default function LoginPage() {
             <p className="text-xs text-amber-700 mt-2">서버에 구글 로그인이 아직 설정되지 않았어요.</p>
           )}
 
-          <p className="text-xs text-slate-400 text-center mt-3">
+          <p className="text-xs text-stone-400 text-center mt-3">
             계속하면{" "}
-            <Link href="/terms" className="underline hover:text-slate-600">이용약관</Link>과{" "}
-            <Link href="/privacy" className="underline hover:text-slate-600">개인정보 처리방침</Link>에 동의하게 돼요.
+            <Link href="/terms" className="underline hover:text-stone-600">이용약관</Link>과{" "}
+            <Link href="/privacy" className="underline hover:text-stone-600">개인정보 처리방침</Link>에 동의하게 돼요.
           </p>
 
           {error && <p className="text-sm text-red-500 font-medium mt-4">{error}</p>}
 
           {providers?.password && (
-            <form onSubmit={loginWithPassword} className="mt-8 pt-6 border-t border-dashed border-slate-200 space-y-3">
-              <p className="text-xs font-bold text-slate-400">개발용 이메일 로그인 (로컬에서만 보여요)</p>
+            <form onSubmit={loginWithPassword} className="mt-8 pt-6 border-t border-dashed border-stone-200 space-y-3">
+              <p className="text-xs font-bold text-stone-400">개발용 이메일 로그인 (로컬에서만 보여요)</p>
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@example.com"
-                className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2.5 rounded-xl border border-stone-200 text-sm text-stone-800 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-stone-900"
               />
               <input
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="비밀번호"
-                className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2.5 rounded-xl border border-stone-200 text-sm text-stone-800 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-stone-900"
               />
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full flex items-center justify-center gap-2 bg-slate-700 hover:bg-slate-800 disabled:opacity-60 text-white text-sm font-bold py-2.5 rounded-xl transition-colors"
+                className="w-full flex items-center justify-center gap-2 bg-stone-900 hover:bg-stone-700 disabled:opacity-60 text-white text-sm font-bold py-2.5 rounded-xl transition-colors"
               >
                 {loading && <Loader2 className="w-4 h-4 animate-spin" />}
                 이메일로 로그인

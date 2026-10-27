@@ -8,7 +8,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Loader2 } from "lucide-react";
-import { API_BASE, errorMessage } from "@/utils/api";
+import { API_BASE, apiFetch, errorMessage } from "@/utils/api";
 import { saveTokens } from "@/utils/auth";
 
 export default function AuthCallbackPage() {
@@ -42,7 +42,10 @@ export default function AuthCallbackPage() {
         }
         const data = await res.json();
         saveTokens(data.access_token, data.refresh_token);
-        router.replace(next && next.startsWith("/") && !next.startsWith("//") ? next : "/dashboard");
+        // 처음 로그인(=구글로 가입)이면 프로필 화면부터. 확인에 실패하면 원래 가려던 곳으로.
+        const me = await apiFetch("/auth/me").then((r) => (r.ok ? r.json() : null)).catch(() => null);
+        const dest = next && next.startsWith("/") && !next.startsWith("//") ? next : "/dashboard";
+        router.replace(me && !me.profile_completed_at ? "/profile?welcome=1" : dest);
       } catch {
         setError("서버에 연결하지 못했어요. 잠시 후 다시 시도해주세요.");
       }
@@ -50,16 +53,16 @@ export default function AuthCallbackPage() {
   }, [router]);
 
   return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-sans">
+    <div className="min-h-screen bg-stone-50 flex items-center justify-center p-4 font-['Pretendard_Variable',Pretendard,sans-serif]">
       {error ? (
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 max-w-sm w-full text-center space-y-4">
+        <div className="bg-white rounded-2xl shadow-sm border border-stone-200 p-8 max-w-sm w-full text-center space-y-4">
           <p className="text-sm text-red-500 font-medium">{error}</p>
-          <Link href="/login" className="inline-block text-sm font-bold text-blue-600 hover:underline">
+          <Link href="/login" className="inline-block text-sm font-bold text-stone-900 underline hover:text-stone-600">
             로그인 화면으로
           </Link>
         </div>
       ) : (
-        <div className="flex items-center gap-2 text-slate-500 text-sm">
+        <div className="flex items-center gap-2 text-stone-500 text-sm">
           <Loader2 className="w-4 h-4 animate-spin" />
           로그인하는 중…
         </div>

@@ -8,7 +8,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { BarChart2 } from "lucide-react";
+import { PodiumLogo } from "@/components/ServiceGuide";
 
 export const metadata: Metadata = { title: "개인정보 처리방침 · Podium" };
 
@@ -28,31 +28,28 @@ const PROCESSORS = [
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="space-y-2">
-      <h2 className="text-sm font-bold text-slate-800">{title}</h2>
-      <div className="text-sm text-slate-600 leading-relaxed space-y-2">{children}</div>
+      <h2 className="text-sm font-bold text-stone-800">{title}</h2>
+      <div className="text-sm text-stone-600 leading-relaxed space-y-2">{children}</div>
     </section>
   );
 }
 
 export default function PrivacyPage() {
   return (
-    <div className="min-h-screen bg-slate-50 font-sans">
-      <header className="bg-white border-b border-slate-200">
+    <div className="min-h-screen bg-stone-50 text-stone-900 font-['Pretendard_Variable',Pretendard,sans-serif]">
+      <header className="bg-white border-b border-stone-200">
         <div className="max-w-3xl mx-auto px-6 py-4">
-          <Link href="/" className="inline-flex items-center gap-2 group">
-            <div className="bg-blue-600 p-1.5 rounded-lg group-hover:bg-blue-700 transition-colors">
-              <BarChart2 className="w-5 h-5 text-white" />
-            </div>
-            <span className="font-extrabold text-slate-800 tracking-tight">Podium</span>
+          <Link href="/" className="inline-flex">
+            <PodiumLogo className="h-6 w-auto hover:opacity-70 transition-opacity" />
           </Link>
         </div>
       </header>
 
       <main className="max-w-3xl mx-auto px-6 py-12">
-        <article className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 md:p-10 space-y-8">
+        <article className="bg-white rounded-2xl border border-stone-200 shadow-sm p-8 md:p-10 space-y-8">
           <div>
-            <h1 className="text-2xl font-extrabold text-slate-800 tracking-tight">개인정보 처리방침</h1>
-            <p className="text-sm text-slate-500 mt-2">
+            <h1 className="text-2xl font-extrabold text-stone-800 tracking-tight">개인정보 처리방침</h1>
+            <p className="text-sm text-stone-500 mt-2">
               {OPERATOR}(이하 &quot;운영자&quot;)은 발표 연습 분석 서비스 Podium(이하 &quot;서비스&quot;)을 운영하며,
               「개인정보 보호법」에 따라 이용자의 개인정보를 다음과 같이 처리합니다.
             </p>
@@ -65,6 +62,9 @@ export default function PrivacyPage() {
               </li>
               <li>
                 <b>구글 로그인 시</b>: 이메일 주소, 구글 계정 식별자. 구글 비밀번호는 받지 않습니다.
+              </li>
+              <li>
+                <b>프로필(선택)</b>: 이름, 소속·학과, 발표 목적. 입력하지 않아도 서비스를 모두 이용할 수 있습니다.
               </li>
               <li>
                 <b>서비스 이용 시</b>: 직접 촬영하거나 올린 발표 영상(얼굴·모습·목소리 포함), 영상에서 뽑은 음성,
@@ -81,7 +81,7 @@ export default function PrivacyPage() {
 
           <Section title="2. 이용 목적">
             <ul className="list-disc pl-5 space-y-1.5">
-              <li>회원 식별과 로그인 유지</li>
+              <li>회원 식별과 로그인 유지, 프로필 표시</li>
               <li>발표 영상의 음성·동작 분석, 구간별·종합 피드백 제공, 회차별 비교</li>
               <li>오류 확인, 분석 품질 개선, 부정 이용 방지</li>
             </ul>
@@ -110,8 +110,8 @@ export default function PrivacyPage() {
               각 업체는 처리가 끝나면 자사 정책에 따라 데이터를 삭제합니다. Gemini에 올린 영상 파일은 분석이 끝나면 운영자가 바로 삭제합니다.
             </p>
             <div className="overflow-x-auto">
-              <table className="w-full text-xs md:text-sm border border-slate-200 rounded-xl">
-                <thead className="bg-slate-50 text-slate-500">
+              <table className="w-full text-xs md:text-sm border border-stone-200 rounded-xl">
+                <thead className="bg-stone-50 text-stone-500">
                   <tr>
                     <th className="text-left font-semibold px-3 py-2">업체</th>
                     <th className="text-left font-semibold px-3 py-2">국가</th>
@@ -121,8 +121,8 @@ export default function PrivacyPage() {
                 </thead>
                 <tbody>
                   {PROCESSORS.map((p) => (
-                    <tr key={p.name} className="border-t border-slate-100 align-top">
-                      <td className="px-3 py-2 font-semibold text-slate-700 whitespace-nowrap">{p.name}</td>
+                    <tr key={p.name} className="border-t border-stone-100 align-top">
+                      <td className="px-3 py-2 font-semibold text-stone-700 whitespace-nowrap">{p.name}</td>
                       <td className="px-3 py-2 whitespace-nowrap">{p.country}</td>
                       <td className="px-3 py-2">{p.items}</td>
                       <td className="px-3 py-2">{p.purpose}</td>
@@ -155,7 +155,7 @@ export default function PrivacyPage() {
           <Section title="8. 문의">
             <p>
               {OPERATOR} ·{" "}
-              <a href={`mailto:${CONTACT_EMAIL}`} className="text-blue-600 font-semibold hover:underline">
+              <a href={`mailto:${CONTACT_EMAIL}`} className="text-stone-900 font-semibold underline hover:text-stone-600">
                 {CONTACT_EMAIL}
               </a>
             </p>

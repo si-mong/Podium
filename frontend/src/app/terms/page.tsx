@@ -4,7 +4,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { BarChart2 } from "lucide-react";
+import { PodiumLogo } from "@/components/ServiceGuide";
 
 export const metadata: Metadata = { title: "이용약관 · Podium" };
 
@@ -16,31 +16,28 @@ const EFFECTIVE_DATE = "2026년 10월 26일";
 function Article({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="space-y-2">
-      <h2 className="text-sm font-bold text-slate-800">{title}</h2>
-      <div className="text-sm text-slate-600 leading-relaxed space-y-2">{children}</div>
+      <h2 className="text-sm font-bold text-stone-800">{title}</h2>
+      <div className="text-sm text-stone-600 leading-relaxed space-y-2">{children}</div>
     </section>
   );
 }
 
 export default function TermsPage() {
   return (
-    <div className="min-h-screen bg-slate-50 font-sans">
-      <header className="bg-white border-b border-slate-200">
+    <div className="min-h-screen bg-stone-50 text-stone-900 font-['Pretendard_Variable',Pretendard,sans-serif]">
+      <header className="bg-white border-b border-stone-200">
         <div className="max-w-3xl mx-auto px-6 py-4">
-          <Link href="/" className="inline-flex items-center gap-2 group">
-            <div className="bg-blue-600 p-1.5 rounded-lg group-hover:bg-blue-700 transition-colors">
-              <BarChart2 className="w-5 h-5 text-white" />
-            </div>
-            <span className="font-extrabold text-slate-800 tracking-tight">Podium</span>
+          <Link href="/" className="inline-flex">
+            <PodiumLogo className="h-6 w-auto hover:opacity-70 transition-opacity" />
           </Link>
         </div>
       </header>
 
       <main className="max-w-3xl mx-auto px-6 py-12">
-        <article className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 md:p-10 space-y-8">
+        <article className="bg-white rounded-2xl border border-stone-200 shadow-sm p-8 md:p-10 space-y-8">
           <div>
-            <h1 className="text-2xl font-extrabold text-slate-800 tracking-tight">이용약관</h1>
-            <p className="text-sm text-slate-500 mt-2">
+            <h1 className="text-2xl font-extrabold text-stone-800 tracking-tight">이용약관</h1>
+            <p className="text-sm text-stone-500 mt-2">
               이 약관은 {OPERATOR}(이하 &quot;운영자&quot;)이 제공하는 발표 연습 분석 서비스 Podium(이하 &quot;서비스&quot;)의
               이용 조건과 절차, 운영자와 이용자의 권리·의무를 정합니다.
             </p>
@@ -50,7 +47,7 @@ export default function TermsPage() {
             <p>
               서비스는 이용자가 촬영하거나 올린 발표 영상을 분석해 말하기(속도, 필러, 반복, 무음)와 동작(자세, 제스처)에 대한
               수치와 구간별·종합 피드백을 제공합니다. 분석에는 외부 AI 서비스를 사용하며, 자세한 내용은{" "}
-              <Link href="/privacy" className="text-blue-600 font-semibold hover:underline">개인정보 처리방침</Link>에 적혀 있습니다.
+              <Link href="/privacy" className="text-stone-900 font-semibold underline hover:text-stone-600">개인정보 처리방침</Link>에 적혀 있습니다.
             </p>
           </Article>
 
@@ -124,11 +121,11 @@ export default function TermsPage() {
           <Article title="제10조 (문의)">
             <p>
               서비스 이용 문의: <b>{OPERATOR}</b> ·{" "}
-              <a href={`mailto:${CONTACT_EMAIL}`} className="text-blue-600 font-semibold hover:underline">
+              <a href={`mailto:${CONTACT_EMAIL}`} className="text-stone-900 font-semibold underline hover:text-stone-600">
                 {CONTACT_EMAIL}
               </a>
             </p>
-            <p className="text-slate-500">시행일: {EFFECTIVE_DATE}</p>
+            <p className="text-stone-500">시행일: {EFFECTIVE_DATE}</p>
           </Article>
         </article>
       </main>

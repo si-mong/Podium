@@ -59,7 +59,7 @@ interface Run {
 }
 interface Detail {
   session_id: number; session_no: number; project_title: string; project_trashed: boolean;
-  user_email: string; status: string; created_at: string; run: Run | null; events: Event[];
+  user_email: string; user_name: string | null; user_affiliation: string | null; status: string; created_at: string; run: Run | null; events: Event[];
   results: {
     voice_summary?: { filler_count: number | null; repetition_count: number | null; silence_ratio: number | null; avg_speaking_rate_spm: number | null } | null;
     overall?: { overall_summary: string | null } | null;
@@ -138,7 +138,10 @@ export default function AdminAnalysisDetailPage() {
                 {data.project_title} <span className="text-slate-400">· {data.session_no}회차</span>
               </h2>
               <p className="text-sm text-slate-500 mt-1">
-                {data.user_email} · 세션 #{data.session_id} · {fmtDate(data.created_at)} · 상태 <code>{data.status}</code>
+                {data.user_name && <b className="text-slate-700">{data.user_name}</b>}
+                {data.user_name && " · "}
+                {data.user_email}
+                {data.user_affiliation && ` · ${data.user_affiliation}`} · 세션 #{data.session_id} · {fmtDate(data.created_at)} · 상태 <code>{data.status}</code>
                 {data.project_trashed && <span className="ml-2 text-amber-700 font-semibold">휴지통에 있는 프로젝트 (결과 생략)</span>}
               </p>
             </div>

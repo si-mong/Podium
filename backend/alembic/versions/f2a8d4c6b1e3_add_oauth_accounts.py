@@ -1,7 +1,7 @@
 """add oauth_accounts, make users.password_hash nullable
 
 Revision ID: f2a8d4c6b1e3
-Revises: e7b3c1d9a4f2
+Revises: b5d2e8f1a3c7
 Create Date: 2026-10-23 12:00:00.000000
 
 """
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = 'f2a8d4c6b1e3'
-down_revision: Union[str, None] = 'e7b3c1d9a4f2'
+down_revision: Union[str, None] = 'b5d2e8f1a3c7'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

@@ -5,6 +5,7 @@
   POST /auth/refresh   -> refresh 로 새 쌍 발급 (기존 refresh 는 폐기 = 회전)
   POST /auth/logout    -> refresh 무효화
   GET  /auth/me        -> 현재 로그인한 사용자
+  PATCH /auth/me       -> 프로필(이름·소속·발표 목적) 수정
 
 회원가입은 구글 로그인으로만 한다 (auth_google.py). 이메일 가입은 없앴다 — 이메일 소유 확인이
 없어서 아무 주소로나 가입할 수 있었기 때문. 비밀번호 로그인은 구글 설정 없이 로컬에서
@@ -33,6 +34,7 @@ from app.core.security import (
 from app.models import RefreshToken, User
 from app.schemas.auth import (
     LoginRequest,
+    ProfileUpdate,
     RefreshRequest,
     TokenPair,
     UserRead,
@@ -105,6 +107,23 @@ def me(
     user_id: int = Depends(get_current_user_id),
 ):
     return db.get(User, user_id)
+
+
+@router.patch("/me", response_model=UserRead)
+def update_me(
+    body: ProfileUpdate,
+    db: DbSession = Depends(get_db),
+    user_id: int = Depends(get_current_user_id),
+):
+    """프로필 수정. 보낸 필드만 바꾸고, 프로필 화면을 거쳤다는 표시(profile_completed_at)를 남긴다."""
+    user = db.get(User, user_id)
+    for field, value in body.model_dump(exclude_unset=True).items():
+        setattr(user, field, value)
+    if user.profile_completed_at is None:
+        user.profile_completed_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(user)
+    return user
 
 
 # ---------------------------------------------------------------------------
