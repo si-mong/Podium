@@ -955,7 +955,7 @@ function PresentationAnalysisDashboard() {
         <div className={`${horizontal ? 'p-1.5 min-[1700px]:p-2' : 'p-1.5'} rounded-lg transition-colors ${isActive ? 'bg-stone-200' : isDisabled ? 'bg-stone-50' : 'bg-stone-100 group-hover:bg-stone-200'}`}>
           <Icon className={`${horizontal ? 'w-5 h-5 min-[1700px]:w-6 min-[1700px]:h-6' : 'w-4 h-4'} ${isActive ? 'text-stone-900' : 'text-stone-500'}`} />
         </div>
-        <span className={`${horizontal ? 'hidden md:inline text-[15px] whitespace-nowrap' : 'text-[15px]'} ${isActive ? 'font-bold' : 'font-semibold'}`}>
+        <span className={`${horizontal ? 'hidden md:inline text-sm whitespace-nowrap' : 'text-[15px]'} ${isActive ? 'font-bold' : 'font-semibold'}`}>
           {menu.label}
         </span>
       </button>
@@ -969,7 +969,7 @@ function PresentationAnalysisDashboard() {
   // 지금 보고 있는 폴더 > 세션 표시
   const breadcrumb = (
     <div className={`flex items-center gap-3 font-medium bg-stone-100 rounded-full text-stone-600 border border-stone-200 z-10 min-w-0
-      ${topNav ? 'text-[15px] px-4 py-2 min-[1700px]:px-6 min-[1700px]:py-3' : 'text-sm px-4 py-2'}`}>
+      ${topNav ? 'text-sm px-4 py-2 min-[1700px]:px-5 min-[1700px]:py-2.5' : 'text-sm px-4 py-2'}`}>
       {activeTopicName && activeSessionName ? (
         <>
           {/* 폴더 이름을 누르면 "내 기록"에서 그 폴더(세션 목록 + 종합추이)를 연다 — 뒤로가기와 같은 효과 */}
@@ -1010,7 +1010,7 @@ function PresentationAnalysisDashboard() {
           모바일에서는 메뉴·휴지통·로그아웃을 아이콘만 보이고 폴더>세션 표시는 숨긴다. */}
       {(
         // 넓은 화면(1700px 이상): 높이 h-24, 로고와 메뉴 사이 gap-14 / 그보다 좁으면 h-20, gap-8 / 모바일 h-16, gap-3
-        <header className={`${topNav ? 'flex' : 'flex md:hidden'} h-16 md:h-20 min-[1700px]:h-24 bg-white border-b border-stone-200 shadow-sm z-20 shrink-0 items-center gap-3 md:gap-8 min-[1700px]:gap-14 px-4 md:px-6 min-[1700px]:px-8`}>
+        <header className={`${topNav ? 'flex' : 'flex md:hidden'} h-16 md:h-20 min-[1700px]:h-24 bg-white border-b border-stone-200 shadow-sm z-20 shrink-0 items-center gap-3 md:gap-8 min-[1700px]:gap-14 px-4 md:px-12 min-[1700px]:px-20`}>
           {logo}
           <nav className="flex items-center gap-0.5 md:gap-2 min-w-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {MENUS.map(menu => renderMenuButton(menu, true))}
@@ -1020,7 +1020,7 @@ function PresentationAnalysisDashboard() {
             {/* 휴지통·로그아웃: 좁은 화면에서는 아이콘만 (마우스를 올리면 이름이 뜸) */}
             <button
               onClick={() => goTo({ view: 'trash' })}
-              className="flex items-center gap-2 px-2 md:px-3 py-2 min-[1700px]:px-4 min-[1700px]:py-3 rounded-xl text-stone-500 hover:bg-stone-50 hover:text-stone-700 transition-colors text-[15px] font-semibold shrink-0"
+              className="flex items-center gap-2 px-2 md:px-3 py-2 min-[1700px]:px-4 min-[1700px]:py-3 rounded-xl text-stone-500 hover:bg-stone-50 hover:text-stone-700 transition-colors text-sm font-semibold shrink-0"
               title="휴지통"
             >
               <Trash2 className="w-5 h-5 min-[1700px]:w-6 min-[1700px]:h-6" />
@@ -1028,7 +1028,7 @@ function PresentationAnalysisDashboard() {
             </button>
             <button
               onClick={logout}
-              className="flex items-center gap-2 px-2 md:px-3 py-2 min-[1700px]:px-4 min-[1700px]:py-3 rounded-xl text-stone-500 hover:bg-stone-50 hover:text-stone-700 transition-colors text-[15px] font-semibold shrink-0"
+              className="flex items-center gap-2 px-2 md:px-3 py-2 min-[1700px]:px-4 min-[1700px]:py-3 rounded-xl text-stone-500 hover:bg-stone-50 hover:text-stone-700 transition-colors text-sm font-semibold shrink-0"
               title="로그아웃"
             >
               <LogOut className="w-5 h-5 min-[1700px]:w-6 min-[1700px]:h-6" />
@@ -1090,7 +1090,7 @@ function PresentationAnalysisDashboard() {
 
         {/* Scrollable Container for Content */}
         {/* 본문 양옆 여백: 화면이 넓을수록 넉넉하게 (꽉 찬 느낌 방지), 모바일은 좁게 */}
-        <div className="flex-1 overflow-y-auto py-6 md:py-8 px-4 sm:px-8 lg:px-32 min-[1700px]:px-44 custom-scrollbar">
+        <div className="flex-1 overflow-y-auto py-6 md:py-8 px-4 sm:px-8 lg:px-40 min-[1700px]:px-56 custom-scrollbar">
           
           {/* VIEW 0: Session Management — 폴더 목록(아이콘) ↔ 폴더 안(세션 목록 + 종합추이) */}
           {activeMenu === 'sessions' && (() => {
@@ -1377,7 +1377,7 @@ function PresentationAnalysisDashboard() {
           {/* Analysis Views (Only show if a session is selected and we are not in 'sessions' tab) */}
           {activeMenu !== 'sessions' && activeMenu !== 'trash' && activeSessionId ? (
             // 단일 분석은 왼쪽·오른쪽 두 칸으로 놓으므로 더 넓게 쓴다
-            <div className={`${topNav ? 'max-w-[1240px]' : 'max-w-[1200px]'} mx-auto space-y-6 pb-12`}>
+            <div className={`${topNav ? 'max-w-[1200px]' : 'max-w-[1200px]'} mx-auto space-y-6 pb-12`}>
 
               {/* VIEW 3: Single Analysis */}
               {activeMenu === 'single' && (
