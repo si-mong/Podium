@@ -22,6 +22,7 @@
 """
 from __future__ import annotations
 
+import logging
 import mimetypes
 from pathlib import Path
 
@@ -58,6 +59,8 @@ from app.schemas.session import (
 )
 from app.services import storage, streaming
 from app.services.analysis_log import tracked
+
+logger = logging.getLogger(__name__)
 
 
 def _settings():
@@ -748,7 +751,8 @@ def analyze_voice(
     db.commit()
 
     m = result["metrics"]
-    elapsed = sum(result["diagnostics"]["elapsed"].values())
+    timings = _voice_timings(result["diagnostics"])
+    logger.info("STEP 3 세부 시간 (session=%s): %s", session_id, timings)
     return VoiceAnalysisResult(
         session_id=session_id,
         status=session.status,
@@ -760,8 +764,30 @@ def analyze_voice(
         repetition_count=m["repetition_count"],
         speaking_rate_spm=m["speaking_rate_spm"],
         articulation_rate_spm=m["articulation_rate_spm"],
-        elapsed_sec=round(elapsed, 2),
+        elapsed_sec=round(timings["vad_sec"] + timings["stt_sec"] + timings["filler_sec"], 2),
+        timings=timings,
     )
+
+
+def _voice_timings(diag: dict) -> dict:
+    """음성 분석 안의 세부 시간. analysis_events.detail 에 저장돼 관리자 화면에서 보인다.
+
+    stt_sec = stt_wait_sec(업로드·GPU 대기·모델 로딩) + stt_decode_sec(실제 인식).
+    Modal 이면 stt_wait_sec 를 다시 queue_sec(배정 대기+부팅)·model_load_sec 로 나눈다.
+    """
+    el = diag["elapsed"]
+    remote = diag.get("stt_remote") or {}
+    t = {
+        "vad_sec": el.get("vad_sec", 0.0),
+        "stt_sec": el.get("stt_sec", 0.0),
+        "stt_wait_sec": el.get("stt_load_sec", 0.0),
+        "stt_decode_sec": el.get("stt_decode_sec", 0.0),
+        "filler_sec": el.get("filler_sec", 0.0),
+    }
+    for k in ("queue_sec", "model_load_sec", "gpu", "cold"):
+        if remote.get(k) is not None:
+            t[f"stt_{k}"] = remote[k]
+    return t
 
 
 # ---------------------------------------------------------------------------

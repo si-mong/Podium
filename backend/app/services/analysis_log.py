@@ -1,7 +1,7 @@
 """분석 단계 실행 기록 (analysis_events).
 
 분석 라우터에 `@tracked("voice", model=...)` 를 붙이면 실행할 때마다 시작·종료·소요 시간·
-성공 여부·에러 메시지가 한 줄 남는다. 관리자 화면(GET /admin/analyses)이 이 기록을 읽는다.
+성공 여부·에러 메시지(응답에 `timings` 가 있으면 세부 시간도)가 한 줄 남는다. 관리자 화면(GET /admin/analyses)이 이 기록을 읽는다.
 
 원칙
 - **기록 때문에 분석이 실패하면 안 된다.** 기록 쓰기가 실패하면 경고 로그만 남기고 넘어간다.
@@ -46,7 +46,7 @@ def _start(session_id: int | None, user_id: int | None, step: str, model: str | 
         db.close()
 
 
-def _finish(event_id: int | None, status: str, error: str | None, t0: float) -> None:
+def _finish(event_id: int | None, status: str, error: str | None, t0: float, detail: dict | None = None) -> None:
     if event_id is None:
         return
     db = SessionLocal()
@@ -57,6 +57,7 @@ def _finish(event_id: int | None, status: str, error: str | None, t0: float) -> 
             ev.error = error[:ERROR_MAX_CHARS] if error else None
             ev.duration_ms = int((time.perf_counter() - t0) * 1000)
             ev.finished_at = datetime.now(timezone.utc)
+            ev.detail = detail
             db.commit()
     except Exception:  # noqa: BLE001
         logger.warning("analysis_events 종료 기록 실패 (event=%s)", event_id, exc_info=True)
@@ -73,6 +74,12 @@ def _partial_error(result) -> str | None:
         return None
     detail = "; ".join(f"{s.get('title') or s.get('segment_id')}: {s['error']}" for s in failed[:3])
     return f"구간 {len(failed)}개 실패 — {detail}"
+
+
+def _detail(result) -> dict | None:
+    """응답에 `timings`(단계 안 세부 시간)가 있으면 기록에 같이 남긴다. 지금은 음성 분석만."""
+    timings = result.get("timings") if isinstance(result, dict) else getattr(result, "timings", None)
+    return timings if isinstance(timings, dict) else None
 
 
 def tracked(step: str, model: Callable[[], str | None] | None = None):
@@ -98,7 +105,7 @@ def tracked(step: str, model: Callable[[], str | None] | None = None):
                 _finish(event_id, "failed", f"{type(e).__name__}: {e}", t0)
                 raise
             partial = _partial_error(result)
-            _finish(event_id, "partial" if partial else "succeeded", partial, t0)
+            _finish(event_id, "partial" if partial else "succeeded", partial, t0, _detail(result))
             return result
         return wrapper
     return deco

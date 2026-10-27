@@ -421,7 +421,7 @@ def analysis_detail(
         "run": run,
         "events": [
             {"event_id": ev.event_id, "step": ev.step, "status": ev.status, "model": ev.model,
-             "duration_ms": ev.duration_ms, "error": ev.error,
+             "duration_ms": ev.duration_ms, "error": ev.error, "detail": ev.detail,
              "started_at": ev.started_at, "finished_at": ev.finished_at}
             for ev in events
         ],
