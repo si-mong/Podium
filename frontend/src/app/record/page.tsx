@@ -744,10 +744,24 @@ function RecordPage() {
       {/* 촬영 시작 전 안내 — 확인을 눌러야 실제로 촬영이 시작된다 */}
       {showStartNotice && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 text-center">
-            <p className="text-stone-800 font-bold text-[15px] leading-relaxed whitespace-pre-line">
-              {"실수해도 괜찮아요!\n재촬영 하지 말고 진행해주세요!"}
-            </p>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 sm:p-8">
+            <h3 className="text-center text-stone-900 font-extrabold text-lg mb-5">촬영 전에 확인해 주세요</h3>
+            <div className="space-y-3">
+              <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3.5">
+                <Sparkles className="w-5 h-5 mt-0.5 shrink-0 text-amber-600" />
+                <div>
+                  <p className="font-extrabold text-stone-900 text-[15px]">실제 발표하는 것처럼 진행해주세요!</p>
+                  <p className="text-sm text-stone-600 mt-0.5 leading-relaxed">실수해도 괜찮아요. 재촬영 하지 말고 끝까지 진행해주세요.</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3.5">
+                <FileText className="w-5 h-5 mt-0.5 shrink-0 text-amber-600" />
+                <div>
+                  <p className="font-extrabold text-stone-900 text-[15px]">대본·PPT는 프린트물이나 패드로</p>
+                  <p className="text-sm text-stone-600 mt-0.5 leading-relaxed">실제 대본이나 PPT가 있다면 프린트물이나 패드에 담아 읽는 것을 추천드려요!</p>
+                </div>
+              </div>
+            </div>
             <button
               onClick={() => {
                 setShowStartNotice(false);
