@@ -230,7 +230,6 @@ const MENUS = [
   { id: 'sessions', label: '내 기록', icon: FolderOpen },
   { id: 'single', label: '단일 분석', icon: BarChart2 },
   { id: 'compare', label: '비교분석(개발중)', icon: Columns },
-  { id: 'growth', label: '종합추이', icon: TrendingUp },
 ];
 
 const COMPARE_METRICS = [
@@ -453,14 +452,16 @@ function PresentationAnalysisDashboard() {
 
   // 화면 상태(어느 메뉴 / 어느 폴더 / 어느 세션)는 변수가 아니라 **주소(URL)** 에 담는다.
   // 화면을 옮길 때마다 주소가 바뀌어 방문 기록이 쌓이므로, 브라우저 뒤로가기·새로고침이 화면과 맞게 동작한다.
-  //   view    : sessions(내 기록, 기본) | single | compare | growth | trash
+  //   view    : sessions(내 기록, 기본) | single | compare | trash
+  //   (종합추이는 폴더 화면 오른쪽에 있어서 메뉴를 따로 두지 않는다. 예전 ?view=growth 주소는 내 기록으로)
   //   folder  : "내 기록"에서 열어 둔 폴더(프로젝트) id. 없으면 폴더 목록(아이콘)을 보여준다.
   //   session : 선택한 세션 id
   // 예) /dashboard?view=single&folder=3&session=12
   // 촬영 화면은 /dashboard?session=12 로 돌아오는데, view 가 없고 session 만 있으면 단일 분석으로 본다.
   const openFolderId = searchParams.get('folder');
   const activeSessionId = searchParams.get('session') || '';
-  const activeMenu = searchParams.get('view') || (activeSessionId ? 'single' : 'sessions');
+  const viewParam = searchParams.get('view');
+  const activeMenu = (viewParam === 'growth' ? 'sessions' : viewParam) || (activeSessionId ? 'single' : 'sessions');
 
   // 화면 이동 — 바꿀 값만 넘기면 나머지는 지금 값을 그대로 쓴다 (null 을 넘기면 그 값을 지운다).
   // replace=true 면 방문 기록을 새로 쌓지 않고 지금 주소를 바꿔치기한다 (자동 정리용).
@@ -752,9 +753,6 @@ function PresentationAnalysisDashboard() {
     };
   });
 
-  // Growth Chart State
-  const [selectedGrowthTopicId, setSelectedGrowthTopicId] = useState('');
-
   // Single Analysis State
   const [activeSingleMetric, setActiveSingleMetric] = useState('fillerTotal');
 
@@ -974,12 +972,6 @@ function PresentationAnalysisDashboard() {
     goTo({ view: 'single', session: sessionId }); // 세션을 고르면 단일 분석 화면으로
   };
 
-  // 종합추이에서 보여줄 폴더: 직접 고른 폴더 → 지금 열어 둔 폴더 → 첫 폴더
-  const growthTopicId =
-    topics.find(t => t.id === selectedGrowthTopicId)?.id ??
-    topics.find(t => t.id === activeTopicId)?.id ??
-    topics[0]?.id ?? '';
-
   // 단일 분석 화면은 내용이 넓게 보이도록 왼쪽 사이드바 대신 상단 메뉴바를 쓴다.
   const topNav = activeMenu === 'single';
 
@@ -987,8 +979,7 @@ function PresentationAnalysisDashboard() {
   const renderMenuButton = (menu: typeof MENUS[number], horizontal: boolean) => {
     const Icon = menu.icon;
     const isActive = activeMenu === menu.id;
-    // 종합추이는 폴더 단위라 회차를 고르지 않아도 열 수 있다
-    const isDisabled = !activeSessionId && menu.id !== 'sessions' && menu.id !== 'growth';
+    const isDisabled = !activeSessionId && menu.id !== 'sessions';
 
     return (
       <button
@@ -1427,8 +1418,8 @@ function PresentationAnalysisDashboard() {
             </div>
           )}
 
-          {/* Analysis Views — 회차를 골랐을 때만. 종합추이는 폴더 단위라 회차 없이도 연다. */}
-          {activeMenu !== 'sessions' && activeMenu !== 'trash' && (activeSessionId || activeMenu === 'growth') ? (
+          {/* Analysis Views — 회차를 골랐을 때만 */}
+          {activeMenu !== 'sessions' && activeMenu !== 'trash' && activeSessionId ? (
             // 단일 분석은 왼쪽·오른쪽 두 칸으로 놓으므로 더 넓게 쓴다
             <div className={`${topNav ? 'max-w-[1200px]' : 'max-w-[1200px]'} mx-auto space-y-6 pb-12`}>
 
@@ -2035,44 +2026,6 @@ function PresentationAnalysisDashboard() {
                     </div>
                   </div>
 
-                </div>
-              )}
-
-              {/* VIEW 4: Growth Trend */}
-              {activeMenu === 'growth' && (
-                <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
-                  <div className="bg-white rounded-xl shadow-sm border border-stone-200 p-8 h-[650px] flex flex-col">
-                    <div className="mb-6 border-b border-stone-100 pb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                      <div>
-                        <h3 className="font-extrabold text-stone-800 text-xl flex items-center gap-2.5">
-                          <span className="bg-green-100 text-green-600 p-1.5 rounded-xl shadow-sm"><TrendingUp className="w-5 h-5"/></span>
-                          종합추이
-                        </h3>
-                        <p className="text-[15px] text-stone-500 mt-2 font-medium">선택한 주제의 발표 연습 회차별로 주요 지표가 어떻게 바뀌었는지 확인합니다.</p>
-                      </div>
-                      
-                      <div className="flex items-center gap-3 shrink-0">
-                        <label className="text-sm font-bold text-stone-600">주제 선택:</label>
-                        <select 
-                          value={growthTopicId}
-                          onChange={(e) => setSelectedGrowthTopicId(e.target.value)}
-                          className="bg-stone-50 border border-stone-200 text-stone-700 text-sm rounded-xl focus:ring-stone-900 focus:border-stone-900 block p-2.5 font-bold outline-none cursor-pointer"
-                        >
-                          {topics.map(t => (
-                            <option key={t.id} value={t.id}>{t.name}</option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-
-                    <div className="flex-1 min-h-0">
-                      {topics.length > 0 ? (
-                        <GrowthTrendChart projectId={growthTopicId} />
-                      ) : (
-                        <p className="text-sm text-stone-400">주제 폴더를 먼저 만들어 주세요.</p>
-                      )}
-                    </div>
-                  </div>
                 </div>
               )}
 
