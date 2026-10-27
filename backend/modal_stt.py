@@ -29,7 +29,8 @@ image = (
 app = modal.App("podium-stt", image=image)
 
 
-@app.cls(gpu="L4", timeout=15 * 60, scaledown_window=120, max_containers=3)
+# L4 재고가 없으면 몇 분~15분씩 배정 대기가 생겨서(2026-10-27 확인) A10G → T4 순으로 대체한다.
+@app.cls(gpu=["L4", "A10G", "T4"], timeout=15 * 60, scaledown_window=120, max_containers=3)
 class SeloWhisper:
     @modal.enter()
     def load(self):
