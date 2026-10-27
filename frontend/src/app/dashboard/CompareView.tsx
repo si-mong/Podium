@@ -7,9 +7,9 @@
 //   ③ AI 비교 피드백 : POST /projects/{id}/compare/feedback — 지난 회차 개선점이 고쳐졌는지 GPT 가 판정 (저장됨)
 
 import { useEffect, useRef, useState } from 'react';
-import { AlertCircle, ArrowLeft, ArrowRight, BarChart2, Check, Columns, FileText, Lightbulb, Loader2, RefreshCw, Sparkles, ThumbsUp } from 'lucide-react';
+import { AlertCircle, ArrowLeft, ArrowRight, BarChart2, Check, ChevronDown, Columns, FileText, Lightbulb, Loader2, RefreshCw, Sparkles, ThumbsUp } from 'lucide-react';
 import { API_BASE, apiFetch } from '@/utils/api';
-import { fmtTime } from './InteractiveScript';
+import InteractiveScript, { fmtTime, ScriptData, VideoChunk } from './InteractiveScript';
 
 // 백엔드 응답 형태 (app/schemas/compare.py)
 type Verdict = 'improved' | 'same' | 'worse' | null;
@@ -64,8 +64,12 @@ function VerdictBadge({ verdict }: { verdict: Verdict }) {
 }
 
 // 비교 화면용 영상. 티켓(30분)을 받아 붙이고, 만료돼 실패하면 다시 받아 같은 위치에서 잇는다.
-// seek 이 바뀔 때마다(구간을 누를 때마다) 그 위치로 옮긴다.
-function CompareVideo({ sessionId, hasVideo, seek }: { sessionId: number; hasVideo: boolean; seek: { t: number; n: number } }) {
+// seek 이 바뀔 때마다(구간·스크립트를 누를 때마다) 그 위치로 옮긴다. seek.play 면 옮긴 뒤 재생까지 한다.
+// 재생 위치·재생 여부는 onTime·onPlaying 으로 알려 준다 (스크립트에서 지금 문장을 강조하는 데 씀).
+function CompareVideo({ sessionId, hasVideo, seek, onTime, onPlaying }: {
+  sessionId: number; hasVideo: boolean; seek: { t: number; n: number; play?: boolean };
+  onTime: (sec: number) => void; onPlaying: (playing: boolean) => void;
+}) {
   const [ticket, setTicket] = useState<string | null>(null);
   const issuedAt = useRef(0);
   const resumeAt = useRef<number | null>(null);
@@ -92,7 +96,10 @@ function CompareVideo({ sessionId, hasVideo, seek }: { sessionId: number; hasVid
   const moveTo = (sec: number) => {
     const v = ref.current;
     if (!v) return;
-    const go = () => { v.currentTime = Math.max(0, sec); };
+    const go = () => {
+      v.currentTime = Math.max(0, sec);
+      if (seek.play) v.play().catch(() => {}); // 자동 재생이 막혀도 이동은 된 상태로 둔다
+    };
     if (v.readyState >= 1 && Number.isFinite(v.duration)) go();
     else resumeAt.current = sec;
   };
@@ -111,6 +118,9 @@ function CompareVideo({ sessionId, hasVideo, seek }: { sessionId: number; hasVid
       controls
       playsInline
       className="w-full aspect-video bg-black rounded-lg"
+      onTimeUpdate={(e) => onTime(e.currentTarget.currentTime)}
+      onPlay={() => onPlaying(true)}
+      onPause={() => onPlaying(false)}
       onLoadedMetadata={(e) => {
         // 브라우저로 찍은 webm 은 길이 정보가 없어(Infinity) 이동이 안 될 수 있다 → 끝으로 한 번 보내 길이를 계산시킨 뒤 되돌린다
         const v = e.currentTarget;
@@ -131,12 +141,53 @@ function CompareVideo({ sessionId, hasVideo, seek }: { sessionId: number; hasVid
   );
 }
 
-// 한 회차 칸: 영상 + 구간 버튼 + 스크립트
-function SessionColumn({ title, tone, session, segments }: {
-  title: string; tone: 'base' | 'target'; session: CompareSession; segments: SegmentBrief[];
+// 한 회차의 스크립트(문장·무음·필러·반복)와 동작 분석 조각을 받아 둔다. 회차가 바뀔 때만 다시 받는다.
+function useSessionScript(sessionId: number) {
+  const [script, setScript] = useState<ScriptData | null>(null);
+  const [chunks, setChunks] = useState<VideoChunk[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    setScript(null);
+    setChunks([]);
+    (async () => {
+      const [sRes, aRes] = await Promise.all([
+        apiFetch(`/sessions/${sessionId}/script`).catch(() => null),
+        apiFetch(`/sessions/${sessionId}/analysis`).catch(() => null),
+      ]);
+      if (cancelled) return;
+      if (sRes?.ok) setScript(await sRes.json());
+      if (aRes?.ok) setChunks(((await aRes.json()) as { analyses: VideoChunk[] }).analyses);
+    })();
+    return () => { cancelled = true; };
+  }, [sessionId]);
+  return { script, chunks };
+}
+
+// 세션 전체 스크립트에서 지금 고른 구간(들) 시간 안에 있는 것만 남긴다.
+function scriptInSegments(script: ScriptData, chunks: VideoChunk[], segments: SegmentBrief[]) {
+  const inside = (t: number) => segments.some((s) => t >= s.t_start - 0.01 && t < s.t_end);
+  return {
+    script: {
+      sentences: script.sentences.filter((x) => inside(x.t_start)),
+      silences: script.silences.filter((x) => inside(x.t_start)),
+      fillers: script.fillers.filter((x) => inside(x.t_start)),
+      repetitions: script.repetitions.filter((x) => inside(x.t_start)),
+    },
+    chunks: chunks.filter((c) => inside(c.t_start)),
+  };
+}
+
+// 한 회차 칸: 영상 + 구간 버튼 + 스크립트(필러·반복·무음·동작 표시 포함, 접고 펼 수 있음)
+function SessionColumn({ title, tone, session, segments, scriptOpen }: {
+  title: string; tone: 'base' | 'target'; session: CompareSession; segments: SegmentBrief[]; scriptOpen: boolean;
 }) {
-  const [seek, setSeek] = useState({ t: segments[0]?.t_start ?? 0, n: 0 });
+  const [seek, setSeek] = useState<{ t: number; n: number; play?: boolean }>({ t: segments[0]?.t_start ?? 0, n: 0 });
+  const [currentTime, setCurrentTime] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const { script, chunks } = useSessionScript(session.session_id);
   useEffect(() => { setSeek((s) => ({ t: segments[0]?.t_start ?? 0, n: s.n + 1 })); }, [segments]);
+
+  const filtered = script ? scriptInSegments(script, chunks, segments) : null;
 
   return (
     <div className="flex flex-col gap-3 min-w-0">
@@ -144,7 +195,7 @@ function SessionColumn({ title, tone, session, segments }: {
         <span className={`text-sm font-bold px-2 py-0.5 rounded ${tone === 'target' ? 'bg-stone-800 text-white' : 'bg-stone-200 text-stone-600'}`}>{title}</span>
         <span className="font-bold text-stone-800">{session.session_no}회차</span>
       </div>
-      <CompareVideo sessionId={session.session_id} hasVideo={session.has_video} seek={seek} />
+      <CompareVideo sessionId={session.session_id} hasVideo={session.has_video} seek={seek} onTime={setCurrentTime} onPlaying={setIsPlaying} />
       {segments.length === 0 ? (
         <div className="text-base text-stone-400 bg-stone-50 rounded-lg px-4 py-6 text-center">이 회차에는 이 구간이 없어요</div>
       ) : (
@@ -157,12 +208,24 @@ function SessionColumn({ title, tone, session, segments }: {
               </button>
             ))}
           </div>
-          <div className="bg-stone-50 rounded-lg p-4 max-h-56 overflow-y-auto">
-            <h4 className="text-sm font-bold text-stone-500 mb-2 flex items-center gap-1.5"><FileText className="w-3.5 h-3.5" />스크립트</h4>
-            {segments.map((s) => (
-              <p key={s.segment_id} className="text-base text-stone-700 leading-relaxed mb-2 last:mb-0">{s.stt_text || '(전사문 없음)'}</p>
-            ))}
-          </div>
+          {scriptOpen && (
+            <div className="bg-stone-50 rounded-lg p-4">
+              <h4 className="text-sm font-bold text-stone-500 mb-2 flex items-center gap-1.5"><FileText className="w-3.5 h-3.5" />스크립트</h4>
+              {!filtered ? (
+                <div className="flex justify-center py-6"><Loader2 className="w-5 h-5 animate-spin text-stone-400" /></div>
+              ) : (
+                <InteractiveScript
+                  script={filtered.script}
+                  videoChunks={filtered.chunks}
+                  currentTime={currentTime}
+                  isPlaying={isPlaying}
+                  onSeek={(sec) => setSeek((p) => ({ t: sec, n: p.n + 1, play: true }))}
+                  segmentStarts={segments.map((s) => s.t_start)}
+                  heightClass="max-h-[400px]"
+                />
+              )}
+            </div>
+          )}
         </>
       )}
     </div>
@@ -259,6 +322,7 @@ export default function CompareView({ projects, projectId, onProjectChange, init
   const [data, setData] = useState<ProjectCompare | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [labelIdx, setLabelIdx] = useState(0);
+  const [scriptOpen, setScriptOpen] = useState(true); // 구간별 비교의 스크립트 펼침/접힘 (두 회차 같이)
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
 
@@ -418,9 +482,19 @@ export default function CompareView({ projects, projectId, onProjectChange, init
             ))}
           </div>
 
+          {/* 스크립트 펼치기/접기 — 두 회차 스크립트를 같이 여닫는다 */}
+          <div className="flex justify-end mb-3">
+            <button onClick={() => setScriptOpen((o) => !o)}
+              className="text-base font-semibold text-stone-600 border border-stone-200 rounded-lg px-3 py-1.5 hover:bg-stone-50 flex items-center gap-1.5">
+              <FileText className="w-4 h-4" />
+              {scriptOpen ? '스크립트 접기' : '스크립트 펼치기'}
+              <ChevronDown className={`w-4 h-4 transition-transform ${scriptOpen ? 'rotate-180' : ''}`} />
+            </button>
+          </div>
+
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-            <SessionColumn title="이전" tone="base" session={base} segments={label.base_segments} />
-            <SessionColumn title="이번" tone="target" session={target} segments={label.target_segments} />
+            <SessionColumn title="이전" tone="base" session={base} segments={label.base_segments} scriptOpen={scriptOpen} />
+            <SessionColumn title="이번" tone="target" session={target} segments={label.target_segments} scriptOpen={scriptOpen} />
           </div>
 
           <div className="mt-5 grid grid-cols-2 xl:grid-cols-3 gap-px bg-stone-100 border border-stone-100 rounded-xl overflow-hidden">

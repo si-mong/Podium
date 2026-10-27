@@ -105,6 +105,7 @@ interface Props {
   onSeek: (sec: number) => void;
   plain?: boolean;             // true = 원본 스크립트 (문장만)
   segmentStarts?: number[];    // 각 구간의 시작 시각(초). 두 번째 구간부터 그 앞에 구분선을 긋는다.
+  heightClass?: string;        // 스크립트 영역 높이 (기본 h-[400px]). 비교 분석은 내용만큼만 보이게 max-h 를 쓴다.
 }
 
 /** 필러 한 개를 표시할 글. 모델 태그("<um>")나 음향 검출이면 어휘를 모르니 "필러"만. */
@@ -151,7 +152,7 @@ function buildRows(script: ScriptData, chunks: VideoChunk[], plain: boolean): Ro
   return rows.sort((a, b) => a.t - b.t);
 }
 
-export default function InteractiveScript({ script, videoChunks, currentTime, isPlaying, onSeek, plain = false, segmentStarts = [] }: Props) {
+export default function InteractiveScript({ script, videoChunks, currentTime, isPlaying, onSeek, plain = false, segmentStarts = [], heightClass = 'h-[400px]' }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef<HTMLDivElement>(null);
 
@@ -183,8 +184,8 @@ export default function InteractiveScript({ script, videoChunks, currentTime, is
 
   return (
     // relative: 안쪽 줄의 offsetTop 이 이 박스 기준이 되도록 (자동 스크롤 계산용)
-    // h-[400px]: 대략 10줄 정도가 보이는 높이. 그 이상은 스크롤로 본다.
-    <div ref={containerRef} className="relative space-y-2 h-[400px] overflow-y-auto custom-scrollbar pr-2">
+    // h-[400px](기본): 대략 10줄 정도가 보이는 높이. 그 이상은 스크롤로 본다.
+    <div ref={containerRef} className={`relative space-y-2 ${heightClass} overflow-y-auto custom-scrollbar pr-2`}>
       {rows.map((row, i) => {
         const time = <span className="text-stone-400 font-bold shrink-0 w-12 pt-1 text-[14px]">{fmtTime(row.t)}</span>;
         // 새 구간의 첫 줄이면 위쪽에 얇은 구분선 + 위아래 여백.
