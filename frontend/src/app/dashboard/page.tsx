@@ -6,7 +6,7 @@ import {
   Play, Pause,
   CheckCircle, AlertCircle, TrendingUp,
   BarChart2, Mic, Activity, Award, Video,
-  Folder, FolderOpen, ChevronRight, ChevronDown, ArrowLeft, Plus, Trash2, Upload, X, FileText, MessageSquare, Columns, ThumbsUp, Lightbulb, Pencil, LogOut
+  Folder, FolderOpen, ChevronRight, ChevronDown, ArrowLeft, Plus, Trash2, Upload, X, FileText, MessageSquare, Columns, ThumbsUp, Lightbulb, Pencil, LogOut, ShieldCheck, UserRound
 } from 'lucide-react';
 import {
   Line, Bar, XAxis, YAxis,
@@ -890,10 +890,10 @@ function PresentationAnalysisDashboard() {
     goTo({ view: 'single', session: sessionId }); // 세션을 고르면 단일 분석 화면으로
   };
 
-  // 메뉴 버튼 — 왼쪽 사이드바(세로)와 모바일 상단 메뉴바(가로)가 같이 쓴다.
+  // 상단 바 메뉴 (비교 분석은 관리자만)
   const visibleMenus = MENUS.filter((m) => m.id !== 'compare' || isAdmin);
 
-  const renderMenuButton = (menu: typeof MENUS[number], horizontal: boolean) => {
+  const renderMenuButton = (menu: typeof MENUS[number]) => {
     const Icon = menu.icon;
     const isActive = activeMenu === menu.id;
     const isDisabled = !activeSessionId && menu.id !== 'sessions' && menu.id !== 'compare';
@@ -904,148 +904,88 @@ function PresentationAnalysisDashboard() {
         // "내 기록"은 어느 화면에서 누르든 폴더 목록(아이콘)으로 간다 — 열어 둔 폴더는 닫는다.
         onClick={() => !isDisabled && goTo(menu.id === 'sessions' ? { view: 'sessions', folder: null } : { view: menu.id })}
         disabled={isDisabled}
-        // 가로(상단 메뉴바): 글자 15px. 아이콘·여백은 넓은 화면(1700px 이상)에서만 크게(아이콘 24px),
-        // 그보다 좁으면(브라우저 100% 등) 한 줄에 다 들어가도록 작게(아이콘 20px)
-        className={`flex items-center rounded-xl transition-all text-left group
-          ${horizontal ? 'gap-2 px-1.5 py-1.5 md:px-3 md:py-2 min-[1700px]:gap-3 min-[1700px]:px-5 min-[1700px]:py-3 shrink-0' : 'w-full gap-3.5 px-4 py-3.5'}
+        title={menu.label}
+        className={`h-10 flex items-center gap-1.5 px-3 sm:px-4 rounded-full whitespace-nowrap text-sm font-semibold transition-colors shrink-0
           ${isActive
-            ? 'bg-stone-100/80 text-stone-900 shadow-sm border border-stone-200'
+            ? 'bg-stone-900 text-white'
             : isDisabled
-              ? 'opacity-50 cursor-not-allowed text-stone-400'
-              : 'text-stone-600 hover:bg-stone-50 border border-transparent'}`}
+              ? 'opacity-40 cursor-not-allowed text-stone-400'
+              : 'text-stone-700 hover:bg-white'}`}
       >
-        <div className={`${horizontal ? 'p-1.5 min-[1700px]:p-2' : 'p-1.5'} rounded-lg transition-colors ${isActive ? 'bg-stone-200' : isDisabled ? 'bg-stone-50' : 'bg-stone-100 group-hover:bg-stone-200'}`}>
-          <Icon className={`${horizontal ? 'w-5 h-5 min-[1700px]:w-6 min-[1700px]:h-6' : 'w-4 h-4'} ${isActive ? 'text-stone-900' : 'text-stone-500'}`} />
-        </div>
-        <span className={`${horizontal ? 'hidden md:inline text-sm whitespace-nowrap' : 'text-[16px]'} ${isActive ? 'font-bold' : 'font-semibold'}`}>
-          {menu.label}
-        </span>
+        <Icon className="w-4 h-4" />
+        <span className="hidden sm:inline">{menu.label}</span>
       </button>
     );
   };
 
-  // 아래 breadcrumb·logo 는 왼쪽 사이드바와 모바일 상단 메뉴바가 같이 쓴다.
+  // 상단 바 오른쪽 버튼 (홈 화면 상단 바와 같은 모양) — 좁은 화면에서는 아이콘만
+  const headerButton = 'h-10 flex items-center gap-1.5 px-3 rounded-full whitespace-nowrap text-sm font-semibold text-stone-600 hover:bg-white hover:text-stone-900 transition-colors shrink-0';
 
-  // 지금 보고 있는 폴더 > 세션 표시
-  const breadcrumb = (
-    <div className={`flex items-center gap-3 font-medium bg-stone-100 rounded-full text-stone-600 border border-stone-200 z-10 min-w-0
-      text-sm px-4 py-2`}>
-      {activeTopicName && activeSessionName ? (
-        <>
-          {/* 폴더 이름을 누르면 "내 기록"에서 그 폴더(세션 목록 + 종합추이)를 연다 — 뒤로가기와 같은 효과 */}
-          <button
-            onClick={() => goTo({ view: 'sessions', folder: activeTopicId })}
-            className="flex items-center gap-3 hover:text-stone-900 transition-colors min-w-0"
-            title={`${activeTopicName} 폴더로 이동`}
-          >
-            <FolderOpen className="w-4 h-4 text-stone-400 shrink-0" />
-            <span className="hover:underline truncate">{activeTopicName}</span>
-          </button>
-          <ChevronRight className="w-3.5 h-3.5 text-stone-300 shrink-0" />
-          <span className={`text-stone-900 font-bold bg-stone-200 rounded-md whitespace-nowrap px-2.5 py-0.5`}>{activeSessionName}</span>
-        </>
-      ) : (
-        <span className="text-stone-400">선택된 세션이 없습니다</span>
-      )}
+  // 지금 보고 있는 폴더 > 세션 표시 (본문 맨 위)
+  const breadcrumb = activeTopicName && activeSessionName && activeMenu !== 'sessions' && activeMenu !== 'trash' ? (
+    <div className="max-w-[1100px] mx-auto mb-5 flex items-center gap-2 text-[15px] font-medium text-stone-500 min-w-0">
+      {/* 폴더 이름을 누르면 "내 기록"에서 그 폴더(세션 목록 + 종합추이)를 연다 — 뒤로가기와 같은 효과 */}
+      <button
+        onClick={() => goTo({ view: 'sessions', folder: activeTopicId })}
+        className="flex items-center gap-2 hover:text-stone-900 transition-colors min-w-0"
+        title={`${activeTopicName} 폴더로 이동`}
+      >
+        <FolderOpen className="w-4 h-4 text-stone-400 shrink-0" />
+        <span className="hover:underline truncate">{activeTopicName}</span>
+      </button>
+      <ChevronRight className="w-3.5 h-3.5 text-stone-300 shrink-0" />
+      <span className="text-stone-900 font-bold whitespace-nowrap">{activeSessionName}</span>
     </div>
-  );
-
-  // 로고 — 누르면 홈 화면으로
-  const logo = (
-    <button
-      onClick={() => router.push('/home')}
-      className="flex items-center shrink-0 hover:opacity-70 transition-opacity"
-    >
-      {/* 홈 화면과 같은 Podium 워드마크 (ServiceGuide.tsx 의 PodiumLogo) */}
-      <PodiumLogo className="h-5 md:h-7 w-auto" />
-    </button>
-  );
+  ) : null;
 
   return (
     // 글꼴은 홈 화면과 같은 Pretendard (layout.tsx 에서 불러옴)
-    <div className={`flex h-screen bg-stone-50 font-['Pretendard_Variable',Pretendard,sans-serif] overflow-hidden flex-col md:flex-row`}>
+    <div className="flex flex-col h-screen bg-stone-50 font-['Pretendard_Variable',Pretendard,sans-serif] overflow-hidden">
 
-      {/* 상단 메뉴바 (로고 · 메뉴 · 휴지통 · 로그아웃) — 모바일(768px 미만)에서만 사이드바 대신 쓴다.
-          메뉴·휴지통·로그아웃은 아이콘만 보인다. */}
-      {(
-        // 넓은 화면(1700px 이상): 높이 h-24, 로고와 메뉴 사이 gap-14 / 그보다 좁으면 h-20, gap-8 / 모바일 h-16, gap-3
-        <header className={`flex md:hidden h-16 md:h-20 min-[1700px]:h-24 bg-white border-b border-stone-200 shadow-sm z-20 shrink-0 items-center gap-3 md:gap-8 min-[1700px]:gap-14 px-4 md:px-12 min-[1700px]:px-20`}>
-          {logo}
-          <nav className="flex items-center gap-0.5 md:gap-2 min-w-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {visibleMenus.map(menu => renderMenuButton(menu, true))}
+      {/* 상단 바 — 홈 화면처럼 가운데 떠 있는 알약 모양 (로고 · 메뉴 · 휴지통 · 내 정보 · 로그아웃). 왼쪽 사이드바는 없앴다. */}
+      <div className="shrink-0 z-20 px-4 pt-4">
+        <header className="max-w-5xl mx-auto h-14 rounded-full bg-stone-200/60 backdrop-blur flex items-center gap-2 sm:gap-4 pl-5 sm:pl-6 pr-2">
+          {/* 로고 — 누르면 홈 화면으로 */}
+          <button onClick={() => router.push('/home')} className="flex items-center shrink-0 hover:opacity-70 transition-opacity">
+            <PodiumLogo className="h-5 sm:h-6 w-auto" />
+          </button>
+          <nav className="flex items-center gap-1 min-w-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {visibleMenus.map(menu => renderMenuButton(menu))}
           </nav>
-          <div className="ml-auto flex items-center gap-0.5 md:gap-2 min-[1700px]:gap-3 min-w-0">
-            {/* 휴지통·로그아웃: 좁은 화면에서는 아이콘만 (마우스를 올리면 이름이 뜸) */}
+          <div className="ml-auto flex items-center gap-1">
+            {isAdmin && (
+              <button onClick={() => router.push('/admin')} className={headerButton} title="관리자">
+                <ShieldCheck className="w-4 h-4" />
+                <span className="hidden lg:inline">관리자</span>
+              </button>
+            )}
             <button
               onClick={() => goTo({ view: 'trash' })}
-              className="flex items-center gap-2 px-2 md:px-3 py-2 min-[1700px]:px-4 min-[1700px]:py-3 rounded-xl text-stone-500 hover:bg-stone-50 hover:text-stone-700 transition-colors text-sm font-semibold shrink-0"
+              className={`${headerButton} ${activeMenu === 'trash' ? 'bg-white text-stone-900' : ''}`}
               title="휴지통"
             >
-              <Trash2 className="w-5 h-5 min-[1700px]:w-6 min-[1700px]:h-6" />
-              <span className="hidden min-[1700px]:inline">휴지통</span>
+              <Trash2 className="w-4 h-4" />
+              <span className="hidden lg:inline">휴지통</span>
             </button>
-            <button
-              onClick={logout}
-              className="flex items-center gap-2 px-2 md:px-3 py-2 min-[1700px]:px-4 min-[1700px]:py-3 rounded-xl text-stone-500 hover:bg-stone-50 hover:text-stone-700 transition-colors text-sm font-semibold shrink-0"
-              title="로그아웃"
-            >
-              <LogOut className="w-5 h-5 min-[1700px]:w-6 min-[1700px]:h-6" />
-              <span className="hidden min-[1700px]:inline">로그아웃</span>
+            <button onClick={() => router.push('/profile')} className={headerButton} title="내 정보">
+              <UserRound className="w-4 h-4" />
+              <span className="hidden lg:inline">내 정보</span>
+            </button>
+            <button onClick={logout} className={headerButton} title="로그아웃">
+              <LogOut className="w-4 h-4" />
+              <span className="hidden lg:inline">로그아웃</span>
             </button>
           </div>
         </header>
-      )}
-
-      {/* Sidebar Navigation — 모든 화면(내 기록·단일 분석·비교 분석·휴지통)에서 같이 쓴다. 가로 220px */}
-      <aside className="hidden md:flex w-[220px] bg-white border-r border-stone-200 flex-col flex-shrink-0 z-20 shadow-sm">
-        <div className="h-20 flex items-center px-6 border-b border-stone-100 shrink-0">
-          {logo}
-        </div>
-
-        <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col pb-6">
-          <nav className="p-4 space-y-1.5 shrink-0 mt-2">
-            {visibleMenus.map(menu => renderMenuButton(menu, false))}
-          </nav>
-        </div>
-
-        {/* 휴지통 + 로그아웃 — 사이드바 맨 아래 */}
-        <div className="p-4 border-t border-stone-100 shrink-0 space-y-1">
-          <button
-            onClick={() => goTo({ view: 'trash' })}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors text-[15px] font-semibold
-              ${activeMenu === 'trash' ? 'bg-stone-100/80 text-stone-900' : 'text-stone-500 hover:bg-stone-50 hover:text-stone-700'}`}
-          >
-            <Trash2 className="w-4 h-4" />
-            휴지통
-          </button>
-          <button
-            onClick={logout}
-            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-stone-500 hover:bg-stone-50 hover:text-stone-700 transition-colors text-[15px] font-semibold"
-          >
-            <LogOut className="w-4 h-4" />
-            로그아웃
-          </button>
-        </div>
-      </aside>
+      </div>
 
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col min-w-0 min-h-0 bg-stone-50 relative">
 
-        {/* Top Header bar */}
-        <header className="hidden md:flex h-20 bg-white/80 backdrop-blur-md border-b border-stone-200 items-center justify-between px-8 flex-shrink-0 z-10 sticky top-0 relative">
-          <div className="absolute left-1/2 -translate-x-1/2 flex justify-center w-full max-w-[50%] pointer-events-none">
-            <h2 className="text-xl font-bold text-stone-800 text-center">
-              {activeMenu === 'trash' ? '휴지통' : MENUS.find(m => m.id === activeMenu)?.label}
-            </h2>
-          </div>
-          <div></div>{/* Spacer for left side to keep justify-between working */}
-          {breadcrumb}
-        </header>
-
         {/* Scrollable Container for Content */}
-        {/* 본문 양옆 여백: 화면이 넓을수록 넉넉하게, 모바일은 좁게.
-            본문은 최대 1200px 로 가운데 정렬돼서, 아주 넓은 화면에서는 여백이 저절로 커진다 */}
-        <div className="flex-1 overflow-y-auto py-6 md:py-8 px-4 sm:px-8 lg:px-12 min-[1700px]:px-20 custom-scrollbar">
+        {/* 본문 양옆 여백: 화면이 넓을수록 넉넉하게, 모바일은 좁게. 내용 폭은 최대 1100px */}
+        <div className="flex-1 overflow-y-auto pt-6 pb-8 md:pt-8 px-5 sm:px-10 lg:px-32 xl:px-48 min-[1700px]:px-72 custom-scrollbar">
+          {breadcrumb}
           
           {/* VIEW 0: Session Management — 폴더 목록(아이콘) ↔ 폴더 안(세션 목록 + 종합추이) */}
           {activeMenu === 'sessions' && (() => {
@@ -1054,7 +994,7 @@ function PresentationAnalysisDashboard() {
             // 1) 폴더를 열었으면: 왼쪽 세션 목록 / 오른쪽 종합추이(Mock)
             if (openFolder) {
               return (
-                <div className="max-w-[1200px] mx-auto animate-in fade-in slide-in-from-bottom-2 duration-300">
+                <div className="max-w-[1100px] mx-auto animate-in fade-in slide-in-from-bottom-2 duration-300">
                   {/* 경로: ← 내 기록 > 폴더명 */}
                   <div className="flex items-center gap-2 mb-6 min-w-0">
                     <button
@@ -1139,7 +1079,7 @@ function PresentationAnalysisDashboard() {
 
             // 2) 폴더 목록: 컴퓨터 폴더처럼 아이콘만. 누르면 그 폴더가 열린다.
             return (
-              <div className="max-w-[1200px] mx-auto animate-in fade-in slide-in-from-bottom-2 duration-300">
+              <div className="max-w-[1100px] mx-auto animate-in fade-in slide-in-from-bottom-2 duration-300">
                 <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-center mb-6">
                   <h3 className="text-2xl font-extrabold text-stone-800">프로젝트 &amp; 발표 관리</h3>
                   <button
@@ -1283,7 +1223,7 @@ function PresentationAnalysisDashboard() {
 
           {/* 휴지통 — 복원 / 영구 삭제 */}
           {activeMenu === 'trash' && (
-            <div className="max-w-[1200px] mx-auto animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <div className="max-w-[1100px] mx-auto animate-in fade-in slide-in-from-bottom-2 duration-300">
               <div className="mb-8">
                 <h3 className="text-2xl font-extrabold text-stone-800">휴지통</h3>
                 <p className="text-[16px] text-stone-500 mt-2 font-medium">삭제한 폴더는 여기에 보관됩니다. 복원하거나 영구 삭제할 수 있습니다.</p>
@@ -1331,7 +1271,7 @@ function PresentationAnalysisDashboard() {
           {/* Analysis Views — 회차를 골랐을 때만 */}
           {activeMenu !== 'sessions' && activeMenu !== 'trash' && (activeSessionId || activeMenu === 'compare') ? (
             // 단일 분석은 왼쪽·오른쪽 두 칸으로 놓으므로 더 넓게 쓴다
-            <div className={`max-w-[1200px] mx-auto space-y-6 pb-12`}>
+            <div className={`max-w-[1100px] mx-auto space-y-6 pb-12`}>
 
               {/* VIEW 3: Single Analysis */}
               {activeMenu === 'single' && (
@@ -1685,7 +1625,7 @@ function PresentationAnalysisDashboard() {
             <div className="h-full flex flex-col items-center justify-center text-stone-400">
               <FolderOpen className="w-16 h-16 mb-4 text-stone-300" />
               <p className="text-lg font-bold text-stone-500">선택된 발표 세션이 없습니다.</p>
-              <p className="text-sm mt-2">좌측 패널 ‘발표 세션 목록’에서 프로젝트 폴더를 열고 발표 연습을 선택해주세요.</p>
+              <p className="text-sm mt-2">상단의 ‘내 기록’에서 프로젝트 폴더를 열고 발표 연습을 선택해주세요.</p>
             </div>
           ) : null}
         </div>
