@@ -984,7 +984,7 @@ function PresentationAnalysisDashboard() {
 
         {/* Scrollable Container for Content */}
         {/* 본문 양옆 여백: 화면이 넓을수록 넉넉하게, 모바일은 좁게. 내용 폭은 최대 1100px */}
-        <div className="flex-1 overflow-y-auto pt-6 pb-8 md:pt-8 px-5 sm:px-10 lg:px-32 xl:px-48 min-[1700px]:px-72 custom-scrollbar">
+        <div className="flex-1 overflow-y-auto pt-10 pb-8 md:pt-14 px-5 sm:px-10 lg:px-32 xl:px-48 min-[1700px]:px-72 custom-scrollbar">
           {breadcrumb}
           
           {/* VIEW 0: Session Management — 폴더 목록(아이콘) ↔ 폴더 안(세션 목록 + 종합추이) */}
@@ -1558,11 +1558,8 @@ function PresentationAnalysisDashboard() {
                                 <span className={`text-xs font-extrabold px-3 py-1 rounded-full border ${RATING_STYLES[seg.feedback.rating]}`}>{seg.feedback.rating}</span>
                               )}
                             </div>
-                            {/* 구간 이름과 시간·제목을 한 묶음으로 — 카드가 좁아서 줄이 바뀌어도 둘의 시작 위치가 맞는다 */}
-                            <div className="flex flex-wrap items-baseline gap-x-4 gap-y-0.5 mb-4">
-                              <h4 className="font-extrabold text-stone-800 text-[20px]">{segmentName(seg)}</h4>
-                              <span className="font-extrabold text-stone-800 text-[20px]">{fmtTime(seg.t_start)}~{fmtTime(seg.t_end)} · {seg.title}</span>
-                            </div>
+                            {/* 구간 이름 - 제목 한 줄 (시간은 아래 피드백의 시간 버튼으로 본다) */}
+                            <h4 className="font-extrabold text-stone-800 text-[20px] mb-4">{segmentName(seg)} - {seg.title}</h4>
 
                             {seg.feedback ? (
                               <div className="space-y-4 text-[15px]">

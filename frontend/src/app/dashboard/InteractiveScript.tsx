@@ -201,7 +201,7 @@ export default function InteractiveScript({ script, videoChunks, currentTime, is
                 <button
                   onClick={() => onSeek(row.t)}
                   title="이 문장부터 재생"
-                  className={`text-left leading-relaxed font-medium rounded-lg px-2 py-1 -mx-2 transition-colors ${
+                  className={`text-left leading-relaxed font-medium rounded-sm px-2 py-1 -mx-2 transition-colors ${
                     isActive ? 'bg-yellow-100 text-stone-900' : 'text-stone-700 hover:bg-stone-100'
                   }`}
                 >
@@ -213,7 +213,7 @@ export default function InteractiveScript({ script, videoChunks, currentTime, is
                       <button
                         key={`f-${k}`}
                         onClick={() => onSeek(Math.max(0, chip.at - LEAD_SEC))}
-                        className="bg-orange-100 text-orange-700 px-2 py-0.5 rounded-lg text-xs font-bold border border-orange-200 inline-flex items-center gap-1 hover:bg-orange-200 transition-colors"
+                        className="bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full text-xs font-bold border border-orange-200 inline-flex items-center gap-1 hover:bg-orange-200 transition-colors"
                       >
                         <MessageSquare className="w-3 h-3" />
                         {chip.label} · {fmtTime(chip.at)}
@@ -223,7 +223,7 @@ export default function InteractiveScript({ script, videoChunks, currentTime, is
                       <button
                         key={`r-${k}`}
                         onClick={() => onSeek(Math.max(0, chip.at - LEAD_SEC))}
-                        className="bg-amber-100 text-amber-800 px-2 py-0.5 rounded-lg text-xs font-bold border border-amber-200 inline-flex items-center gap-1 hover:bg-amber-200 transition-colors"
+                        className="bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full text-xs font-bold border border-amber-200 inline-flex items-center gap-1 hover:bg-amber-200 transition-colors"
                       >
                         <Repeat className="w-3 h-3" />
                         {chip.label} · {fmtTime(chip.at)}
@@ -242,7 +242,7 @@ export default function InteractiveScript({ script, videoChunks, currentTime, is
               {time}
               <button
                 onClick={() => onSeek(Math.max(0, row.t - LEAD_SEC))}
-                className="bg-stone-200 text-stone-600 px-2.5 py-1 rounded-lg text-xs font-bold border border-stone-300 inline-flex items-center gap-1.5 hover:bg-stone-300 transition-colors"
+                className="bg-stone-200 text-stone-600 px-2.5 py-1 rounded-full text-xs font-bold border border-stone-300 inline-flex items-center gap-1.5 hover:bg-stone-300 transition-colors"
               >
                 <Clock className="w-3.5 h-3.5" />
                 무음 {row.duration.toFixed(1)}초
@@ -259,7 +259,7 @@ export default function InteractiveScript({ script, videoChunks, currentTime, is
             <div className="flex flex-wrap items-center gap-1.5">
               <button
                 onClick={() => onSeek(Math.max(0, row.t - LEAD_SEC))}
-                className="bg-stone-100 text-stone-600 px-2 py-0.5 rounded-lg text-xs font-bold border border-stone-200 inline-flex items-center gap-1 hover:bg-stone-200 transition-colors"
+                className="bg-stone-100 text-stone-600 px-2 py-0.5 rounded-full text-xs font-bold border border-stone-200 inline-flex items-center gap-1 hover:bg-stone-200 transition-colors"
                 title="이 동작 분석 구간부터 재생"
               >
                 <Video className="w-3 h-3" />
@@ -271,7 +271,7 @@ export default function InteractiveScript({ script, videoChunks, currentTime, is
                 return (
                   <span
                     key={key}
-                    className={`px-2 py-0.5 rounded-lg text-xs font-bold border inline-flex items-center gap-1 ${
+                    className={`px-2 py-0.5 rounded-full text-xs font-bold border inline-flex items-center gap-1 ${
                       positive ? 'bg-stone-100 text-stone-900 border-stone-300' : 'bg-rose-50 text-rose-700 border-rose-200'
                     }`}
                   >
