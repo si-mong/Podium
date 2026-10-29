@@ -5,9 +5,10 @@
 //   ① 총 지표 비교   : GET /projects/{id}/compare 의 metrics (분당 횟수로 맞춰 비교, 판정은 백엔드가 함)
 //   ② 구간별 비교    : 같은 라벨(도입·해결방안 …) 구간끼리. 두 회차 영상·스크립트·지표를 나란히
 //   ③ AI 비교 피드백 : POST /projects/{id}/compare/feedback — 지난 회차 개선점이 고쳐졌는지 GPT 가 판정 (저장됨)
+// 회차 고르기 화면 아래에는 이 폴더에서 만든 AI 비교 기록(GET /projects/{id}/comparisons)을 보여 주고, 누르면 그 비교를 다시 연다.
 
 import { useEffect, useRef, useState } from 'react';
-import { AlertCircle, ArrowLeft, ArrowRight, BarChart2, Check, ChevronDown, Columns, FileText, Lightbulb, Loader2, RefreshCw, Sparkles, ThumbsUp } from 'lucide-react';
+import { AlertCircle, ArrowLeft, ArrowRight, BarChart2, Check, ChevronDown, ChevronRight, Columns, FileText, History, Lightbulb, Loader2, RefreshCw, Sparkles, ThumbsUp } from 'lucide-react';
 import { API_BASE, apiFetch } from '@/utils/api';
 import InteractiveScript, { fmtTime, ScriptData, VideoChunk } from './InteractiveScript';
 
@@ -28,6 +29,11 @@ interface FeedbackItem { status: 'resolved' | 'improved' | 'persists' | 'new'; t
 interface CompareFeedback {
   comparison_id: number; status: string; headline: string | null; items: FeedbackItem[];
   error: string | null; created_at: string; stale: boolean;
+}
+// 지난 AI 비교 기록 한 줄. 회차를 지우면 그 회차 id 가 비어(null) 다시 열 수 없다.
+interface ComparisonListItem {
+  comparison_id: number; base_session_id: number | null; target_session_id: number | null;
+  base_session_no: number; target_session_no: number; status: string; headline: string | null; created_at: string;
 }
 interface ProjectCompare {
   sessions: CompareSession[]; base: CompareSession | null; target: CompareSession | null;
@@ -234,9 +240,10 @@ function SessionColumn({ title, tone, session, segments, scriptOpen }: {
 
 // 회차 고르기 — 폴더의 회차를 카드로 보여 주고 2개를 고르게 한다. 분석이 안 끝난 회차는 고를 수 없다.
 // 고른 순서와 상관없이 앞 회차가 "이전", 뒤 회차가 "이번"이 된다.
-function SessionPicker({ projects, projectId, onProjectChange, sessions, picks, setPicks, onCompare }: {
+function SessionPicker({ projects, projectId, onProjectChange, sessions, picks, setPicks, onCompare, history, onOpenHistory }: {
   projects: { id: string; name: string }[]; projectId: string; onProjectChange: (id: string) => void;
   sessions: CompareSession[] | null; picks: number[]; setPicks: (p: number[]) => void; onCompare: () => void;
+  history: ComparisonListItem[]; onOpenHistory: (base: number, target: number) => void;
 }) {
   const toggle = (id: number) => {
     if (picks.includes(id)) setPicks(picks.filter((p) => p !== id));
@@ -306,6 +313,43 @@ function SessionPicker({ projects, projectId, onProjectChange, sessions, picks, 
           </div>
         </>
       )}
+
+      {projectId && history.length > 0 && <CompareHistory items={history} onOpen={onOpenHistory} />}
+    </div>
+  );
+}
+
+// 지난 AI 비교 기록 — 이 폴더에서 AI 비교 피드백을 만든 회차 쌍 (최신순). 누르면 그 두 회차 비교를 다시 연다.
+function CompareHistory({ items, onOpen }: { items: ComparisonListItem[]; onOpen: (base: number, target: number) => void }) {
+  return (
+    <div className="mt-6 pt-5 border-t border-stone-200">
+      <h4 className="font-bold text-stone-700 text-base flex items-center gap-1.5 mb-3">
+        <History className="w-4 h-4 text-stone-500" />
+        지난 AI 비교 기록
+      </h4>
+      <ul className="space-y-2">
+        {items.map((c) => {
+          const openable = c.base_session_id != null && c.target_session_id != null;
+          return (
+            <li key={c.comparison_id}>
+              <button disabled={!openable} onClick={() => openable && onOpen(c.base_session_id!, c.target_session_id!)}
+                className="w-full text-left rounded-xl border border-stone-200 bg-white px-4 py-3 hover:bg-stone-50 transition-colors flex items-center gap-3
+                  disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white">
+                <span className="shrink-0 font-bold text-stone-800 whitespace-nowrap">
+                  {c.base_session_no}회차 <ArrowRight className="inline w-3.5 h-3.5 text-stone-400 -mt-0.5" /> {c.target_session_no}회차
+                </span>
+                <span className="min-w-0 flex-1 text-[15px] text-stone-600 truncate">
+                  {!openable ? '회차가 삭제돼 다시 열 수 없어요'
+                    : c.status === 'error' ? <span className="text-rose-600">AI 비교 피드백을 만들지 못했어요</span>
+                    : c.headline || 'AI 비교 피드백'}
+                </span>
+                <span className="shrink-0 text-sm text-stone-400">{c.created_at.slice(0, 10).replace(/-/g, '.')}</span>
+                {openable && <ChevronRight className="w-4 h-4 text-stone-400 shrink-0" />}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }
@@ -325,6 +369,7 @@ export default function CompareView({ projects, projectId, onProjectChange, init
   const [scriptOpen, setScriptOpen] = useState(true); // 구간별 비교의 스크립트 펼침/접힘 (두 회차 같이)
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
+  const [history, setHistory] = useState<ComparisonListItem[]>([]);
 
   // 프로젝트가 바뀌면 회차 목록을 새로 받고 고르기부터 다시
   useEffect(() => {
@@ -348,6 +393,19 @@ export default function CompareView({ projects, projectId, onProjectChange, init
     })();
     return () => { cancelled = true; };
   }, [projectId]);
+
+  // 지난 AI 비교 기록 — 폴더가 바뀔 때, 그리고 비교 결과에서 고르기 화면으로 돌아올 때(새로 만든 기록 반영) 받는다.
+  // 기록을 못 받아도 비교 기능은 그대로 쓸 수 있으니 실패는 조용히 넘긴다.
+  useEffect(() => {
+    setHistory([]);
+    if (!projectId || pair) return;
+    let cancelled = false;
+    apiFetch(`/projects/${projectId}/comparisons`)
+      .then((res) => (res.ok ? res.json() : []))
+      .then((list: ComparisonListItem[]) => { if (!cancelled) setHistory(list); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [projectId, pair]);
 
   // 두 회차를 고르고 "비교하기"를 누르면 비교 결과를 받는다
   useEffect(() => {
@@ -391,12 +449,24 @@ export default function CompareView({ projects, projectId, onProjectChange, init
   };
 
   if (loadError) {
-    return <div className="bg-rose-50 border border-rose-200 text-rose-700 text-base rounded-xl px-4 py-3">{loadError}</div>;
+    return (
+      <div className="bg-rose-50 border border-rose-200 text-rose-700 text-base rounded-xl px-4 py-3 flex flex-wrap items-center gap-3">
+        <span className="mr-auto">{loadError}</span>
+        {/* 비교를 열다 실패했으면(지난 기록의 회차가 다시 분석 전 상태가 된 경우 등) 고르기 화면으로 돌아갈 수 있게 */}
+        {pair && (
+          <button onClick={() => { setLoadError(null); setPair(null); }}
+            className="flex items-center gap-1 text-sm font-semibold text-rose-700 hover:text-rose-900">
+            <ArrowLeft className="w-4 h-4" /> 회차 다시 고르기
+          </button>
+        )}
+      </div>
+    );
   }
   if (!pair) {
     return (
       <SessionPicker projects={projects} projectId={projectId} onProjectChange={onProjectChange}
-        sessions={sessions} picks={picks} setPicks={setPicks} onCompare={startCompare} />
+        sessions={sessions} picks={picks} setPicks={setPicks} onCompare={startCompare}
+        history={history} onOpenHistory={(base, target) => { setPicks([base, target]); setPair({ base, target }); }} />
     );
   }
   if (!data || !data.base || !data.target) {
