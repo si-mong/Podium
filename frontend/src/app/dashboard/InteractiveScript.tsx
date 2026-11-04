@@ -10,7 +10,6 @@
 // 데이터: GET /sessions/{id}/script (문장·무음·필러·반복) + GET /sessions/{id}/analysis (동작 분석)
 
 import React, { useEffect, useRef } from 'react';
-import { AlertCircle, Clock, MessageSquare, Repeat, ThumbsUp, Video } from 'lucide-react';
 
 // --- 백엔드 응답 형태 (app/schemas/session.py) ---
 export interface ScriptData {
@@ -73,7 +72,7 @@ export function TimestampText({ text, onSeek }: { text: string; onSeek: (sec: nu
               e.stopPropagation(); // 바깥 카드의 클릭(구간 선택)까지 같이 실행되지 않게
               onSeek(parseTime(part));
             }}
-            className="inline-block mx-0.5 px-1.5 py-0.5 rounded-md bg-stone-100 text-stone-900 border border-stone-300 text-[13px] font-bold hover:bg-stone-200 transition-colors"
+            className="inline-block mx-0.5 px-1 rounded bg-rose-50 text-rose-700 font-mono text-[0.88em] font-semibold hover:bg-rose-100 transition-colors"
           >
             {part}
           </button>
@@ -106,12 +105,24 @@ interface Props {
   plain?: boolean;             // true = 원본 스크립트 (문장만)
   segmentStarts?: number[];    // 각 구간의 시작 시각(초). 두 번째 구간부터 그 앞에 구분선을 긋는다.
   heightClass?: string;        // 스크립트 영역 높이 (기본 h-[400px]). 비교 분석은 내용만큼만 보이게 max-h 를 쓴다.
+  sameSentences?: Set<string>; // 비교 분석: 다른 회차에도 있는 문장(normalizeSentence 형태). 노란 표시를 하고, 재생 중 강조는 회색으로 바꾼다.
 }
 
 /** 필러 한 개를 표시할 글. 모델 태그("<um>")나 음향 검출이면 어휘를 모르니 "필러"만. */
 function fillerLabel(f: { text?: string | null }) {
   const word = f.text && !f.text.startsWith('<') ? f.text : '';
-  return word ? `필러: ${word}` : '필러';
+  return word ? `필러 '${word}'` : '필러';
+}
+
+/** 두 회차의 문장이 같은지 볼 때 쓰는 형태 — 띄어쓰기·문장부호 차이는 무시한다. */
+export function normalizeSentence(text: string) {
+  return text.replace(/[\s.,!?·…'"‘’“”~-]/g, '');
+}
+
+// 문장 아래 표시·동작 줄에 쓰는 작은 점 + 글자
+function Dot({ tone }: { tone: 'good' | 'bad' | 'warn' }) {
+  const color = tone === 'good' ? 'bg-emerald-600' : tone === 'bad' ? 'bg-rose-600' : 'bg-amber-600';
+  return <span className={`inline-block w-2 h-2 rounded-full shrink-0 ${color}`} />;
 }
 
 // 세션 전체 스크립트로 줄을 만든다 (구간 필터 없음 — 처음부터 끝까지 다 보여준다).
@@ -139,7 +150,7 @@ function buildRows(script: ScriptData, chunks: VideoChunk[], plain: boolean): Ro
     owner(f.t_start)?.fillers.push({ label: fillerLabel(f), at: f.t_start });
   }
   for (const r of script.repetitions) {
-    owner(r.t_start)?.repetitions.push({ label: r.text ? `반복: ${r.text}` : '반복', at: r.t_start });
+    owner(r.t_start)?.repetitions.push({ label: r.text ? `반복 '${r.text}'` : '반복', at: r.t_start });
   }
 
   for (const s of script.silences.filter((s) => s.duration >= MIN_SILENCE_SEC)) {
@@ -152,7 +163,7 @@ function buildRows(script: ScriptData, chunks: VideoChunk[], plain: boolean): Ro
   return rows.sort((a, b) => a.t - b.t);
 }
 
-export default function InteractiveScript({ script, videoChunks, currentTime, isPlaying, onSeek, plain = false, segmentStarts = [], heightClass = 'h-[400px]' }: Props) {
+export default function InteractiveScript({ script, videoChunks, currentTime, isPlaying, onSeek, plain = false, segmentStarts = [], heightClass = 'h-[400px]', sameSentences }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef<HTMLDivElement>(null);
 
@@ -185,52 +196,53 @@ export default function InteractiveScript({ script, videoChunks, currentTime, is
   return (
     // relative: 안쪽 줄의 offsetTop 이 이 박스 기준이 되도록 (자동 스크롤 계산용)
     // h-[400px](기본): 대략 10줄 정도가 보이는 높이. 그 이상은 스크롤로 본다.
-    <div ref={containerRef} className={`relative space-y-2 ${heightClass} overflow-y-auto custom-scrollbar pr-2`}>
+    <div ref={containerRef} className={`relative space-y-1 ${heightClass} overflow-y-auto custom-scrollbar pr-1`}>
       {rows.map((row, i) => {
-        const time = <span className="text-stone-400 font-bold shrink-0 w-12 pt-1 text-[14px]">{fmtTime(row.t)}</span>;
-        // 새 구간의 첫 줄이면 위쪽에 얇은 구분선 + 위아래 여백.
-        // 바깥 박스의 space-y-2 가 위 여백(margin-top)을 덮어쓰므로 !mt-5 로 강제한다.
-        const divider = dividerBefore.has(i) ? 'border-t border-stone-400 pt-5 !mt-5' : '';
+        const time = <span className="text-stone-400 font-mono shrink-0 w-12 pt-px text-[14px]">{fmtTime(row.t)}</span>;
+        // 새 구간의 첫 줄이면 위쪽에 얇은 구분선. 바깥 박스의 space-y 가 위 여백을 덮어쓰므로 !mt-3 으로 강제한다.
+        const divider = dividerBefore.has(i) ? 'border-t border-stone-200 !mt-3 pt-3' : '';
 
         if (row.kind === 'sentence') {
           const isActive = i === activeIndex;
+          const isSame = sameSentences?.has(normalizeSentence(row.text));
+          const activeBg = sameSentences ? 'bg-stone-100' : 'bg-yellow-100';
           return (
-            <div key={`s-${i}`} ref={isActive ? activeRef : null} className={`flex gap-3 text-[15px] ${divider}`}>
-              {time}
-              <div className="flex-1">
-                <button
-                  onClick={() => onSeek(row.t)}
-                  title="이 문장부터 재생"
-                  className={`text-left leading-relaxed font-medium rounded-sm px-2 py-1 -mx-2 transition-colors ${
-                    isActive ? 'bg-yellow-100 text-stone-900' : 'text-stone-700 hover:bg-stone-100'
-                  }`}
-                >
-                  {row.text}
-                </button>
-                {(row.fillers.length > 0 || row.repetitions.length > 0) && (
-                  <div className="flex flex-wrap gap-1.5 mt-1">
-                    {row.fillers.map((chip, k) => (
-                      <button
-                        key={`f-${k}`}
-                        onClick={() => onSeek(Math.max(0, chip.at - LEAD_SEC))}
-                        className="bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full text-xs font-bold border border-orange-200 inline-flex items-center gap-1 hover:bg-orange-200 transition-colors"
-                      >
-                        <MessageSquare className="w-3 h-3" />
-                        {chip.label} · {fmtTime(chip.at)}
-                      </button>
-                    ))}
-                    {row.repetitions.map((chip, k) => (
-                      <button
-                        key={`r-${k}`}
-                        onClick={() => onSeek(Math.max(0, chip.at - LEAD_SEC))}
-                        className="bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full text-xs font-bold border border-amber-200 inline-flex items-center gap-1 hover:bg-amber-200 transition-colors"
-                      >
-                        <Repeat className="w-3 h-3" />
-                        {chip.label} · {fmtTime(chip.at)}
-                      </button>
-                    ))}
-                  </div>
-                )}
+            <div key={`s-${i}`} ref={isActive ? activeRef : null} className={divider}>
+              <div className={`flex gap-2 px-2 py-1.5 rounded transition-colors text-[15.5px] ${isActive ? activeBg : 'hover:bg-stone-50'}`}>
+                {time}
+                <div className="flex-1 min-w-0">
+                  <button
+                    onClick={() => onSeek(row.t)}
+                    title="이 문장부터 재생"
+                    className={`text-left leading-relaxed ${isActive && !sameSentences ? 'font-semibold text-stone-900' : 'font-medium text-stone-800'}`}
+                  >
+                    {isSame ? <mark className="bg-yellow-200 text-stone-900 rounded-sm px-0.5 [box-decoration-break:clone]">{row.text}</mark> : row.text}
+                  </button>
+                  {(row.fillers.length > 0 || row.repetitions.length > 0) && (
+                    <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
+                      {row.fillers.map((chip, k) => (
+                        <button
+                          key={`f-${k}`}
+                          onClick={() => onSeek(Math.max(0, chip.at - LEAD_SEC))}
+                          className="inline-flex items-center gap-1.5 text-[14px] font-semibold text-rose-700 hover:underline"
+                        >
+                          <Dot tone="bad" />
+                          {chip.label} · {fmtTime(chip.at)}
+                        </button>
+                      ))}
+                      {row.repetitions.map((chip, k) => (
+                        <button
+                          key={`r-${k}`}
+                          onClick={() => onSeek(Math.max(0, chip.at - LEAD_SEC))}
+                          className="inline-flex items-center gap-1.5 text-[14px] font-semibold text-amber-700 hover:underline"
+                        >
+                          <Dot tone="warn" />
+                          {chip.label} · {fmtTime(chip.at)}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           );
@@ -238,55 +250,51 @@ export default function InteractiveScript({ script, videoChunks, currentTime, is
 
         if (row.kind === 'silence') {
           return (
-            <div key={`sil-${i}`} className={`flex gap-3 text-[15px] ${divider}`}>
-              {time}
-              <button
-                onClick={() => onSeek(Math.max(0, row.t - LEAD_SEC))}
-                className="bg-stone-200 text-stone-600 px-2.5 py-1 rounded-full text-xs font-bold border border-stone-300 inline-flex items-center gap-1.5 hover:bg-stone-300 transition-colors"
-              >
-                <Clock className="w-3.5 h-3.5" />
-                무음 {row.duration.toFixed(1)}초
-              </button>
+            <div key={`sil-${i}`} className={divider}>
+              <div className="flex gap-2 px-2 py-0.5">
+                <span className="shrink-0 w-12" />
+                <button
+                  onClick={() => onSeek(Math.max(0, row.t - LEAD_SEC))}
+                  title={`${fmtTime(row.t)}부터 재생`}
+                  className="text-[14px] text-stone-400 hover:text-stone-700 transition-colors"
+                >
+                  — 무음 {row.duration.toFixed(1)}초
+                </button>
+              </div>
             </div>
           );
         }
 
         // 동작 분석 조각 (구간 기준 최대 1분 단위 — 제스처 하나하나의 시각은 알 수 없고, 그 조각 안에서 센 횟수만 안다)
         const counts = Object.entries(row.chunk.gesture_counts || {}).filter(([, n]) => n > 0);
+        const eye = row.chunk.eye_contact;
         return (
-          <div key={`m-${i}`} className={`flex gap-3 text-[15px] ${divider}`}>
-            {time}
-            <div className="flex flex-wrap items-center gap-1.5">
-              <button
-                onClick={() => onSeek(Math.max(0, row.t - LEAD_SEC))}
-                className="bg-stone-100 text-stone-600 px-2 py-0.5 rounded-full text-xs font-bold border border-stone-200 inline-flex items-center gap-1 hover:bg-stone-200 transition-colors"
-                title="이 동작 분석 구간부터 재생"
-              >
-                <Video className="w-3 h-3" />
-                동작 {fmtTime(row.chunk.t_start)}~{fmtTime(row.chunk.t_end)}
-              </button>
-              {counts.map(([key, n]) => {
-                const info = GESTURE_LABELS[key];
-                const positive = info ? info.positive : true;
-                return (
-                  <span
-                    key={key}
-                    className={`px-2 py-0.5 rounded-full text-xs font-bold border inline-flex items-center gap-1 ${
-                      positive ? 'bg-stone-100 text-stone-900 border-stone-300' : 'bg-rose-50 text-rose-700 border-rose-200'
-                    }`}
-                  >
-                    {positive ? <ThumbsUp className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
-                    {info ? info.label : key} {n}회
-                  </span>
-                );
-              })}
-              {(row.chunk.posture || row.chunk.eye_contact) && (
-                <span className="text-xs text-stone-500 font-medium">
-                  {[row.chunk.posture && `자세 ${row.chunk.posture}`, row.chunk.eye_contact && `시선 ${row.chunk.eye_contact}`]
-                    .filter(Boolean)
-                    .join(' · ')}
-                </span>
-              )}
+          <div key={`m-${i}`} className={divider}>
+            <div className="flex gap-2 px-2 py-1">
+              {time}
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[14px] min-w-0">
+                <button
+                  onClick={() => onSeek(Math.max(0, row.t - LEAD_SEC))}
+                  className="text-stone-500 hover:text-stone-900 transition-colors"
+                  title="이 동작 분석 구간부터 재생"
+                >
+                  동작 {fmtTime(row.chunk.t_start)}~{fmtTime(row.chunk.t_end)}
+                </button>
+                {counts.map(([key, n]) => {
+                  const info = GESTURE_LABELS[key];
+                  const positive = info ? info.positive : true;
+                  return (
+                    <span key={key} className={`inline-flex items-center gap-1.5 font-semibold ${positive ? 'text-emerald-700' : 'text-rose-700'}`}>
+                      <Dot tone={positive ? 'good' : 'bad'} />
+                      {info ? info.label : key} {n}회
+                    </span>
+                  );
+                })}
+                {row.chunk.posture && <span className="text-stone-500">자세 {row.chunk.posture}</span>}
+                {eye && (
+                  <span className={`font-semibold ${eye === '빈번' ? 'text-emerald-700' : eye === '드묾' ? 'text-rose-700' : 'text-stone-500'}`}>시선 {eye}</span>
+                )}
+              </div>
             </div>
           </div>
         );

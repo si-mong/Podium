@@ -3,18 +3,17 @@
 import React, { Suspense, useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
-  Play, Pause,
-  CheckCircle, AlertCircle, TrendingUp,
-  BarChart2, Mic, Activity, Award, Video,
-  Folder, FolderOpen, ChevronRight, ChevronDown, ArrowLeft, Plus, Trash2, Upload, X, FileText, MessageSquare, Columns, ThumbsUp, Lightbulb, Pencil, LogOut, ShieldCheck, UserRound
+  Play, Pause, TrendingUp, BarChart2, Video,
+  Folder, FolderOpen, ChevronRight, ChevronDown, ArrowLeft, Plus, Trash2, Upload, X, Columns, Pencil, LogOut, ShieldCheck, UserRound
 } from 'lucide-react';
 import {
   Line, Bar, XAxis, YAxis,
   CartesianGrid, Tooltip, ResponsiveContainer,
   ComposedChart
 } from 'recharts';
-import InteractiveScript, { TimestampText, fmtTime, ScriptData, VideoChunk } from './InteractiveScript';
+import { ScriptData, VideoChunk } from './InteractiveScript';
 import CompareView from './CompareView';
+import SingleView, { ApiSegment, TrendPoint, VoiceSummary } from './SingleView';
 import { PodiumLogo } from '@/components/ServiceGuide';
 
 const videoThumbnail = "/dashboard-video-thumbnail.png";
@@ -22,6 +21,7 @@ const videoThumbnail = "/dashboard-video-thumbnail.png";
 // API 호출은 apiFetch (로그인 토큰 자동 첨부, 만료 시 자동 갱신) — frontend/src/utils/api.ts
 import { API_BASE, apiFetch } from '@/utils/api';
 import { clearTokens, getRefreshToken, isLoggedIn } from '@/utils/auth';
+import { AnalysisStep, runSteps } from '@/utils/analysis';
 
 // 백엔드 응답 형태 (app/schemas/project.py, app/schemas/session.py)
 interface ApiSession {
@@ -71,39 +71,6 @@ function toTopic(p: ApiProject): Topic {
   };
 }
 
-// 구간(STEP 4)과 구간별 피드백(STEP 5) — GET /sessions/{id}/segment-feedback
-interface ApiSegment {
-  segment_id: number;
-  label: string | null;
-  title: string;
-  t_start: number;
-  t_end: number;
-  // 아직 없으면 null. rating 은 나중에 추가돼서 예전에 분석한 구간은 null
-  feedback: { rating: SegmentRating | null; strengths: string[]; improvements: string[] } | null;
-}
-
-// 구간 등급(STEP 5 GPT 판정) — 구간별 피드백 카드 오른쪽 위 스티커
-type SegmentRating = '잘함' | '보통' | '개선필요';
-const RATING_STYLES: Record<SegmentRating, string> = {
-  '잘함': 'bg-green-100 text-green-700 border-green-200',
-  '보통': 'bg-stone-100 text-stone-600 border-stone-200',
-  '개선필요': 'bg-amber-100 text-amber-700 border-amber-200',
-};
-
-// 구간별 지표 — GET /sessions/{id}/segments/trend 의 points
-interface TrendPoint {
-  segment_id: number;
-  label: string | null;
-  title: string;
-  filler_count: number | null;
-  repetition_count: number | null;
-  speaking_rate_spm: number | null;
-  silence_ratio: number | null; // 0~1
-}
-
-// 구간 이름으로 보여줄 글자 — 분류 라벨(도입 등)이 있으면 그걸, 없으면 한 줄 요약 제목.
-const segmentName = (seg: { label: string | null; title: string }) => seg.label || seg.title;
-
 // "내 기록" 폴더 카드 아이콘 — 윈도우 탐색기 폴더처럼 생긴 노란 폴더 (직접 그린 SVG).
 // 뒤판(탭 달린 진한 노랑) + 안에 든 흰 종이 + 앞판(밝은 노랑) 세 겹.
 function FolderIcon({ className }: { className?: string }) {
@@ -116,90 +83,30 @@ function FolderIcon({ className }: { className?: string }) {
   );
 }
 
-// --- Mock Data ---
-// (비교/성장 분석 화면은 아직 Mock. 단일 분석 화면은 실제 데이터로 바꿨다.)
-
-// gesture_counts 7종(app/pipeline/step2_video_analysis.py) 중 일반/부정적 제스처로 묶는 기준.
-const GENERAL_GESTURE_KEYS = ["explanatory_gesture", "pointing", "body_movement"] as const;
-const NEGATIVE_GESTURE_KEYS = ["distracting_gesture", "touching_face_or_hair", "fidgeting_with_objects", "closed_posture"] as const;
-
-interface GestureTotals {
-  general: number;
-  negative: number;
-}
-
-// 구간마다 일반/부정적 제스처 횟수를 센다 (그래프용).
-// 동작 분석 조각(약 20초)은 "시작 시각"이 속한 구간 한 곳에만 넣는다 — 마지막 구간만 끝 시각도 포함.
-// (STEP 4 집계 API 는 경계에 걸친 조각을 겹치는 구간마다 넣어서 구간별 합이 실제 총합보다 커진다.
-//  여기서 직접 세면 구간별 합이 상단 카드의 총합과 정확히 같다.)
-function countGesturesBySegment(segments: ApiSegment[], chunks: VideoChunk[]): GestureTotals[] {
-  return segments.map((seg, i) => {
-    const isLast = i === segments.length - 1;
-    let general = 0;
-    let negative = 0;
-    for (const chunk of chunks) {
-      if (chunk.t_start < seg.t_start || (chunk.t_start >= seg.t_end && !isLast)) continue;
-      const counts = chunk.gesture_counts || {};
-      for (const key of GENERAL_GESTURE_KEYS) general += counts[key] || 0;
-      for (const key of NEGATIVE_GESTURE_KEYS) negative += counts[key] || 0;
-    }
-    return { general, negative };
-  });
-}
-
-// GET /sessions/{id}/voice-summary 응답. 아직 없는 값은 null.
-interface VoiceSummary {
-  filler_count: number | null;
-  repetition_count: number | null;
-  silence_ratio: number | null;          // 0~1
-  avg_speaking_rate_spm: number | null;  // 음절/분
-}
-
-// 값이 없으면 "-", 있으면 단위를 붙여서 문자열로.
-function formatStat(value: number | null | undefined, format: (v: number) => string) {
-  return value == null ? "-" : format(value);
-}
-
-// 제스처/음성 카드는 실제 데이터. (말 더듬 횟수 = 반복 횟수)
-// id는 SINGLE_METRICS_CONFIG의 id와 1:1로 맞춰뒀다 — 그래프에서 고른 지표에 맞는 총량 카드를 찾을 때 씀.
-function buildSummaryStats(gestureTotals: GestureTotals | null, voice: VoiceSummary | null) {
-  return [
-    { id: "fillerTotal", title: "필러 단어 빈도", value: formatStat(voice?.filler_count, v => `${v}회`), icon: MessageSquare, color: "text-rose-600", bg: "bg-rose-50" },
-    { id: "wpm", title: "평균 말하기 속도", value: formatStat(voice?.avg_speaking_rate_spm, v => `${Math.round(v)} 음절/분`), icon: Activity, color: "text-green-600", bg: "bg-green-50" },
-    { id: "silenceRatio", title: "전체 무음 비율", value: formatStat(voice?.silence_ratio, v => `${Math.round(v * 100)}%`), icon: Mic, color: "text-purple-600", bg: "bg-purple-50" },
-    { id: "habits", title: "말 더듬 횟수", value: formatStat(voice?.repetition_count, v => `${v}회`), icon: BarChart2, color: "text-orange-600", bg: "bg-orange-50" },
-    { id: "generalGesture", title: "일반 제스처", value: gestureTotals ? `${gestureTotals.general}회` : "-", icon: ThumbsUp, color: "text-stone-900", bg: "bg-stone-100" },
-    { id: "negativeGesture", title: "부정적 제스처", value: gestureTotals ? `${gestureTotals.negative}회` : "-", icon: AlertCircle, color: "text-rose-600", bg: "bg-rose-50" },
-  ];
-}
-
-// 종합 피드백 부가 설명 문단을 문장 단위로 나눈다 ("~요. ~다." → ["~요.", "~다."]).
-// 마침표·물음표·느낌표 뒤에 공백이 있을 때만 자르므로 "1.5" 같은 숫자는 안 잘린다.
-function splitSentences(text: string): string[] {
-  return text.split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter(Boolean);
-}
-
 const MENUS = [
   { id: 'sessions', label: '내 기록', icon: FolderOpen },
   { id: 'single', label: '단일 분석', icon: BarChart2 },
   { id: 'compare', label: '비교 분석', icon: Columns },
 ];
 
-const GROWTH_METRICS_CONFIG = [
-  { id: 'fillerTotal', label: '필러 단어 빈도', unit: '회', color: '#f43f5e', type: 'line' },
-  { id: 'wpm', label: '평균 말하기 속도', unit: 'WPM', color: '#3b82f6', type: 'line' },
-  { id: 'silenceRatio', label: '전체 무음 비율', unit: '%', color: '#c084fc', type: 'bar' },
-  { id: 'habits', label: '말 더듬 횟수', unit: '회', color: '#fb923c', type: 'bar' }
-];
+const ANALYSIS_STEP_NAMES: Record<AnalysisStep, string> = {
+  preprocess: '영상 준비', voice: '음성 분석', segments: '구간 나누기',
+  motion: '동작 분석', segmentFeedback: '구간별 피드백', overall: '종합 피드백',
+};
 
-// 단일 분석 그래프용 — 위 성장 분석 설정과 같은 모양인데 속도 단위만 STEP 3 기준(음절/분)이다.
-// 값은 구간별 지표(/segments/trend)에서 온다. 말 더듬 횟수 = 반복 횟수 (상단 카드와 같은 기준).
-// 일반/부정적 제스처는 구간별 지표 API 대신 동작 분석 조각에서 직접 센다 (countGesturesBySegment 참고).
-const SINGLE_METRICS_CONFIG = [
-  ...GROWTH_METRICS_CONFIG.map(m => (m.id === 'wpm' ? { ...m, unit: '음절/분' } : m)),
-  { id: 'generalGesture', label: '일반 제스처', unit: '회', color: '#0ea5e9', type: 'line' },
-  { id: 'negativeGesture', label: '부정적 제스처', unit: '회', color: '#ef4444', type: 'line' },
-];
+// 오류 신고 — 신고 전용 API 가 없어서 약관·개인정보 처리방침의 문의 메일로 보낸다. 세션 번호와 빠진 단계를 미리 적어 둔다.
+const CONTACT_EMAIL = 'ozmii333@gmail.com';
+function reportMailto(topicName: string, sessionName: string, sessionId: string, missing: AnalysisStep[]) {
+  const subject = `[Podium 오류 신고] ${topicName} ${sessionName}`;
+  const body = [
+    `세션 번호: ${sessionId}`,
+    `빠진 단계: ${missing.length ? missing.map((s) => ANALYSIS_STEP_NAMES[s]).join(', ') : '없음'}`,
+    '',
+    '어떤 문제가 있었는지 적어 주세요:',
+    '',
+  ].join('\n');
+  return `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+}
 
 // 백엔드 GET 요청 → JSON. 실패하면 null (화면에서 그 부분만 비어 보이게 한다).
 async function getJson<T>(path: string): Promise<T | null> {
@@ -479,18 +386,21 @@ function PresentationAnalysisDashboard() {
 
   // 선택된 세션의 실제 데이터 — 영상 경로, 동작 분석(STEP2), 음성 요약·스크립트(STEP3), 구간·피드백(STEP4·5)
   const [sessionVideoPath, setSessionVideoPath] = useState<string | null>(null);
-  const [gestureTotals, setGestureTotals] = useState<GestureTotals | null>(null);
+  const [sessionDuration, setSessionDuration] = useState<number | null>(null); // 발표 길이(초). GET /projects/{id}/trend 의 duration_sec (비교 화면과 같은 값)
   const [voiceSummary, setVoiceSummary] = useState<VoiceSummary | null>(null);
   const [videoChunks, setVideoChunks] = useState<VideoChunk[]>([]);
   const [script, setScript] = useState<ScriptData | null>(null);
-  const [scriptPlain, setScriptPlain] = useState(false); // 스크립트 보기: false = 분석 스크립트, true = 원본 스크립트(문장만)
   const [segments, setSegments] = useState<ApiSegment[]>([]);
   const [trend, setTrend] = useState<TrendPoint[]>([]);
   const [overallFeedback, setOverallFeedback] = useState<string | null>(null); // GET /sessions/{id}/overall-feedback — 부가 설명
   const [overallHeadline, setOverallHeadline] = useState<string | null>(null); // 같은 응답의 핵심 한 줄 (예전 세션은 null)
-  // 분석이 끝까지 안 된 세션인지 (분석 중에 새로고침·창 닫기를 했거나, 중간 단계가 실패하면 앞 단계 결과만 남는다).
-  // 마지막 단계인 구간 피드백·종합 피드백이 하나라도 없으면 "분석을 다시 진행해주세요" 안내를 띄운다.
-  const [analysisIncomplete, setAnalysisIncomplete] = useState(false);
+  // 분석이 끝까지 안 된 세션이면 빠진 단계 목록 (분석 중에 새로고침·창 닫기를 했거나, 중간 단계가 실패하면 앞 단계 결과만 남는다).
+  // 있으면 단일 분석 화면 맨 위에 "다시 분석하기"·"오류 신고하기" 안내를 띄운다.
+  const [missingSteps, setMissingSteps] = useState<AnalysisStep[]>([]);
+  const [reloadKey, setReloadKey] = useState(0);                                      // 올리면 세션 데이터를 다시 받는다
+  const [retryingSessionId, setRetryingSessionId] = useState<string | null>(null);    // 다시 분석 중인 세션
+  const [retryLabel, setRetryLabel] = useState('');
+  const [retryDone, setRetryDone] = useState<{ sessionId: string; error: string | null } | null>(null);
   const [currentTime, setCurrentTime] = useState(0); // 영상의 현재 재생 위치(초)
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -500,10 +410,10 @@ function PresentationAnalysisDashboard() {
 
     setCurrentTime(0);
     setActiveSegmentIndex(0);
-    setAnalysisIncomplete(false); // 불러오는 동안은 안내를 숨긴다 (불러온 뒤에 판단)
+    setMissingSteps([]); // 불러오는 동안은 안내를 숨긴다 (불러온 뒤에 판단)
     if (!activeSessionId) {
       setSessionVideoPath(null);
-      setGestureTotals(null);
+      setSessionDuration(null);
       setVoiceSummary(null);
       setVideoChunks([]);
       setScript(null);
@@ -536,31 +446,64 @@ function PresentationAnalysisDashboard() {
       setOverallFeedback(overallData ? overallData.overall_summary : null);
       setOverallHeadline(overallData ? overallData.headline : null);
 
-      // 구간이 없거나, 피드백이 없는 구간이 있거나, 종합 피드백이 없으면 = 분석이 중간에 멈춘 세션
+      // 빠진 단계를 찾는다. 응답 자체를 못 받은(null) 항목은 네트워크 문제일 수 있어 빠졌다고 보지 않는다.
+      // 구간을 새로 나누면 동작·피드백도 다시 만들어야 하므로(기존 피드백이 함께 지워진다) 뒤 단계까지 넣는다.
       const segs = segmentData ? segmentData.segments : [];
-      const hasOverall = !!overallData && (overallData.headline !== null || overallData.overall_summary !== null);
-      setAnalysisIncomplete(segs.length === 0 || segs.some((s) => !s.feedback) || !hasOverall);
+      const noVoice = !!voice && voice.filler_count === null;
+      const noSegments = !!segmentData && segs.length === 0;
+      const needed: AnalysisStep[] = [];
+      if (detail?.status === 'processing') needed.push('preprocess');
+      if (noVoice) needed.push('voice');
+      if (noVoice || noSegments) needed.push('segments', 'motion', 'segmentFeedback', 'overall');
+      else {
+        if (analysis && analysis.analyses.length === 0) needed.push('motion');
+        if (segs.some((s) => !s.feedback)) needed.push('segmentFeedback');
+        if (overallData && overallData.headline === null && overallData.overall_summary === null) needed.push('overall');
+      }
+      setMissingSteps(needed);
 
-      // 동작 분석: 제스처 합계(상단 카드)와 조각 목록(스크립트에 표시)
+      // 동작 분석 조각 (제스처 합계·구간별 그래프·스크립트 표시에 쓴다)
       setVideoChunks(analysis ? analysis.analyses : []);
-      if (analysis) {
-        let general = 0;
-        let negative = 0;
-        for (const a of analysis.analyses) {
-          const counts = a.gesture_counts || {};
-          for (const key of GENERAL_GESTURE_KEYS) general += counts[key] || 0;
-          for (const key of NEGATIVE_GESTURE_KEYS) negative += counts[key] || 0;
-        }
-        setGestureTotals({ general, negative });
-      } else {
-        setGestureTotals(null);
+
+      // 발표 길이 — 세션 응답에는 없어서 폴더의 회차별 지표에서 가져온다. 못 받으면 마지막 구간 끝 시각을 쓴다.
+      setSessionDuration(null);
+      if (detail) {
+        const projectTrend = await getJson<{ points: ProjectTrendPoint[] }>(`/projects/${detail.project_id}/trend`);
+        if (cancelled) return;
+        setSessionDuration(projectTrend?.points.find((p) => p.session_id === detail.session_id)?.duration_sec ?? null);
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [activeSessionId]);
+  }, [activeSessionId, reloadKey]);
+
+  // 빠진 단계만 다시 분석한 뒤 결과를 새로 받는다. 끝난 뒤에도 빠진 단계가 남으면 안내가 그대로 남아 신고를 권한다.
+  const retrying = !!retryingSessionId && retryingSessionId === activeSessionId;
+  const retryAnalysis = async () => {
+    const sessionId = activeSessionId;
+    setRetryingSessionId(sessionId);
+    setRetryLabel('');
+    setRetryDone(null);
+    let error: string | null = null;
+    try {
+      await runSteps(sessionId, missingSteps, { onStep: setRetryLabel });
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
+    }
+    setRetryingSessionId(null);
+    setRetryDone({ sessionId, error });
+    setReloadKey((k) => k + 1);
+  };
+
+  // 다시 분석하는 동안 창을 닫으려 하면 한 번 묻는다 (닫으면 남은 단계가 실행되지 않는다).
+  useEffect(() => {
+    if (!retryingSessionId) return;
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [retryingSessionId]);
 
   // 영상 재생 티켓 — <video src> 는 Authorization 헤더를 못 실어서, 이 세션 영상에만 30분간 통하는
   // 티켓을 받아 주소 뒤에 붙인다 (백엔드 POST /sessions/{id}/video/ticket).
@@ -660,24 +603,6 @@ function PresentationAnalysisDashboard() {
   }, [playingSegmentIndex]);
 
   const playingSegment = segments[playingSegmentIndex] ?? null;     // 영상이 재생 중인 구간
-
-  // 단일 분석 그래프 데이터 — 구간마다 한 점. x축 이름이 겹치면(같은 라벨의 구간) 한 점으로 합쳐 보이므로 번호를 붙인다.
-  const gesturesBySegment = countGesturesBySegment(segments, videoChunks);
-  const trendData = trend.map((p, i) => {
-    const gestures = gesturesBySegment[segments.findIndex(s => s.segment_id === p.segment_id)];
-    return {
-      segment: `${i + 1}. ${segmentName(p)}`,
-      fillerTotal: p.filler_count ?? 0,
-      wpm: Math.round(p.speaking_rate_spm ?? 0),
-      silenceRatio: Math.round((p.silence_ratio ?? 0) * 1000) / 10, // 0~1 → % (소수 첫째 자리)
-      habits: p.repetition_count ?? 0,
-      generalGesture: gestures ? gestures.general : 0,
-      negativeGesture: gestures ? gestures.negative : 0,
-    };
-  });
-
-  // Single Analysis State
-  const [activeSingleMetric, setActiveSingleMetric] = useState('fillerTotal');
 
   // Modals State
   const [isTopicModalOpen, setIsTopicModalOpen] = useState(false);
@@ -921,23 +846,6 @@ function PresentationAnalysisDashboard() {
   // 상단 바 오른쪽 버튼 (홈 화면 상단 바와 같은 모양) — 좁은 화면에서는 아이콘만
   const headerButton = 'h-10 flex items-center gap-1.5 px-3 rounded-full whitespace-nowrap text-sm font-semibold text-stone-600 hover:bg-white hover:text-stone-900 transition-colors shrink-0';
 
-  // 지금 보고 있는 폴더 > 세션 표시 (본문 맨 위)
-  const breadcrumb = activeTopicName && activeSessionName && activeMenu !== 'sessions' && activeMenu !== 'trash' ? (
-    <div className="max-w-[1100px] mx-auto mb-5 flex items-center gap-2 text-[15px] font-medium text-stone-500 min-w-0">
-      {/* 폴더 이름을 누르면 "내 기록"에서 그 폴더(세션 목록 + 종합추이)를 연다 — 뒤로가기와 같은 효과 */}
-      <button
-        onClick={() => goTo({ view: 'sessions', folder: activeTopicId })}
-        className="flex items-center gap-2 hover:text-stone-900 transition-colors min-w-0"
-        title={`${activeTopicName} 폴더로 이동`}
-      >
-        <FolderOpen className="w-4 h-4 text-stone-400 shrink-0" />
-        <span className="hover:underline truncate">{activeTopicName}</span>
-      </button>
-      <ChevronRight className="w-3.5 h-3.5 text-stone-300 shrink-0" />
-      <span className="text-stone-900 font-bold whitespace-nowrap">{activeSessionName}</span>
-    </div>
-  ) : null;
-
   return (
     // 글꼴은 홈 화면과 같은 Pretendard (layout.tsx 에서 불러옴)
     <div className="flex flex-col h-screen bg-stone-50 font-['Pretendard_Variable',Pretendard,sans-serif] overflow-hidden">
@@ -985,8 +893,6 @@ function PresentationAnalysisDashboard() {
         {/* Scrollable Container for Content */}
         {/* 본문 양옆 여백: 화면이 넓을수록 넉넉하게, 모바일은 좁게. 내용 폭은 최대 1100px */}
         <div className="flex-1 overflow-y-auto pt-10 pb-8 md:pt-14 px-5 sm:px-10 lg:px-32 xl:px-48 min-[1700px]:px-72 custom-scrollbar">
-          {breadcrumb}
-          
           {/* VIEW 0: Session Management — 폴더 목록(아이콘) ↔ 폴더 안(세션 목록 + 종합추이) */}
           {activeMenu === 'sessions' && (() => {
             const openFolder = topics.find(t => t.id === openFolderId);
@@ -1273,338 +1179,63 @@ function PresentationAnalysisDashboard() {
             // 단일 분석은 왼쪽·오른쪽 두 칸으로 놓으므로 더 넓게 쓴다
             <div className={`max-w-[1100px] mx-auto space-y-6 pb-12`}>
 
-              {/* VIEW 3: Single Analysis */}
+              {/* VIEW 3: Single Analysis (SingleView.tsx) */}
               {activeMenu === 'single' && (
-                <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 space-y-6">
-                  {/* 분석이 중간에 멈춘 세션 안내 */}
-                  {analysisIncomplete && (
-                    <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl px-5 py-4">
-                      <AlertCircle className="w-5 h-5 mt-0.5 shrink-0" />
-                      <div>
-                        <p className="font-extrabold text-[16px]">분석을 다시 진행해주세요</p>
-                        <p className="text-sm font-medium mt-0.5">
-                          분석이 끝까지 진행되지 않았어요. 아래에는 분석된 곳까지만 보여요.
-                        </p>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* 첫째 줄: 왼쪽 구간별 지표 분석 그래프 / 오른쪽 종합 피드백 — 한 박스 안에서 구분선으로 나눈다.
-                      화면 폭이 1200px 보다 좁으면(브라우저를 크게 확대했을 때 등) 두 칸이 비좁아져 글자가 잘리므로 위아래로 쌓는다.
-                      (둘째 줄 영상/스크립트도 같은 기준) */}
-                  <div className="bg-white rounded-xl shadow-sm border border-stone-200 grid grid-cols-1 min-[1200px]:grid-cols-2 divide-y min-[1200px]:divide-y-0 min-[1200px]:divide-x divide-stone-200 items-stretch">
-                  {/* Top: Graphs by Segment */}
-                  <div className="p-6 min-w-0">
-                    <h3 className="font-extrabold text-stone-800 text-lg flex items-center gap-2">
-                      <span className="bg-purple-100 text-purple-600 p-1.5 rounded-xl"><BarChart2 className="w-5 h-5"/></span>
-                      구간별 지표 분석 그래프
-                    </h3>
-
-                    {/* 제목 아래: 왼쪽(지표 버튼 두 줄) / 오른쪽(고른 지표의 총량 카드).
-                        예전엔 카드를 absolute 로 띄웠는데, 화면이 좁으면(브라우저 100% 등) 버튼 줄이 카드 밑으로
-                        들어가 가려졌다. 지금은 카드가 실제로 자리를 차지해서, 버튼은 카드 앞까지만 가고 줄바꿈된다.
-                        items-stretch: 카드 높이를 왼쪽 버튼 두 줄을 합친 높이에 맞춘다.
-                        1700px 보다 좁은 화면에서는 버튼 글자(13px)·간격과 카드 폭(140px)·제목(13px)을 줄이고 카드 아이콘을 숨긴다.
-                        → 브라우저 100%(폭 약 1280px)에서 두 칸으로 놓여도 버튼 글자가 잘리지 않게. */}
-                    <div className="flex flex-row items-stretch gap-4 min-[1700px]:gap-6 mt-6 mb-8">
-                      <div className="flex-1 min-w-0">
-                        {/* Metric Selection Buttons — 6개를 3개씩 딱 두 줄로 (화면 폭과 상관없이).
-                            그래야 오른쪽 카드의 위·아래 끝이 첫째 줄 위·둘째 줄 아래와 맞는다 */}
-                        {trendData.length > 0 && (
-                          <div className="grid grid-cols-3 gap-2 min-[1700px]:gap-3">
-                            {SINGLE_METRICS_CONFIG.map(metric => (
-                              <button
-                                key={metric.id}
-                                onClick={() => setActiveSingleMetric(metric.id)}
-                                className={`px-2 py-2.5 text-[14px] min-[1700px]:px-3 min-[1700px]:text-[15px] rounded-xl font-bold transition-all border whitespace-nowrap truncate ${
-                                  activeSingleMetric === metric.id
-                                    ? 'bg-stone-800 text-white border-stone-800 shadow-md shadow-stone-300'
-                                    : 'bg-white text-stone-500 border-stone-200 hover:bg-stone-50 hover:text-stone-800'
-                                }`}
-                              >
-                                {metric.label}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* 지금 고른 지표(activeSingleMetric)의 총량 카드. 카드 디자인은 예전 요약 카드 그대로. */}
-                      {(() => {
-                        const activeStat = buildSummaryStats(gestureTotals, voiceSummary).find(s => s.id === activeSingleMetric);
-                        if (!activeStat) return null;
-                        const Icon = activeStat.icon;
-                        return (
-                          <div className="bg-white rounded-xl shadow-sm border border-stone-200 p-4 min-[1700px]:p-5 flex flex-col justify-between w-[140px] min-[1700px]:w-[200px] shrink-0">
-                            <div className="flex justify-between items-start w-full gap-2">
-                              <p className="text-[14px] min-[1700px]:text-sm font-bold text-stone-500 mb-1 truncate">{activeStat.title}</p>
-                              <div className={`hidden min-[1700px]:block p-2 rounded-xl shrink-0 ${activeStat.bg}`}>
-                                <Icon className={`w-5 h-5 ${activeStat.color}`} />
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2 mt-auto">
-                              <h2 className="text-2xl font-extrabold text-stone-800 whitespace-nowrap">{activeStat.value}</h2>
-                            </div>
-                          </div>
-                        );
-                      })()}
-                    </div>
-
-                    {trendData.length > 0 ? (
-                      <>
-                        <div className="h-[300px] w-full pr-4">
-                          {(() => {
-                             const activeMetricConfig = SINGLE_METRICS_CONFIG.find(m => m.id === activeSingleMetric)!;
-                             return (
-                               <ResponsiveContainer width="100%" height="100%">
-                                 <ComposedChart data={trendData} margin={{ top: 20, right: 20, bottom: 20, left: 0 }}>
-                                   <CartesianGrid key="grid-single" strokeDasharray="3 3" vertical={false} stroke="var(--chart-grid)" />
-                                   {/* scale="band": 막대그래프처럼 구간마다 같은 폭의 칸을 주고 그 칸 가운데에 점을 찍는다.
-                                       (기본값은 첫·끝 점이 양쪽 끝에 붙어서 꺾은선만 간격이 넓고 끝 글자가 잘렸다.) */}
-                                   <XAxis key="xaxis-single" dataKey="segment" scale="band" interval={0} axisLine={false} tickLine={false} tick={{fill: 'var(--chart-axis)', fontSize: 14, fontWeight: 600}} dy={15} />
-                                   <YAxis
-                                     key={`yaxis-single-${activeMetricConfig.id}`}
-                                     axisLine={false} tickLine={false}
-                                     tick={{fill: activeMetricConfig.color, fontSize: 13, fontWeight: 700}}
-                                     domain={[0, 'auto']} allowDecimals={false} dx={-10} unit={activeMetricConfig.unit} width={activeMetricConfig.unit.length > 2 ? 110 : 50}
-                                   />
-                                   <Tooltip
-                                     key={`tooltip-single-${activeMetricConfig.id}`}
-                                     cursor={{fill: 'var(--chart-cursor)', stroke: activeMetricConfig.type === 'line' ? 'var(--chart-cursor-line)' : 'none', strokeWidth: 1, strokeDasharray: '4 4'}}
-                                     contentStyle={{ borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 10px 25px -5px rgb(0 0 0 / 0.1)', padding: '16px 20px', fontWeight: 600 }}
-                                     formatter={(value) => [`${value}${activeMetricConfig.unit}`, activeMetricConfig.label] as [string, string]}
-                                   />
-                                   {activeMetricConfig.type === 'line' ? (
-                                     <Line
-                                       key={`line-single-${activeMetricConfig.id}`}
-                                       type="monotone" dataKey={activeMetricConfig.id} name={activeMetricConfig.label} stroke={activeMetricConfig.color} strokeWidth={4}
-                                       dot={{r: 6, fill: activeMetricConfig.color, strokeWidth: 3, stroke: 'var(--chart-dot-ring)'}} activeDot={{r: 8}}
-                                     />
-                                   ) : (
-                                     <Bar
-                                       key={`bar-single-${activeMetricConfig.id}`}
-                                       dataKey={activeMetricConfig.id} name={activeMetricConfig.label} fill={activeMetricConfig.color} radius={[6, 6, 0, 0]} barSize={40}
-                                     />
-                                   )}
-                                 </ComposedChart>
-                               </ResponsiveContainer>
-                             );
-                          })()}
-                        </div>
-                      </>
-                    ) : (
-                      <div className="rounded-xl bg-stone-50 border border-dashed border-stone-200 py-8 px-4 text-center text-sm text-stone-400 font-medium">
-                        구간별 지표가 없습니다. 구간 분리까지 끝난 세션에서 그래프가 표시됩니다.
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Overall AI Feedback — 핵심 한 줄(크게) + 부가 설명 짧은 문단.
-                      예전 세션은 headline 이 없어서 부가 설명 문단만 보인다 */}
-                  <div className="p-6 min-w-0">
-                    <h3 className="font-extrabold text-stone-800 text-lg flex items-center gap-2 mb-6">
-                      <span className="bg-stone-200 text-stone-900 p-1.5 rounded-xl"><Award className="w-5 h-5"/></span>
-                      종합 피드백
-                    </h3>
-                    {overallFeedback ? (
-                      <div>
-                        {overallHeadline && (
-                          <p className="text-lg font-extrabold text-stone-800 mb-3">{overallHeadline}</p>
-                        )}
-                        {/* 부가 설명을 문장마다 한 줄씩 목록으로 보여준다 */}
-                        <ul className="space-y-2.5">
-                          {splitSentences(overallFeedback).map((sentence, i) => (
-                            <li key={i} className="flex gap-2.5 text-stone-600 text-[17px] font-medium leading-[1.8]">
-                              <span className="mt-[0.7em] w-1.5 h-1.5 rounded-full bg-stone-400 shrink-0" />
-                              <span><TimestampText text={sentence} onSeek={(sec) => seekVideo(sec)} /></span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    ) : (
-                      <div className="rounded-xl bg-stone-50 border border-dashed border-stone-200 py-8 px-4 text-center text-sm text-stone-400 font-medium">
-                        종합 피드백이 없습니다. 구간별 분석까지 끝난 세션에서 표시됩니다.
-                      </div>
-                    )}
-                  </div>
-                  </div>
-
-                  {/* 둘째 줄: 왼쪽 영상(+ 구간 버튼) / 오른쪽 발표 스크립트 */}
-                  <div className="bg-white rounded-xl shadow-sm border border-stone-200 grid grid-cols-1 min-[1200px]:grid-cols-2 divide-y min-[1200px]:divide-y-0 min-[1200px]:divide-x divide-stone-200 items-stretch">
-                  {/* Middle: Timeline & Video */}
-                  <div className="p-6 min-w-0">
-                    <div className="flex items-center justify-between mb-4">
-                      <h3 className="font-extrabold text-stone-800 text-lg flex items-center gap-2">
-                        <span className="bg-stone-200 text-stone-900 p-1.5 rounded-xl"><Video className="w-5 h-5"/></span>
-                        구간별 영상 타임라인
-                      </h3>
-                    </div>
-
-                    <div className="relative bg-black rounded-xl overflow-hidden h-[360px] flex group mb-4">
-                      {videoSrc ? (
-                        <video
-                          ref={videoRef}
-                          src={videoSrc}
-                          controls
-                          onPlay={() => setIsPlaying(true)}
-                          onPause={() => setIsPlaying(false)}
-                          onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
-                          onLoadedMetadata={(e) => {
-                            // 티켓을 새로 받아 다시 불러온 경우면 보던 위치에서 이어간다.
-                            const v = e.currentTarget;
-                            const resume = resumeRef.current;
-                            resumeRef.current = null;
-                            fixUnknownDuration(v, resume?.time ?? 0);
-                            if (resume?.play) v.play().catch(() => {});
-                          }}
-                          onError={(e) => handleVideoError(e.currentTarget)}
-                          className="absolute inset-0 w-full h-full object-contain bg-black"
-                        />
-                      ) : (
-                        <>
-                          <img src={videoThumbnail} alt="Presentation" className="absolute inset-0 w-full h-full object-cover opacity-80" />
-                          <div className="absolute inset-0 flex items-center justify-center">
-                            <button onClick={() => setIsPlaying(!isPlaying)} className="bg-white/20 p-4 rounded-full backdrop-blur-sm hover:bg-white/30 transition">
-                              {isPlaying ? <Pause className="w-8 h-8 text-white" /> : <Play className="w-8 h-8 text-white ml-1" />}
-                            </button>
-                          </div>
-                        </>
-                      )}
-                      {/* Current Segment indicator */}
-                      {playingSegment && (
-                        <div className="absolute top-4 left-4 bg-black/60 backdrop-blur-md text-white px-3 py-1.5 rounded-lg text-sm font-bold border border-white/10 shadow-lg pointer-events-none">
-                          현재 구간: <span className="text-stone-300">{segmentName(playingSegment)}</span>
-                        </div>
-                      )}
-                    </div>
-
-                    {segments.length > 0 ? (
-                      <>
-                        {/* Timeline Buttons */}
-                        {/* 구간 버튼은 모두 같은 크기 (마지막 줄이 늘어나지 않게 칸 고정) */}
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                          {segments.map((seg, idx) => (
-                            <button
-                              key={seg.segment_id}
-                              onClick={() => selectSegment(idx)}
-                              title={`${seg.title} (${fmtTime(seg.t_start)}~${fmtTime(seg.t_end)})`}
-                              className={`truncate py-3 px-4 rounded-xl text-[16px] font-extrabold border transition-all ${activeSegmentIndex === idx ? 'bg-stone-800 text-white border-stone-800 shadow-md shadow-stone-300' : 'bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100 hover:text-stone-800'}`}
-                            >
-                              {segmentName(seg)}
-                            </button>
-                          ))}
-                        </div>
-                      </>
-                    ) : (
-                      <div className="mt-2 rounded-xl bg-stone-50 border border-dashed border-stone-200 py-8 px-4 text-center text-sm text-stone-400 font-medium">
-                        구간 분석 결과가 없습니다. 음성 분석과 구간 분리까지 끝난 세션에서 구간 타임라인이 표시됩니다.
-                      </div>
-                    )}
-                  </div>
-
-                  {/* 발표 스크립트 (인터랙티브: 문장/표시를 누르면 영상이 그 시점으로 이동, 구간 버튼을 누르면 그 구간 시작으로 이동) */}
-                  <div className="p-6 min-w-0">
-                    <h3 className="font-extrabold text-stone-800 mb-4 flex flex-wrap items-center gap-x-2 gap-y-1">
-                      <span className="bg-stone-200 text-stone-900 p-1.5 rounded-xl"><FileText className="w-5 h-5"/></span>
-                      {/* 분석 스크립트(필러·반복·무음·동작 표시) ↔ 원본 스크립트(문장만) 전환 */}
-                      <div className="flex bg-stone-200/70 rounded-lg p-0.5">
-                        {[{ plain: false, label: '분석 스크립트' }, { plain: true, label: '원본 스크립트' }].map((opt) => (
-                          <button
-                            key={opt.label}
-                            onClick={() => setScriptPlain(opt.plain)}
-                            // 글자 크기·굵기는 옆 카드 제목("구간별 영상 타임라인")과 같게 (text-lg, font-extrabold)
-                            className={`px-3 py-0.5 rounded-md text-lg font-extrabold transition-colors ${
-                              scriptPlain === opt.plain ? 'bg-white text-stone-800 shadow-sm' : 'text-stone-500 hover:text-stone-700'
-                            }`}
-                          >
-                            {opt.label}
-                          </button>
-                        ))}
-                      </div>
-                      <span className="ml-auto text-xs font-medium text-stone-400">
-                        {scriptPlain ? '문장을 누르면 그 장면부터 재생됩니다' : '문장이나 표시를 누르면 그 장면부터 재생됩니다'}
-                      </span>
-                    </h3>
-                    <InteractiveScript
-                      script={script}
-                      videoChunks={videoChunks}
-                      currentTime={currentTime}
-                      isPlaying={isPlaying}
-                      onSeek={(sec) => seekVideo(sec)}
-                      plain={scriptPlain}
-                      segmentStarts={segments.map((s) => s.t_start)}
+                <SingleView
+                  topicName={activeTopicName}
+                  sessionName={activeSessionName}
+                  onOpenFolder={() => goTo({ view: 'sessions', folder: activeTopicId })}
+                  missingSteps={missingSteps.map((step) => ANALYSIS_STEP_NAMES[step])}
+                  retrying={retrying}
+                  retryLabel={retryLabel}
+                  retryFailed={retryDone?.sessionId === activeSessionId}
+                  retryError={retryDone?.sessionId === activeSessionId ? retryDone.error : null}
+                  onRetry={retryAnalysis}
+                  reportHref={reportMailto(activeTopicName, activeSessionName, activeSessionId, missingSteps)}
+                  headline={overallHeadline}
+                  summary={overallFeedback}
+                  durationSec={sessionDuration ?? (segments.length ? segments[segments.length - 1].t_end : null)}
+                  voice={voiceSummary}
+                  chunks={videoChunks}
+                  script={script}
+                  segments={segments}
+                  trend={trend}
+                  activeSegmentIndex={activeSegmentIndex}
+                  playingSegment={playingSegment}
+                  currentTime={currentTime}
+                  isPlaying={isPlaying}
+                  onSeek={(sec) => seekVideo(sec)}
+                  onSelectSegment={selectSegment}
+                  videoNode={videoSrc ? (
+                    <video
+                      ref={videoRef}
+                      src={videoSrc}
+                      controls
+                      onPlay={() => setIsPlaying(true)}
+                      onPause={() => setIsPlaying(false)}
+                      onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
+                      onLoadedMetadata={(e) => {
+                        // 티켓을 새로 받아 다시 불러온 경우면 보던 위치에서 이어간다.
+                        const v = e.currentTarget;
+                        const resume = resumeRef.current;
+                        resumeRef.current = null;
+                        fixUnknownDuration(v, resume?.time ?? 0);
+                        if (resume?.play) v.play().catch(() => {});
+                      }}
+                      onError={(e) => handleVideoError(e.currentTarget)}
+                      className="absolute inset-0 w-full h-full object-contain bg-black"
                     />
-                  </div>
-                  </div>
-
-                  {/* Bottom: Segment AI Feedback */}
-                  <div className="bg-white rounded-xl shadow-sm border border-stone-200 p-6">
-                    <h3 className="font-extrabold text-stone-800 text-lg flex items-center gap-2 mb-6">
-                      <span className="bg-green-100 text-green-600 p-1.5 rounded-xl"><CheckCircle className="w-5 h-5"/></span>
-                      구간별 AI 피드백
-                    </h3>
-                    {segments.length > 0 ? (
-                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                        {segments.map((seg, idx) => (
-                          <div
-                            key={seg.segment_id}
-                            onClick={() => selectSegment(idx)}
-                            className={`p-6 rounded-2xl border transition-all cursor-pointer ${activeSegmentIndex === idx ? 'bg-stone-100/50 border-stone-400 shadow-sm ring-2 ring-stone-900/10' : 'bg-stone-50 border-stone-200 hover:bg-stone-100 hover:border-stone-300'}`}
-                          >
-                            {/* 맨 윗줄: 등급 스티커.
-                                높이를 고정해서 스티커가 없는 카드도 아래 내용 위치가 같게 한다 */}
-                            <div className="flex items-center min-h-[28px] mb-2">
-                              {seg.feedback?.rating && (
-                                <span className={`text-xs font-extrabold px-3 py-1 rounded-full border ${RATING_STYLES[seg.feedback.rating]}`}>{seg.feedback.rating}</span>
-                              )}
-                            </div>
-                            {/* 구간 이름 - 제목 한 줄 (시간은 아래 피드백의 시간 버튼으로 본다) */}
-                            <h4 className="font-extrabold text-stone-800 text-[20px] mb-4">{segmentName(seg)} - {seg.title}</h4>
-
-                            {seg.feedback ? (
-                              <div className="space-y-4 text-[15px]">
-                                <div>
-                                  <h5 className="font-extrabold text-green-800 mb-2 text-[14px] flex items-center gap-1.5">
-                                    <span className="bg-green-100 text-green-700 p-1 rounded-lg"><Award className="w-3.5 h-3.5"/></span>
-                                    잘한 점
-                                  </h5>
-                                  <ul className="space-y-2">
-                                    {seg.feedback.strengths.map((item, i) => (
-                                      <li key={i} className="text-stone-700 font-medium leading-relaxed flex gap-2">
-                                        <span className="text-green-500 shrink-0">•</span>
-                                        <span><TimestampText text={item} onSeek={(sec) => seekVideo(sec)} /></span>
-                                      </li>
-                                    ))}
-                                  </ul>
-                                </div>
-                                <div className="bg-white p-4 rounded-xl border border-stone-200 shadow-sm">
-                                  <h5 className="font-extrabold text-amber-800 mb-2 text-[14px] flex items-center gap-1.5">
-                                    <span className="bg-amber-100 text-amber-700 p-1 rounded-lg"><Lightbulb className="w-3.5 h-3.5"/></span>
-                                    개선점
-                                  </h5>
-                                  <ul className="space-y-2">
-                                    {seg.feedback.improvements.map((item, i) => (
-                                      <li key={i} className="text-stone-700 font-semibold leading-relaxed flex gap-2">
-                                        <span className="text-amber-500 shrink-0">•</span>
-                                        <span><TimestampText text={item} onSeek={(sec) => seekVideo(sec)} /></span>
-                                      </li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              </div>
-                            ) : (
-                              <p className="text-sm text-stone-400 font-medium">이 구간의 AI 피드백이 아직 없습니다.</p>
-                            )}
-                          </div>
-                        ))}
+                  ) : (
+                    <>
+                      <img src={videoThumbnail} alt="Presentation" className="absolute inset-0 w-full h-full object-cover opacity-80" />
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <button onClick={() => setIsPlaying(!isPlaying)} className="bg-white/20 p-4 rounded-full backdrop-blur-sm hover:bg-white/30 transition">
+                          {isPlaying ? <Pause className="w-8 h-8 text-white" /> : <Play className="w-8 h-8 text-white ml-1" />}
+                        </button>
                       </div>
-                    ) : (
-                      <div className="rounded-xl bg-stone-50 border border-dashed border-stone-200 py-8 px-4 text-center text-sm text-stone-400 font-medium">
-                        구간별 피드백이 없습니다. 구간 분리와 구간별 분석이 끝난 세션에서 표시됩니다.
-                      </div>
-                    )}
-                  </div>
-                </div>
+                    </>
+                  )}
+                />
               )}
 
               {/* VIEW: Compare Analysis — 같은 폴더의 두 회차 비교 (CompareView.tsx) */}
@@ -1614,6 +1245,7 @@ function PresentationAnalysisDashboard() {
                   projectId={activeTopicId || openFolderId || ''}
                   onProjectChange={(id) => goTo({ folder: id, session: null })}
                   initialSessionId={activeSessionId}
+                  onOpenFolder={(id) => goTo({ view: 'sessions', folder: id })}
                 />
               )}
 
