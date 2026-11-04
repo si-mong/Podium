@@ -46,6 +46,37 @@
 
 ---
 
+## 주요 서비스 화면
+
+<!-- 캡처본을 docs/images/screenshots/ 에 넣은 뒤, 아래 "캡처 추가 예정"을 <img src="./docs/images/screenshots/파일명.png" width="100%"/> 로 교체 -->
+
+| 단일 발표 분석 | 회차 비교 분석 | 회차별 성장 추이 |
+|:---:|:---:|:---:|
+| 캡처 추가 예정 | 캡처 추가 예정 | 캡처 추가 예정 |
+| 분석 대시보드에서 구간별 분석 제공 | 발표 2개를 선택해 변화 확인 | 누적된 연습에 따른 변화 추이 확인 |
+
+---
+
+## AI 분석 파이프라인
+
+발표 영상 한 편이 음성 분석 → 구간 분리 → 동작 분석 → AI 피드백 순서로 처리됩니다.
+
+<p align="center">
+  <img src="./docs/images/ai-pipeline.png" alt="AI 분석 파이프라인: 발표 영상 → 음성 분석(SeloWhisper STT) → 구간 분리(GPT-4.1) → 동작 분석(Gemini VLM) → AI 피드백(GPT-4.1)" width="100%"/>
+</p>
+
+---
+
+## 시스템 아키텍처
+
+프론트엔드는 Vercel, 백엔드와 DB는 AWS EC2의 Docker 환경에서 운영하며, STT·LLM·VLM·소셜 로그인은 외부 API로 연동합니다.
+
+<p align="center">
+  <img src="./docs/images/system-architecture.png" alt="시스템 아키텍처: Vercel의 Next.js 프론트엔드가 REST API로 AWS EC2의 Docker(Caddy, FastAPI, PostgreSQL)와 통신하고, FastAPI가 Serverless GPU, LLM, VLM, 소셜 로그인 외부 API를 호출" width="100%"/>
+</p>
+
+---
+
 ## 기술 스택
 
 <div align="center">
@@ -63,15 +94,18 @@
 ![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-D71F00?style=flat-square&logo=sqlalchemy&logoColor=white)
 
 **AI / Analysis**<br/>
-![OpenAI](https://img.shields.io/badge/GPT--4o-412991?style=flat-square&logo=openai&logoColor=white)
-![Whisper](https://img.shields.io/badge/Whisper_large--v3-74AA9C?style=flat-square&logo=openai&logoColor=white)
+![OpenAI](https://img.shields.io/badge/GPT--4.1-412991?style=flat-square&logo=openai&logoColor=white)
+![Gemini](https://img.shields.io/badge/Gemini_VLM-8E75B2?style=flat-square&logo=googlegemini&logoColor=white)
+![SeloWhisper](https://img.shields.io/badge/SeloWhisper_STT-FFD21E?style=flat-square&logo=huggingface&logoColor=black)
 ![FFmpeg](https://img.shields.io/badge/FFmpeg-007808?style=flat-square&logo=ffmpeg&logoColor=white)
 ![OpenCV](https://img.shields.io/badge/OpenCV-5C3EE8?style=flat-square&logo=opencv&logoColor=white)
 
 **Infra**<br/>
 ![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white)
 ![Vercel](https://img.shields.io/badge/Vercel-000000?style=flat-square&logo=vercel&logoColor=white)
-![Railway](https://img.shields.io/badge/Railway-0B0D0E?style=flat-square&logo=railway&logoColor=white)
+![AWS EC2](https://img.shields.io/badge/AWS_EC2-FF9900?style=flat-square&logo=amazonec2&logoColor=white)
+![Caddy](https://img.shields.io/badge/Caddy-1F88C0?style=flat-square&logo=caddy&logoColor=white)
+![Modal](https://img.shields.io/badge/Modal_Serverless_GPU-7FEE64?style=flat-square&logoColor=black)
 
 </div>
 
@@ -92,6 +126,33 @@ CBNU 2026 캡스톤디자인
 - 분석 결과 · 회차별 추이 시각화
 - AI 파이프라인 설계 및 구현
 
+
+---
+
+## 로컬 실행
+
+**사전 준비:** Docker, Python 3.11+, Node.js 18+, ffmpeg
+
+```bash
+# 터미널 1: DB + 백엔드 (http://localhost:8000)
+docker compose up -d postgres
+cd backend
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt -r requirements-pipeline.txt
+cp .env.example .env    # OPENAI_API_KEY, GEMINI_API_KEY 입력
+alembic upgrade head
+uvicorn app.main:app --reload --port 8000
+```
+
+```bash
+# 터미널 2: 프론트엔드 (http://localhost:3000)
+cd frontend
+npm install
+cp .env.local.example .env.local
+npm run dev
+```
+
+> STT는 기본 설정에서 로컬로 실행되며, 첫 실행 때 모델을 내려받습니다.
 
 ---
 
