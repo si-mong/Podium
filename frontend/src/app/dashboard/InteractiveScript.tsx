@@ -10,6 +10,7 @@
 // 데이터: GET /sessions/{id}/script (문장·무음·필러·반복) + GET /sessions/{id}/analysis (동작 분석)
 
 import React, { useEffect, useRef } from 'react';
+import { AlertCircle, Clock, MessageSquare, Repeat, ThumbsUp, Video } from 'lucide-react';
 
 // --- 백엔드 응답 형태 (app/schemas/session.py) ---
 export interface ScriptData {
@@ -119,12 +120,6 @@ export function normalizeSentence(text: string) {
   return text.replace(/[\s.,!?·…'"‘’“”~-]/g, '');
 }
 
-// 문장 아래 표시·동작 줄에 쓰는 작은 점 + 글자
-function Dot({ tone }: { tone: 'good' | 'bad' | 'warn' }) {
-  const color = tone === 'good' ? 'bg-emerald-600' : tone === 'bad' ? 'bg-rose-600' : 'bg-amber-600';
-  return <span className={`inline-block w-2 h-2 rounded-full shrink-0 ${color}`} />;
-}
-
 // 세션 전체 스크립트로 줄을 만든다 (구간 필터 없음 — 처음부터 끝까지 다 보여준다).
 // plain 이면 문장 줄만 만들고 필러/반복/무음/동작은 붙이지 않는다.
 function buildRows(script: ScriptData, chunks: VideoChunk[], plain: boolean): Row[] {
@@ -219,14 +214,14 @@ export default function InteractiveScript({ script, videoChunks, currentTime, is
                     {isSame ? <mark className="bg-yellow-200 text-stone-900 rounded-sm px-0.5 [box-decoration-break:clone]">{row.text}</mark> : row.text}
                   </button>
                   {(row.fillers.length > 0 || row.repetitions.length > 0) && (
-                    <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
+                    <div className="flex flex-wrap gap-1.5 mt-1">
                       {row.fillers.map((chip, k) => (
                         <button
                           key={`f-${k}`}
                           onClick={() => onSeek(Math.max(0, chip.at - LEAD_SEC))}
-                          className="inline-flex items-center gap-1.5 text-[14px] font-semibold text-rose-700 hover:underline"
+                          className="bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full text-[13px] font-bold border border-orange-200 inline-flex items-center gap-1 hover:bg-orange-200 transition-colors"
                         >
-                          <Dot tone="bad" />
+                          <MessageSquare className="w-3 h-3" />
                           {chip.label} · {fmtTime(chip.at)}
                         </button>
                       ))}
@@ -234,9 +229,9 @@ export default function InteractiveScript({ script, videoChunks, currentTime, is
                         <button
                           key={`r-${k}`}
                           onClick={() => onSeek(Math.max(0, chip.at - LEAD_SEC))}
-                          className="inline-flex items-center gap-1.5 text-[14px] font-semibold text-amber-700 hover:underline"
+                          className="bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full text-[13px] font-bold border border-amber-200 inline-flex items-center gap-1 hover:bg-amber-200 transition-colors"
                         >
-                          <Dot tone="warn" />
+                          <Repeat className="w-3 h-3" />
                           {chip.label} · {fmtTime(chip.at)}
                         </button>
                       ))}
@@ -251,14 +246,15 @@ export default function InteractiveScript({ script, videoChunks, currentTime, is
         if (row.kind === 'silence') {
           return (
             <div key={`sil-${i}`} className={divider}>
-              <div className="flex gap-2 px-2 py-0.5">
-                <span className="shrink-0 w-12" />
+              <div className="flex gap-2 px-2 py-1">
+                {time}
                 <button
                   onClick={() => onSeek(Math.max(0, row.t - LEAD_SEC))}
                   title={`${fmtTime(row.t)}부터 재생`}
-                  className="text-[14px] text-stone-400 hover:text-stone-700 transition-colors"
+                  className="bg-stone-200 text-stone-600 px-2 py-0.5 rounded-full text-[13px] font-bold border border-stone-300 inline-flex items-center gap-1 hover:bg-stone-300 transition-colors"
                 >
-                  — 무음 {row.duration.toFixed(1)}초
+                  <Clock className="w-3 h-3" />
+                  무음 {row.duration.toFixed(1)}초
                 </button>
               </div>
             </div>
@@ -272,27 +268,34 @@ export default function InteractiveScript({ script, videoChunks, currentTime, is
           <div key={`m-${i}`} className={divider}>
             <div className="flex gap-2 px-2 py-1">
               {time}
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[14px] min-w-0">
+              <div className="flex flex-wrap items-center gap-1.5 min-w-0">
                 <button
                   onClick={() => onSeek(Math.max(0, row.t - LEAD_SEC))}
-                  className="text-stone-500 hover:text-stone-900 transition-colors"
+                  className="bg-stone-100 text-stone-600 px-2 py-0.5 rounded-full text-[13px] font-bold border border-stone-200 inline-flex items-center gap-1 hover:bg-stone-200 transition-colors"
                   title="이 동작 분석 구간부터 재생"
                 >
+                  <Video className="w-3 h-3" />
                   동작 {fmtTime(row.chunk.t_start)}~{fmtTime(row.chunk.t_end)}
                 </button>
                 {counts.map(([key, n]) => {
                   const info = GESTURE_LABELS[key];
                   const positive = info ? info.positive : true;
                   return (
-                    <span key={key} className={`inline-flex items-center gap-1.5 font-semibold ${positive ? 'text-emerald-700' : 'text-rose-700'}`}>
-                      <Dot tone={positive ? 'good' : 'bad'} />
+                    <span
+                      key={key}
+                      className={`px-2 py-0.5 rounded-full text-[13px] font-bold border inline-flex items-center gap-1 ${
+                        positive ? 'bg-stone-100 text-stone-900 border-stone-300' : 'bg-rose-50 text-rose-700 border-rose-200'
+                      }`}
+                    >
+                      {positive ? <ThumbsUp className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
                       {info ? info.label : key} {n}회
                     </span>
                   );
                 })}
-                {row.chunk.posture && <span className="text-stone-500">자세 {row.chunk.posture}</span>}
-                {eye && (
-                  <span className={`font-semibold ${eye === '빈번' ? 'text-emerald-700' : eye === '드묾' ? 'text-rose-700' : 'text-stone-500'}`}>시선 {eye}</span>
+                {(row.chunk.posture || eye) && (
+                  <span className="text-[13px] text-stone-500 font-medium">
+                    {[row.chunk.posture && `자세 ${row.chunk.posture}`, eye && `시선 ${eye}`].filter(Boolean).join(' · ')}
+                  </span>
                 )}
               </div>
             </div>
