@@ -10,7 +10,7 @@
 // 데이터: GET /sessions/{id}/script (문장·무음·필러·반복) + GET /sessions/{id}/analysis (동작 분석)
 
 import React, { useEffect, useRef } from 'react';
-import { AlertCircle, Clock, MessageSquare, Repeat, ThumbsUp, Video } from 'lucide-react';
+import { AlertCircle, MessageSquare, Repeat, ThumbsUp } from 'lucide-react';
 
 // --- 백엔드 응답 형태 (app/schemas/session.py) ---
 export interface ScriptData {
@@ -246,15 +246,14 @@ export default function InteractiveScript({ script, videoChunks, currentTime, is
         if (row.kind === 'silence') {
           return (
             <div key={`sil-${i}`} className={divider}>
-              <div className="flex gap-2 px-2 py-1">
-                {time}
+              <div className="flex gap-2 px-2 py-0.5">
+                <span className="shrink-0 w-12" />
                 <button
                   onClick={() => onSeek(Math.max(0, row.t - LEAD_SEC))}
                   title={`${fmtTime(row.t)}부터 재생`}
-                  className="bg-stone-200 text-stone-600 px-2 py-0.5 rounded-full text-[13px] font-bold border border-stone-300 inline-flex items-center gap-1 hover:bg-stone-300 transition-colors"
+                  className="text-[14px] text-stone-400 hover:text-stone-700 transition-colors"
                 >
-                  <Clock className="w-3 h-3" />
-                  무음 {row.duration.toFixed(1)}초
+                  — 무음 {row.duration.toFixed(1)}초
                 </button>
               </div>
             </div>
@@ -271,10 +270,9 @@ export default function InteractiveScript({ script, videoChunks, currentTime, is
               <div className="flex flex-wrap items-center gap-1.5 min-w-0">
                 <button
                   onClick={() => onSeek(Math.max(0, row.t - LEAD_SEC))}
-                  className="bg-stone-100 text-stone-600 px-2 py-0.5 rounded-full text-[13px] font-bold border border-stone-200 inline-flex items-center gap-1 hover:bg-stone-200 transition-colors"
+                  className="text-[14px] text-stone-500 hover:text-stone-900 transition-colors"
                   title="이 동작 분석 구간부터 재생"
                 >
-                  <Video className="w-3 h-3" />
                   동작 {fmtTime(row.chunk.t_start)}~{fmtTime(row.chunk.t_end)}
                 </button>
                 {counts.map(([key, n]) => {
