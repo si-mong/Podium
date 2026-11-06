@@ -89,7 +89,7 @@ function Section({ title, hint, children }: { title: string; hint?: React.ReactN
   return (
     <section className="border-t border-stone-200 pt-7 mt-9">
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 mb-4">
-        <h3 className="font-extrabold text-stone-900 text-lg"><span className="heading-mark">{title}</span></h3>
+        <h3 className="font-extrabold text-stone-900 text-lg">{title}</h3>
         {hint && <div className="text-[14px] text-stone-500">{hint}</div>}
       </div>
       {children}
@@ -379,7 +379,7 @@ export default function SingleView({
       )}
 
       {/* ① 종합 피드백 */}
-      <h3 className="font-extrabold text-stone-900 text-lg mb-3"><span className="heading-mark">종합 피드백</span></h3>
+      <h3 className="font-extrabold text-stone-900 text-lg mb-3">종합 피드백</h3>
       <div className="grid grid-cols-1 min-[1000px]:grid-cols-[minmax(0,1fr)_256px] gap-x-10 gap-y-6 items-start">
         <div className="min-w-0">
           {headline && <h2 className="text-[26px] leading-[1.35] font-extrabold text-stone-900 mb-4 text-balance break-keep">{headline}</h2>}
@@ -420,7 +420,7 @@ export default function SingleView({
         <section className="border-t border-stone-200 pt-7 mt-9">
           <div className="grid grid-cols-1 min-[1000px]:grid-cols-[minmax(0,1.08fr)_minmax(0,1fr)] gap-x-8 gap-y-6 items-start">
             <div className="min-w-0">
-              <h3 className="min-h-10 flex items-center mb-3 font-extrabold text-stone-900 text-lg"><span className="heading-mark">구간별 영상 타임라인</span></h3>
+              <h3 className="min-h-10 flex items-center mb-3 font-extrabold text-stone-900 text-lg">구간별 영상 타임라인</h3>
               <div className="relative bg-black rounded-xl overflow-hidden aspect-video">
                 {videoNode}
                 {playingSegment && (

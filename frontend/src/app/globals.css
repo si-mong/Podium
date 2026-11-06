@@ -12,8 +12,6 @@
   --chart-cursor: #f8fafc;
   --chart-cursor-line: #e2e8f0;
   --chart-dot-ring: #ffffff;
-  /* 섹션 제목의 형광펜 색 */
-  --heading-mark: rgb(253 224 71 / 0.75);
 }
 
 :root.dark {
@@ -24,7 +22,6 @@
   --chart-cursor: #34343a;
   --chart-cursor-line: #52525b;
   --chart-dot-ring: #2a2a2e;
-  --heading-mark: rgb(202 138 4 / 0.45);
 }
 
 /* 대시보드 배경: 모서리에서 번지는 옅은 파랑·보라·민트 */
@@ -43,15 +40,6 @@
     radial-gradient(55% 50% at 0% 0%, rgb(59 130 246 / 0.14) 0%, transparent 70%),
     radial-gradient(50% 55% at 100% 20%, rgb(139 92 246 / 0.12) 0%, transparent 70%),
     radial-gradient(60% 50% at 10% 100%, rgb(20 184 166 / 0.10) 0%, transparent 70%);
-}
-
-/* 섹션 제목 아랫부분에 긋는 형광펜 */
-.heading-mark {
-  padding-inline: 0.2em;
-  margin-inline: -0.2em;
-  background-image: linear-gradient(transparent 58%, var(--heading-mark) 58%, var(--heading-mark) 94%, transparent 94%);
-  -webkit-box-decoration-break: clone;
-  box-decoration-break: clone;
 }
 
 body {
