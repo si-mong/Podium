@@ -239,7 +239,9 @@ def run(session_id, chunk_paths, output_dir=None):
     # 결과를 인덱스 → 결과dict 로 저장 (병렬 완료 순서가 뒤섞이므로)
     results_map = {}
 
-    with concurrent.futures.ThreadPoolExecutor() as executor:
+    # 기본값(코어 수 + 4)이면 2코어 서버에서 6개씩만 돌아서, 청크 수만큼 한 번에 보낸다.
+    # 대부분 Gemini 응답을 기다리는 시간이라 CPU 부담은 적다. 한도(429)에 걸리면 _process_one_chunk 가 재시도한다.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=total) as executor:
         # 모든 청크를 동시에 제출
         futures = {
             executor.submit(_process_one_chunk, client, i, chunk_path, total): i
