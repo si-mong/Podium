@@ -5,10 +5,11 @@
 //   ① 총 지표 비교   : GET /projects/{id}/compare 의 metrics (레이더 차트. 분당 횟수로 맞춰 비교, 판정은 백엔드가 함)
 //   ② AI 비교 피드백 : POST /projects/{id}/compare/feedback — 지난 회차 개선점이 고쳐졌는지 GPT 가 판정 (저장됨)
 //   ③ 구간별 비교    : 같은 라벨(도입·해결방안 …) 구간끼리. 지표 막대와 두 회차 영상·스크립트를 나란히
-// 회차 고르기 화면 아래에는 이 폴더에서 만든 AI 비교 기록(GET /projects/{id}/comparisons)을 보여 주고, 누르면 그 비교를 다시 연다.
+// 회차 고르기 화면 아래에는 이 폴더에서 만든 AI 비교 기록(GET /projects/{id}/comparisons)을 보여 주고, 누르면 그 비교를 다시 연다. 기록은 지울 수도 있다.
+// "비교하기"를 누르면 저장된 피드백이 없을 때 AI 비교 피드백까지 바로 만든다. 지난 기록을 열 때는 새로 만들지 않는다.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, Check, ChevronDown, ChevronLeft, ChevronRight, Columns, History, Loader2, RefreshCw, Sparkles } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, ChevronDown, ChevronLeft, ChevronRight, Columns, History, Loader2, RefreshCw, Sparkles, Trash2 } from 'lucide-react';
 import { API_BASE, apiFetch } from '@/utils/api';
 import InteractiveScript, { fmtTime, normalizeSentence, ScriptData, VideoChunk } from './InteractiveScript';
 
@@ -433,10 +434,11 @@ function FeedbackItemBlock({ item }: { item: FeedbackItem }) {
 
 // 회차 고르기 — 폴더의 회차를 카드로 보여 주고 2개를 고르게 한다. 분석이 안 끝난 회차는 고를 수 없다.
 // 고른 순서와 상관없이 앞 회차가 "이전", 뒤 회차가 "이번"이 된다.
-function SessionPicker({ projects, projectId, onProjectChange, sessions, picks, setPicks, onCompare, history, onOpenHistory }: {
+function SessionPicker({ projects, projectId, onProjectChange, sessions, picks, setPicks, onCompare, history, onOpenHistory, onDeleteHistory }: {
   projects: { id: string; name: string }[]; projectId: string; onProjectChange: (id: string) => void;
   sessions: CompareSession[] | null; picks: number[]; setPicks: (p: number[]) => void; onCompare: () => void;
   history: ComparisonListItem[]; onOpenHistory: (base: number, target: number) => void;
+  onDeleteHistory: (comparisonId: number) => Promise<void>;
 }) {
   const toggle = (id: number) => {
     if (picks.includes(id)) setPicks(picks.filter((p) => p !== id));
@@ -507,13 +509,33 @@ function SessionPicker({ projects, projectId, onProjectChange, sessions, picks, 
         </>
       )}
 
-      {projectId && history.length > 0 && <CompareHistory items={history} onOpen={onOpenHistory} />}
+      {projectId && history.length > 0 && <CompareHistory items={history} onOpen={onOpenHistory} onDelete={onDeleteHistory} />}
     </div>
   );
 }
 
 // 지난 AI 비교 기록 — 이 폴더에서 AI 비교 피드백을 만든 회차 쌍 (최신순). 누르면 그 두 회차 비교를 다시 연다.
-function CompareHistory({ items, onOpen }: { items: ComparisonListItem[]; onOpen: (base: number, target: number) => void }) {
+// 휴지통 아이콘을 누르면 그 줄에서 한 번 더 확인한 뒤 지운다 (되돌릴 수 없음).
+function CompareHistory({ items, onOpen, onDelete }: {
+  items: ComparisonListItem[]; onOpen: (base: number, target: number) => void; onDelete: (comparisonId: number) => Promise<void>;
+}) {
+  const [confirmId, setConfirmId] = useState<number | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState(false);
+
+  const remove = async (id: number) => {
+    setDeleting(true);
+    setDeleteError(false);
+    try {
+      await onDelete(id);
+      setConfirmId(null);
+    } catch {
+      setDeleteError(true);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return (
     <div className="mt-6 pt-5 border-t border-stone-200">
       <h4 className="font-bold text-stone-700 text-base flex items-center gap-1.5 mb-3">
@@ -523,10 +545,28 @@ function CompareHistory({ items, onOpen }: { items: ComparisonListItem[]; onOpen
       <ul className="space-y-2">
         {items.map((c) => {
           const openable = c.base_session_id != null && c.target_session_id != null;
+          if (confirmId === c.comparison_id) {
+            return (
+              <li key={c.comparison_id} className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+                <span className="min-w-0 flex-1 text-[15px] text-stone-700 break-keep">
+                  <b className="font-bold whitespace-nowrap">{c.base_session_no}회차 → {c.target_session_no}회차</b> 기록을 지울까요? 회차와 분석 결과는 그대로 남아요.
+                  {deleteError && <span className="block text-rose-700 mt-0.5">지우지 못했어요. 잠시 후 다시 시도해 주세요.</span>}
+                </span>
+                <button onClick={() => remove(c.comparison_id)} disabled={deleting}
+                  className="px-3 py-1.5 text-sm font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors disabled:opacity-60 inline-flex items-center gap-1.5">
+                  {deleting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}삭제
+                </button>
+                <button onClick={() => { setConfirmId(null); setDeleteError(false); }} disabled={deleting}
+                  className="px-3 py-1.5 text-sm font-bold text-stone-600 hover:bg-white rounded-lg transition-colors">
+                  취소
+                </button>
+              </li>
+            );
+          }
           return (
-            <li key={c.comparison_id}>
+            <li key={c.comparison_id} className="flex items-center gap-1.5">
               <button disabled={!openable} onClick={() => openable && onOpen(c.base_session_id!, c.target_session_id!)}
-                className="w-full text-left rounded-xl border border-stone-200 bg-white px-4 py-3 hover:bg-stone-50 transition-colors flex items-center gap-3
+                className="min-w-0 flex-1 text-left rounded-xl border border-stone-200 bg-white px-4 py-3 hover:bg-stone-50 transition-colors flex items-center gap-3
                   disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white">
                 <span className="shrink-0 font-bold text-stone-800 whitespace-nowrap">
                   {c.base_session_no}회차 <ArrowRight className="inline w-3.5 h-3.5 text-stone-400 -mt-0.5" /> {c.target_session_no}회차
@@ -538,6 +578,11 @@ function CompareHistory({ items, onOpen }: { items: ComparisonListItem[]; onOpen
                 </span>
                 <span className="shrink-0 text-sm text-stone-400">{c.created_at.slice(0, 10).replace(/-/g, '.')}</span>
                 {openable && <ChevronRight className="w-4 h-4 text-stone-400 shrink-0" />}
+              </button>
+              <button onClick={() => { setConfirmId(c.comparison_id); setDeleteError(false); }}
+                title="기록 삭제" aria-label={`${c.base_session_no}회차와 ${c.target_session_no}회차 비교 기록 삭제`}
+                className="shrink-0 p-2 text-stone-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">
+                <Trash2 className="w-4 h-4" />
               </button>
             </li>
           );
@@ -562,6 +607,8 @@ export default function CompareView({ projects, projectId, onProjectChange, init
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
   const [history, setHistory] = useState<ComparisonListItem[]>([]);
+  const autoGenerate = useRef(false); // "비교하기"로 열었으면 저장된 피드백이 없을 때 바로 만든다
+  const generation = useRef(0);       // 가장 최근 생성 요청 번호. 다른 회차로 넘어간 뒤 늦게 온 응답은 버린다
 
   // 프로젝트가 바뀌면 회차 목록을 새로 받고 고르기부터 다시
   useEffect(() => {
@@ -606,6 +653,8 @@ export default function CompareView({ projects, projectId, onProjectChange, init
     setData(null);
     setLoadError(null);
     setGenError(null);
+    generation.current += 1;
+    setGenerating(false);
     (async () => {
       const res = await apiFetch(`/projects/${projectId}/compare?base=${pair.base}&target=${pair.target}`);
       if (cancelled) return;
@@ -613,30 +662,44 @@ export default function CompareView({ projects, projectId, onProjectChange, init
         setLoadError('비교 결과를 불러오지 못했어요.');
         return;
       }
-      setData(await res.json());
+      const loaded: ProjectCompare = await res.json();
+      setData(loaded);
+      if (autoGenerate.current) {
+        autoGenerate.current = false;
+        if (loaded.feedback?.status !== 'done') generate(pair.base, pair.target);
+      }
     })();
     return () => { cancelled = true; };
   }, [pair]);
 
   const startCompare = () => {
     const chosen = (sessions ?? []).filter((s) => picks.includes(s.session_id)).sort((a, b) => a.session_no - b.session_no);
-    if (chosen.length === 2) setPair({ base: chosen[0].session_id, target: chosen[1].session_id });
+    if (chosen.length === 2) {
+      autoGenerate.current = true;
+      setPair({ base: chosen[0].session_id, target: chosen[1].session_id });
+    }
   };
 
-  const generate = async () => {
-    if (!data?.base || !data.target) return;
+  async function generate(baseId: number, targetId: number) {
+    const id = ++generation.current;
     setGenerating(true);
     setGenError(null);
     try {
-      const res = await apiFetch(`/projects/${projectId}/compare/feedback?base=${data.base.session_id}&target=${data.target.session_id}`, { method: 'POST' });
+      const res = await apiFetch(`/projects/${projectId}/compare/feedback?base=${baseId}&target=${targetId}`, { method: 'POST' });
       if (!res.ok) throw new Error();
       const feedback: CompareFeedback = await res.json();
-      setData((d) => (d ? { ...d, feedback } : d));
+      if (id === generation.current) setData((d) => (d ? { ...d, feedback } : d));
     } catch {
-      setGenError('AI 비교 피드백을 만들지 못했어요. 잠시 후 다시 시도해 주세요.');
+      if (id === generation.current) setGenError('AI 비교 피드백을 만들지 못했어요. 잠시 후 다시 시도해 주세요.');
     } finally {
-      setGenerating(false);
+      if (id === generation.current) setGenerating(false);
     }
+  }
+
+  const deleteHistory = async (comparisonId: number) => {
+    const res = await apiFetch(`/projects/${projectId}/comparisons/${comparisonId}`, { method: 'DELETE' });
+    if (!res.ok && res.status !== 404) throw new Error(); // 404 = 이미 지워진 기록이니 목록에서만 빼면 된다
+    setHistory((list) => list.filter((c) => c.comparison_id !== comparisonId));
   };
 
   if (loadError) {
@@ -657,7 +720,8 @@ export default function CompareView({ projects, projectId, onProjectChange, init
     return (
       <SessionPicker projects={projects} projectId={projectId} onProjectChange={onProjectChange}
         sessions={sessions} picks={picks} setPicks={setPicks} onCompare={startCompare}
-        history={history} onOpenHistory={(base, target) => { setPicks([base, target]); setPair({ base, target }); }} />
+        history={history} onDeleteHistory={deleteHistory}
+        onOpenHistory={(base, target) => { autoGenerate.current = false; setPicks([base, target]); setPair({ base, target }); }} />
     );
   }
   if (!data || !data.base || !data.target) {
@@ -730,7 +794,7 @@ export default function CompareView({ projects, projectId, onProjectChange, init
           <div className="flex items-center justify-between gap-3 mb-3">
             <h3 className="font-extrabold text-stone-900 text-lg">AI 비교 피드백</h3>
             {fb && (
-              <button onClick={generate} disabled={generating}
+              <button onClick={() => generate(base.session_id, target.session_id)} disabled={generating}
                 className="text-[14.5px] font-semibold text-stone-600 hover:text-stone-900 flex items-center gap-1.5 disabled:opacity-50">
                 <RefreshCw className={`w-3.5 h-3.5 ${generating ? 'animate-spin' : ''}`} />다시 만들기
               </button>
@@ -744,15 +808,23 @@ export default function CompareView({ projects, projectId, onProjectChange, init
           )}
           {genError && <div className="bg-rose-50 text-rose-700 text-[15px] rounded-xl px-3.5 py-2.5 mb-3">{genError}</div>}
 
-          {!fb ? (
+          {!fb && generating ? (
+            <div className="text-center py-12 rounded-2xl border border-dashed border-stone-200">
+              <Loader2 className="w-6 h-6 animate-spin text-stone-400 mx-auto mb-3" />
+              <p className="text-[15.5px] font-semibold text-stone-700">AI 가 두 회차를 비교하고 있어요</p>
+              <p className="text-[14.5px] text-stone-500 mt-1 px-4 break-keep">
+                {base.session_no}회차에서 받은 개선점을 {target.session_no}회차에서 고쳤는지 확인 중이에요. 보통 10~20초 걸려요.
+              </p>
+            </div>
+          ) : !fb ? (
             <div className="text-center py-12 rounded-2xl border border-dashed border-stone-200">
               <p className="text-[15.5px] text-stone-500 mb-4 px-4 break-keep">
                 {base.session_no}회차에서 받은 개선점을 {target.session_no}회차에서 고쳤는지 AI 가 확인해 드려요.
               </p>
-              <button onClick={generate} disabled={generating}
-                className="bg-stone-900 text-white font-bold text-[15px] rounded-xl px-5 py-2.5 inline-flex items-center gap-2 hover:bg-stone-800 disabled:opacity-60">
-                {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                {generating ? '비교하는 중… (10초 정도)' : 'AI 비교 피드백 만들기'}
+              <button onClick={() => generate(base.session_id, target.session_id)}
+                className="bg-stone-900 text-white font-bold text-[15px] rounded-xl px-5 py-2.5 inline-flex items-center gap-2 hover:bg-stone-800">
+                <Sparkles className="w-4 h-4" />
+                {genError || data.feedback?.status === 'error' ? '다시 시도하기' : 'AI 비교 피드백 만들기'}
               </button>
             </div>
           ) : (

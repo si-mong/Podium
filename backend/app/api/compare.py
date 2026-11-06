@@ -3,6 +3,7 @@
   GET  /projects/{id}/compare?base=&target=           -> ① 전체 지표 + ② 같은 구간끼리 비교 (그때그때 계산)
   POST /projects/{id}/compare/feedback?base=&target=  -> ③ AI 비교 피드백 생성 (GPT, 저장)
   GET  /projects/{id}/comparisons                     -> 만든 AI 비교 피드백 목록
+  DELETE /projects/{id}/comparisons/{comparison_id}   -> AI 비교 피드백 기록 삭제
 
 두 회차는 같은 폴더에 있고 구간 분리(STEP4)까지 끝나 있어야 한다. 아니면 400.
 **지금은 관리자만** 쓸 수 있다 (더 다듬은 뒤 공개). 관리자도 자기 폴더만 비교할 수 있다.
@@ -177,3 +178,20 @@ def list_comparisons(
         base_session_no=c.base_session_no, target_session_no=c.target_session_no, status=c.status,
         headline=(c.llm_feedback or {}).get("headline"), created_at=c.created_at,
     ) for c in rows]
+
+
+@router.delete("/{project_id}/comparisons/{comparison_id}", status_code=204)
+def delete_comparison(
+    project_id: int,
+    comparison_id: int,
+    db: DbSession = Depends(get_db),
+    user_id: int = Depends(get_current_user_id),
+):
+    """AI 비교 피드백 기록을 지운다 (휴지통 없이 바로 삭제). 회차와 분석 결과는 그대로다."""
+    get_owned_project(db, project_id, user_id)
+    c = db.scalar(select(SessionComparison).where(
+        SessionComparison.comparison_id == comparison_id, SessionComparison.project_id == project_id))
+    if c is None:
+        raise HTTPException(404, "비교 기록을 찾을 수 없어요.")
+    db.delete(c)
+    db.commit()
