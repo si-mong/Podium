@@ -69,6 +69,10 @@ def extract_chunks(video_path: Path, plan: list[SegmentChunk], out_dir: Path) ->
     자르면 청크 앞부분이 깨지거나 검게 나와서 **재인코딩**한다(libx264 ultrafast).
     mp4 가 Gemini 업로드와도 더 잘 맞는다. (step2_chunking.extract_smart_chunks 와 같은 설정)
 
+    -ss 를 -i 앞에 둬서 청크마다 영상을 처음부터 디코딩하지 않는다. 재인코딩이라 잘리는 위치는
+    -i 뒤에 둘 때와 같다(실제 녹화본으로 프레임이 똑같은 것 확인). 높이 720 초과 영상은 720 으로
+    줄이고 15fps 로 낮춰 인코딩 시간과 업로드 크기를 줄인다.
+
     출력 파일명은 chunk_001.mp4, chunk_002.mp4, ... (plan 순서 그대로).
     step2_video_analysis.run() 이 파일명을 정렬해서 쓰므로 0을 채운 번호가 시간 순서가 된다.
     """
@@ -83,9 +87,10 @@ def extract_chunks(video_path: Path, plan: list[SegmentChunk], out_dir: Path) ->
         result = subprocess.run(
             [
                 "ffmpeg", "-y",
-                "-i", str(video_path),          # -i 를 먼저 둬야 -ss 가 정확한 시각에서 자른다
                 "-ss", f"{chunk.start_sec:.3f}",
+                "-i", str(video_path),
                 "-t", f"{chunk.duration_sec:.3f}",
+                "-vf", r"scale=-2:min(720\,ih)", "-r", "15",
                 "-c:v", "libx264", "-preset", "ultrafast",
                 "-c:a", "aac",
                 "-avoid_negative_ts", "make_zero",

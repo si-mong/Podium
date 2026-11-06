@@ -319,9 +319,10 @@ def extract_smart_chunks(
         result = subprocess.run(
             [
                 "ffmpeg", "-y",
-                "-i", str(video_path),          # -i 먼저 → -ss 가 정확 시킹 모드
-                "-ss", f"{chunk.start_sec:.3f}",
+                "-ss", f"{chunk.start_sec:.3f}",  # -i 앞: 처음부터 디코딩하지 않음 (재인코딩이라 위치는 정확)
+                "-i", str(video_path),
                 "-t", f"{chunk.duration_sec:.3f}",
+                "-vf", r"scale=-2:min(720\,ih)", "-r", "15",
                 "-c:v", "libx264", "-preset", "ultrafast",
                 "-c:a", "aac",
                 "-avoid_negative_ts", "make_zero",
