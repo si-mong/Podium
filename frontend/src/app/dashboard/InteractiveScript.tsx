@@ -10,7 +10,7 @@
 // 데이터: GET /sessions/{id}/script (문장·무음·필러·반복) + GET /sessions/{id}/analysis (동작 분석)
 
 import React, { useEffect, useRef } from 'react';
-import { AlertCircle, MessageSquare, Repeat, ThumbsUp } from 'lucide-react';
+import { MessageSquare, Repeat, Video } from 'lucide-react';
 
 // --- 백엔드 응답 형태 (app/schemas/session.py) ---
 export interface ScriptData {
@@ -118,6 +118,12 @@ function fillerLabel(f: { text?: string | null }) {
 /** 두 회차의 문장이 같은지 볼 때 쓰는 형태 — 띄어쓰기·문장부호 차이는 무시한다. */
 export function normalizeSentence(text: string) {
   return text.replace(/[\s.,!?·…'"‘’“”~-]/g, '');
+}
+
+// 제스처·무음 앞에 붙는 작은 점
+function Dot({ tone }: { tone: 'good' | 'bad' | 'muted' }) {
+  const color = tone === 'good' ? 'bg-emerald-600' : tone === 'bad' ? 'bg-rose-600' : 'bg-stone-400';
+  return <span className={`inline-block w-2 h-2 rounded-full shrink-0 ${color}`} />;
 }
 
 // 세션 전체 스크립트로 줄을 만든다 (구간 필터 없음 — 처음부터 끝까지 다 보여준다).
@@ -251,9 +257,10 @@ export default function InteractiveScript({ script, videoChunks, currentTime, is
                 <button
                   onClick={() => onSeek(Math.max(0, row.t - LEAD_SEC))}
                   title={`${fmtTime(row.t)}부터 재생`}
-                  className="text-[14px] text-stone-400 hover:text-stone-700 transition-colors"
+                  className="inline-flex items-center gap-1.5 text-[14px] font-medium text-stone-500 hover:text-stone-800 transition-colors"
                 >
-                  — 무음 {row.duration.toFixed(1)}초
+                  <Dot tone="muted" />
+                  무음 {row.duration.toFixed(1)}초
                 </button>
               </div>
             </div>
@@ -267,25 +274,21 @@ export default function InteractiveScript({ script, videoChunks, currentTime, is
           <div key={`m-${i}`} className={divider}>
             <div className="flex gap-2 px-2 py-1">
               {time}
-              <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 min-w-0">
                 <button
                   onClick={() => onSeek(Math.max(0, row.t - LEAD_SEC))}
-                  className="text-[14px] text-stone-500 hover:text-stone-900 transition-colors"
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-stone-300 bg-white text-[13px] font-semibold text-stone-700 whitespace-nowrap hover:bg-stone-100 transition-colors"
                   title="이 동작 분석 구간부터 재생"
                 >
+                  <Video className="w-3.5 h-3.5" />
                   동작 {fmtTime(row.chunk.t_start)}~{fmtTime(row.chunk.t_end)}
                 </button>
                 {counts.map(([key, n]) => {
                   const info = GESTURE_LABELS[key];
                   const positive = info ? info.positive : true;
                   return (
-                    <span
-                      key={key}
-                      className={`px-2 py-0.5 rounded-full text-[13px] font-bold border inline-flex items-center gap-1 ${
-                        positive ? 'bg-stone-100 text-stone-900 border-stone-300' : 'bg-rose-50 text-rose-700 border-rose-200'
-                      }`}
-                    >
-                      {positive ? <ThumbsUp className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
+                    <span key={key} className={`inline-flex items-center gap-1.5 text-[14px] font-semibold ${positive ? 'text-emerald-700' : 'text-rose-700'}`}>
+                      <Dot tone={positive ? 'good' : 'bad'} />
                       {info ? info.label : key} {n}회
                     </span>
                   );

@@ -371,7 +371,7 @@ function SegmentCompare({ labels, base, target }: { labels: LabelCompare[]; base
   if (!label) return null;
   return (
     <section className="border-t border-stone-200 pt-7 mt-9">
-      <h3 className="font-extrabold text-stone-900 text-lg">구간별 비교</h3>
+      <h3 className="font-extrabold text-stone-900 text-lg"><span className="heading-mark">구간별 비교</span></h3>
       <p className="text-[14.5px] text-stone-500 mt-0.5 mb-4">같은 성격의 구간(라벨)끼리 묶어서 비교해요.</p>
       <div className="flex gap-5 border-b border-stone-200 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {labels.map((l, idx) => (
@@ -708,7 +708,7 @@ export default function CompareView({ projects, projectId, onProjectChange, init
       <div className="grid grid-cols-1 min-[1000px]:grid-cols-2 gap-x-8 gap-y-8 mt-8">
         {/* ① 총 지표 비교 */}
         <section className="min-w-0">
-          <h3 className="font-extrabold text-stone-900 text-lg">총 지표 비교</h3>
+          <h3 className="font-extrabold text-stone-900 text-lg"><span className="heading-mark">총 지표 비교</span></h3>
           <p className="text-[14.5px] text-stone-500 mt-0.5 mb-3 break-keep">바깥쪽일수록 좋아요. 횟수는 분당 횟수로 비교하고, 작은 차이는 &lsquo;비슷함&rsquo;으로 봐요.</p>
           <div className="rounded-2xl border border-stone-200 p-3 sm:p-4">
             <RadarChart metrics={data.metrics} baseNo={base.session_no} targetNo={target.session_no} />
@@ -733,7 +733,7 @@ export default function CompareView({ projects, projectId, onProjectChange, init
         {/* ② AI 비교 피드백 */}
         <section className="min-w-0">
           <div className="flex items-center justify-between gap-3 mb-3">
-            <h3 className="font-extrabold text-stone-900 text-lg">AI 비교 피드백</h3>
+            <h3 className="font-extrabold text-stone-900 text-lg"><span className="heading-mark">AI 비교 피드백</span></h3>
             {fb && (
               <button onClick={generate} disabled={generating}
                 className="text-[14.5px] font-semibold text-stone-600 hover:text-stone-900 flex items-center gap-1.5 disabled:opacity-50">

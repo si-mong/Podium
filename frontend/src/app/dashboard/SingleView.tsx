@@ -1,6 +1,6 @@
 "use client";
 
-// 단일 분석 화면 — 위에서 아래로 ① 종합 피드백 ② 구간별 지표 ③ 영상과 스크립트 ④ 구간별 AI 피드백.
+// 단일 분석 화면 — 위에서 아래로 ① 종합 피드백 ② 구간별 지표 ③ 구간별 영상 타임라인과 스크립트 ④ 구간별 AI 피드백.
 // 데이터를 불러오고 영상을 다루는 일은 page.tsx 가 하고, 여기서는 받은 값을 보여 주기만 한다.
 
 import React, { useEffect, useMemo, useState } from 'react';
@@ -75,9 +75,9 @@ const METRICS = [
 type MetricId = typeof METRICS[number]['id'];
 
 const RATING_TONE: Record<SegmentRating, string> = {
-  '잘함': 'text-emerald-700',
-  '보통': 'text-stone-500',
-  '개선필요': 'text-amber-700',
+  '잘함': 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  '보통': 'bg-stone-100 text-stone-600 border-stone-200',
+  '개선필요': 'bg-orange-50 text-orange-700 border-orange-200',
 };
 
 const PLOT_LEFT = 36, PLOT_RIGHT = 12; // 구간별 지표 그래프의 왼쪽 축 폭·오른쪽 여백
@@ -85,12 +85,12 @@ const PLOT_LEFT = 36, PLOT_RIGHT = 12; // 구간별 지표 그래프의 왼쪽 �
 const tabClass = (on: boolean) =>
   `pb-2 -mb-px border-b-2 whitespace-nowrap text-sm transition-colors ${on ? 'border-stone-900 text-stone-900 font-bold' : 'border-transparent text-stone-500 font-medium hover:text-stone-800'}`;
 
-function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
+function Section({ title, hint, children }: { title: string; hint?: React.ReactNode; children: React.ReactNode }) {
   return (
     <section className="border-t border-stone-200 pt-7 mt-9">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 mb-4">
-        <h3 className="font-extrabold text-stone-900 text-lg">{title}</h3>
-        {hint && <span className="text-[14px] text-stone-500">{hint}</span>}
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 mb-4">
+        <h3 className="font-extrabold text-stone-900 text-lg"><span className="heading-mark">{title}</span></h3>
+        {hint && <div className="text-[14px] text-stone-500">{hint}</div>}
       </div>
       {children}
     </section>
@@ -205,8 +205,13 @@ function SegmentMetrics({ segments, trend, chunks, script, voice, activeIndex, o
   );
 }
 
-// ④ 구간별 AI 피드백 한 행. 펼치면 구간 정보 · 잘한 점 · 개선점 3열, 접으면 한 줄.
-function SegmentFeedbackRow({ seg, open, onToggle, onSeek }: { seg: ApiSegment; open: boolean; onToggle: () => void; onSeek: (sec: number) => void }) {
+// 구간 등급 뱃지 — 구간별 AI 피드백의 범례와 각 행에서 같이 쓴다.
+function RatingBadge({ rating }: { rating: SegmentRating }) {
+  return <span className={`shrink-0 px-2.5 py-0.5 rounded-full border text-[13px] font-bold whitespace-nowrap ${RATING_TONE[rating]}`}>{rating}</span>;
+}
+
+// ④ 구간별 AI 피드백 한 행. 번호 · 구간 정보 · 등급은 늘 보이고, 펼치면 잘한 점 · 개선점, 접으면 요약 한 줄.
+function SegmentFeedbackRow({ seg, no, open, onToggle, onSeek }: { seg: ApiSegment; no: number; open: boolean; onToggle: () => void; onSeek: (sec: number) => void }) {
   const fb = seg.feedback;
   const timeRange = `${fmtTime(seg.t_start)}~${fmtTime(seg.t_end)}`;
   const timeButton = (
@@ -228,15 +233,20 @@ function SegmentFeedbackRow({ seg, open, onToggle, onSeek }: { seg: ApiSegment; 
       <ChevronDown className={`w-4 h-4 transition-transform ${open ? 'rotate-180' : ''}`} />
     </button>
   );
+  const number = <span className="w-8 h-8 rounded-full bg-stone-100 text-stone-600 text-[14px] font-bold flex items-center justify-center shrink-0">{no}</span>;
 
   if (!open) {
     // 접힌 행의 요약 — 백엔드에 따로 요약이 없어서 첫 번째 개선점(없으면 잘한 점, 구간 제목)을 한 줄로 보여 준다
     const summary = fb?.improvements[0] ?? fb?.strengths[0] ?? seg.title;
     return (
-      <div onClick={onToggle} className="grid grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[190px_minmax(0,1fr)_auto] gap-x-5 gap-y-1 items-center py-4 cursor-pointer group">
-        <div className="flex items-baseline gap-2 min-w-0">
-          <h4 className="font-extrabold text-stone-900 text-[16px] truncate group-hover:underline">{segmentName(seg)}</h4>
-          {timeButton}
+      <div onClick={onToggle} className="grid grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[240px_minmax(0,1fr)_auto] gap-x-5 gap-y-1 items-center py-4 cursor-pointer group">
+        <div className="flex items-center gap-3 min-w-0">
+          {number}
+          <div className="min-w-0 flex-1">
+            <h4 className="font-extrabold text-stone-900 text-[16px] truncate group-hover:underline">{segmentName(seg)}</h4>
+            {timeButton}
+          </div>
+          {fb?.rating && <RatingBadge rating={fb.rating} />}
         </div>
         <p className="hidden md:block text-[15px] text-stone-500 truncate">{summary}</p>
         {chevron}
@@ -245,15 +255,18 @@ function SegmentFeedbackRow({ seg, open, onToggle, onSeek }: { seg: ApiSegment; 
   }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-[190px_minmax(0,1fr)_minmax(0,1fr)] gap-x-5 gap-y-4 py-6">
-      <div className="min-w-0">
-        <div className="flex items-center justify-between gap-2">
-          <h4 onClick={onToggle} className="font-extrabold text-stone-900 text-[16px] truncate cursor-pointer hover:underline">{segmentName(seg)}</h4>
-          {chevron}
+    <div className="grid grid-cols-1 md:grid-cols-[240px_minmax(0,1fr)_minmax(0,1fr)] gap-x-5 gap-y-4 py-6">
+      <div className="flex items-start gap-3 min-w-0">
+        {number}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 min-h-8">
+            <h4 onClick={onToggle} className="flex-1 min-w-0 font-extrabold text-stone-900 text-[16px] truncate cursor-pointer hover:underline">{segmentName(seg)}</h4>
+            {fb?.rating && <RatingBadge rating={fb.rating} />}
+            {chevron}
+          </div>
+          {timeButton}
+          <p className="mt-1 text-[14.5px] text-stone-600 break-keep">{seg.title}</p>
         </div>
-        <div className="mt-1">{timeButton}</div>
-        <p className="mt-1 text-[14.5px] text-stone-600 break-keep">{seg.title}</p>
-        {fb?.rating && <p className="mt-1 text-[14px] text-stone-500">평가 · <span className={`font-semibold ${RATING_TONE[fb.rating]}`}>{fb.rating}</span></p>}
       </div>
       {fb ? (
         <>
@@ -328,7 +341,7 @@ export default function SingleView({
   const totalLength = segments.reduce((sum, s) => sum + Math.max(s.t_end - s.t_start, 0), 0);
 
   return (
-    <div className="bg-white rounded-2xl border border-stone-200 shadow-sm px-5 sm:px-8 py-7">
+    <div className="bg-white rounded-3xl shadow-sm px-5 sm:px-8 py-7">
       {/* 경로 — 폴더 이름을 누르면 그 폴더(세션 목록 + 종합추이)로 */}
       <div className="flex items-center gap-1.5 text-[14px] text-stone-500 min-w-0 mb-5">
         <button onClick={onOpenFolder} title={`${topicName} 폴더로 이동`} className="hover:text-stone-900 hover:underline truncate">{topicName}</button>
@@ -366,7 +379,7 @@ export default function SingleView({
       )}
 
       {/* ① 종합 피드백 */}
-      <h3 className="font-extrabold text-stone-900 text-lg mb-3">종합 피드백</h3>
+      <h3 className="font-extrabold text-stone-900 text-lg mb-3"><span className="heading-mark">종합 피드백</span></h3>
       <div className="grid grid-cols-1 min-[1000px]:grid-cols-[minmax(0,1fr)_256px] gap-x-10 gap-y-6 items-start">
         <div className="min-w-0">
           {headline && <h2 className="text-[26px] leading-[1.35] font-extrabold text-stone-900 mb-4 text-balance break-keep">{headline}</h2>}
@@ -402,11 +415,12 @@ export default function SingleView({
         )}
       </Section>
 
-      {/* ③ 영상과 스크립트 */}
+      {/* ③ 구간별 영상 타임라인과 스크립트 — 양쪽 머리글 높이를 같게 해서 영상과 스크립트 상자의 윗선을 맞춘다 */}
       <div id="single-video-section" className="scroll-mt-4">
-        <Section title="영상과 스크립트">
+        <section className="border-t border-stone-200 pt-7 mt-9">
           <div className="grid grid-cols-1 min-[1000px]:grid-cols-[minmax(0,1.08fr)_minmax(0,1fr)] gap-x-8 gap-y-6 items-start">
             <div className="min-w-0">
+              <h3 className="min-h-10 flex items-center mb-3 font-extrabold text-stone-900 text-lg"><span className="heading-mark">구간별 영상 타임라인</span></h3>
               <div className="relative bg-black rounded-xl overflow-hidden aspect-video">
                 {videoNode}
                 {playingSegment && (
@@ -450,13 +464,19 @@ export default function SingleView({
               )}
             </div>
             <div className="min-w-0">
-              <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-1 mb-2.5">
-                <div className="flex gap-4">
+              <div className="min-h-10 flex items-center justify-between gap-3 mb-3">
+                <div className="flex bg-stone-100 rounded-lg p-1 shrink-0">
                   {[{ plain: false, label: '분석 스크립트' }, { plain: true, label: '원본 스크립트' }].map((opt) => (
-                    <button key={opt.label} onClick={() => setScriptPlain(opt.plain)} className={tabClass(scriptPlain === opt.plain)}>{opt.label}</button>
+                    <button
+                      key={opt.label}
+                      onClick={() => setScriptPlain(opt.plain)}
+                      className={`px-3 py-1 rounded-md text-[15px] font-bold whitespace-nowrap transition-colors ${scriptPlain === opt.plain ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-500 hover:text-stone-800'}`}
+                    >
+                      {opt.label}
+                    </button>
                   ))}
                 </div>
-                <span className="text-[14px] text-stone-500 pb-2">문장을 누르면 그 지점부터 재생</span>
+                <span className="min-w-0 truncate text-[14px] text-stone-500">문장을 누르면 재생</span>
               </div>
               <div className="rounded-xl border border-stone-200 p-2">
                 <InteractiveScript
@@ -472,15 +492,18 @@ export default function SingleView({
               </div>
             </div>
           </div>
-        </Section>
+        </section>
       </div>
 
       {/* ④ 구간별 AI 피드백 */}
-      <Section title="구간별 AI 피드백">
+      <Section
+        title="구간별 AI 피드백"
+        hint={segments.some((s) => s.feedback?.rating) && <div className="flex gap-1.5">{(['잘함', '보통', '개선필요'] as const).map((r) => <RatingBadge key={r} rating={r} />)}</div>}
+      >
         {segments.length > 0 ? (
           <div className="divide-y divide-stone-200 border-b border-stone-200 -mt-4">
-            {segments.map((seg) => (
-              <SegmentFeedbackRow key={seg.segment_id} seg={seg} open={openIds.has(seg.segment_id)} onToggle={() => toggleOpen(seg.segment_id)} onSeek={onSeek} />
+            {segments.map((seg, idx) => (
+              <SegmentFeedbackRow key={seg.segment_id} seg={seg} no={idx + 1} open={openIds.has(seg.segment_id)} onToggle={() => toggleOpen(seg.segment_id)} onSeek={onSeek} />
             ))}
           </div>
         ) : (

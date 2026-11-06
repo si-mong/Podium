@@ -835,7 +835,7 @@ function PresentationAnalysisDashboard() {
             ? 'bg-stone-900 text-white'
             : isDisabled
               ? 'opacity-40 cursor-not-allowed text-stone-400'
-              : 'text-stone-700 hover:bg-white'}`}
+              : 'text-stone-700 hover:bg-stone-100'}`}
       >
         <Icon className="w-4 h-4" />
         <span className="hidden sm:inline">{menu.label}</span>
@@ -844,15 +844,15 @@ function PresentationAnalysisDashboard() {
   };
 
   // 상단 바 오른쪽 버튼 (홈 화면 상단 바와 같은 모양) — 좁은 화면에서는 아이콘만
-  const headerButton = 'h-10 flex items-center gap-1.5 px-3 rounded-full whitespace-nowrap text-sm font-semibold text-stone-600 hover:bg-white hover:text-stone-900 transition-colors shrink-0';
+  const headerButton = 'h-10 flex items-center gap-1.5 px-3 rounded-full whitespace-nowrap text-sm font-semibold text-stone-600 hover:bg-stone-100 hover:text-stone-900 transition-colors shrink-0';
 
   return (
     // 글꼴은 홈 화면과 같은 Pretendard (layout.tsx 에서 불러옴)
-    <div className="flex flex-col h-screen bg-stone-50 font-['Pretendard_Variable',Pretendard,sans-serif] overflow-hidden">
+    <div className="flex flex-col h-screen dashboard-bg font-['Pretendard_Variable',Pretendard,sans-serif] overflow-hidden">
 
       {/* 상단 바 — 홈 화면처럼 가운데 떠 있는 알약 모양 (로고 · 메뉴 · 휴지통 · 내 정보 · 로그아웃). 왼쪽 사이드바는 없앴다. */}
       <div className="shrink-0 z-20 px-4 pt-4">
-        <header className="max-w-5xl mx-auto h-14 rounded-full bg-stone-200/60 backdrop-blur flex items-center gap-2 sm:gap-4 pl-5 sm:pl-6 pr-2">
+        <header className="max-w-5xl mx-auto h-14 rounded-full bg-white/80 backdrop-blur shadow-sm flex items-center gap-2 sm:gap-4 pl-5 sm:pl-6 pr-2">
           {/* 로고 — 누르면 홈 화면으로 */}
           <button onClick={() => router.push('/home')} className="flex items-center shrink-0 hover:opacity-70 transition-opacity">
             <PodiumLogo className="h-5 sm:h-6 w-auto" />
@@ -869,7 +869,7 @@ function PresentationAnalysisDashboard() {
             )}
             <button
               onClick={() => goTo({ view: 'trash' })}
-              className={`${headerButton} ${activeMenu === 'trash' ? 'bg-white text-stone-900' : ''}`}
+              className={`${headerButton} ${activeMenu === 'trash' ? 'bg-stone-100 text-stone-900' : ''}`}
               title="휴지통"
             >
               <Trash2 className="w-4 h-4" />
@@ -888,7 +888,7 @@ function PresentationAnalysisDashboard() {
       </div>
 
       {/* Main Content Area */}
-      <main className="flex-1 flex flex-col min-w-0 min-h-0 bg-stone-50 relative">
+      <main className="flex-1 flex flex-col min-w-0 min-h-0 relative">
 
         {/* Scrollable Container for Content */}
         {/* 본문 양옆 여백: 화면이 넓을수록 넉넉하게, 모바일은 좁게. 내용 폭은 최대 1100px */}
