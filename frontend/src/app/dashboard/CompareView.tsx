@@ -8,7 +8,7 @@
 // 회차 고르기 화면 아래에는 이 폴더에서 만든 AI 비교 기록(GET /projects/{id}/comparisons)을 보여 주고, 누르면 그 비교를 다시 연다.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, ArrowLeft, ArrowRight, Check, ChevronDown, ChevronLeft, ChevronRight, Columns, History, Loader2, RefreshCw, Sparkles } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, ChevronDown, ChevronLeft, ChevronRight, Columns, History, Loader2, RefreshCw, Sparkles } from 'lucide-react';
 import { API_BASE, apiFetch } from '@/utils/api';
 import InteractiveScript, { fmtTime, normalizeSentence, ScriptData, VideoChunk } from './InteractiveScript';
 
@@ -698,12 +698,6 @@ export default function CompareView({ projects, projectId, onProjectChange, init
           <ChevronLeft className="w-4 h-4" />회차 다시 고르기
         </button>
       </div>
-
-      {data.warnings.map((w) => (
-        <div key={w} className="bg-orange-50 text-orange-800 text-[15px] rounded-xl px-3.5 py-2.5 flex items-start gap-2 mt-4">
-          <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />{w}
-        </div>
-      ))}
 
       <div className="grid grid-cols-1 min-[1000px]:grid-cols-2 gap-x-8 gap-y-8 mt-8">
         {/* ① 총 지표 비교 */}
