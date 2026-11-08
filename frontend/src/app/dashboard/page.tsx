@@ -4,7 +4,8 @@ import React, { Suspense, useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Play, Pause, TrendingUp, BarChart2, Video,
-  Folder, FolderOpen, ChevronRight, ChevronDown, ArrowLeft, Plus, Trash2, Upload, X, Columns, Pencil, LogOut, ShieldCheck, UserRound
+  Folder, FolderOpen, ChevronRight, ChevronDown, ArrowLeft, Plus, Trash2, Upload, X, Columns, Pencil, LogOut, ShieldCheck, UserRound,
+  ClipboardList, ExternalLink
 } from 'lucide-react';
 import {
   Line, Bar, XAxis, YAxis,
@@ -93,6 +94,9 @@ const ANALYSIS_STEP_NAMES: Record<AnalysisStep, string> = {
   preprocess: '영상 준비', voice: '음성 분석', segments: '구간 나누기',
   motion: '동작 분석', segmentFeedback: '구간별 피드백', overall: '종합 피드백',
 };
+
+// 사용자 설문조사 (Google Forms) — 대시보드 모든 화면의 맨 아래에 링크로 보여준다
+const SURVEY_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSeZWYbM1NnTdlhypSSHI9ccaXt1FgccGBrWqUp9nBFq4K3yPw/viewform?usp=sharing&ouid=105436496150112403166';
 
 // 오류 신고 — 신고 전용 API 가 없어서 약관·개인정보 처리방침의 문의 메일로 보낸다. 세션 번호와 빠진 단계를 미리 적어 둔다.
 const CONTACT_EMAIL = 'ozmii333@gmail.com';
@@ -1257,6 +1261,21 @@ function PresentationAnalysisDashboard() {
               <p className="text-sm mt-2">상단의 ‘내 기록’에서 프로젝트 폴더를 열고 발표 연습을 선택해주세요.</p>
             </div>
           ) : null}
+
+          {/* 설문조사 링크 — 모든 화면의 맨 아래 (새 탭으로 열림) */}
+          <div className="max-w-[1200px] mx-auto mt-12 pt-6 border-t border-stone-200 flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-4 text-center">
+            <p className="text-sm text-stone-500">Podium을 써 보신 소감을 들려주세요. 서비스 개선에 큰 도움이 돼요.</p>
+            <a
+              href={SURVEY_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 h-9 px-4 rounded-full border border-stone-300 text-sm font-semibold text-stone-700 hover:bg-stone-100 transition-colors"
+            >
+              <ClipboardList className="w-4 h-4" />
+              설문조사 참여하기
+              <ExternalLink className="w-3.5 h-3.5 text-stone-400" />
+            </a>
+          </div>
         </div>
       </main>
 

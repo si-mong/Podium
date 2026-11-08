@@ -1046,8 +1046,14 @@ def analyze_overall_feedback(
     # lazy import — google-genai 미설치 환경에서도 API 서버는 정상 기동.
     from app.pipeline import step5_feedback
 
+    # 구간 등급(잘함/보통/개선필요) — 구간별 피드백이 먼저 끝나 있으면 headline 비중을 정하는 데 쓴다
+    ratings = []
+    for s in segments_payload:
+        fb = db.get(Feedback, s["segment_id"])
+        ratings.append(fb.rating if fb else None)
+
     try:
-        result = step5_feedback.run_overall(segments_payload, video_analysis, voice_timeline)
+        result = step5_feedback.run_overall(segments_payload, video_analysis, voice_timeline, ratings)
     except RuntimeError as exc:
         raise HTTPException(502, f"종합 피드백 생성 실패: {exc}")
 
