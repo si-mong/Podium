@@ -3,7 +3,7 @@
 import React, { Suspense, useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
-  Play, Pause, TrendingUp, BarChart2, Video,
+  Play, Pause, TrendingUp, Video,
   Folder, FolderOpen, ChevronRight, ChevronDown, ArrowLeft, Plus, Trash2, Upload, X, Columns, Pencil, LogOut, ShieldCheck, UserRound,
   ClipboardList, ExternalLink
 } from 'lucide-react';
@@ -84,9 +84,9 @@ function FolderIcon({ className }: { className?: string }) {
   );
 }
 
+// 단일 분석은 메뉴에 두지 않는다 — 내 기록에서 세션을 고르면 들어가고, 그동안은 "내 기록"이 선택된 것으로 보인다.
 const MENUS = [
   { id: 'sessions', label: '내 기록', icon: FolderOpen },
-  { id: 'single', label: '단일 분석', icon: BarChart2 },
   { id: 'compare', label: '비교 분석', icon: Columns },
 ];
 
@@ -824,7 +824,7 @@ function PresentationAnalysisDashboard() {
 
   const renderMenuButton = (menu: typeof MENUS[number]) => {
     const Icon = menu.icon;
-    const isActive = activeMenu === menu.id;
+    const isActive = activeMenu === menu.id || (menu.id === 'sessions' && activeMenu === 'single');
     const isDisabled = !activeSessionId && menu.id !== 'sessions' && menu.id !== 'compare';
 
     return (
@@ -1269,7 +1269,7 @@ function PresentationAnalysisDashboard() {
               href={SURVEY_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 h-9 px-4 rounded-full border border-stone-300 text-sm font-semibold text-stone-700 hover:bg-stone-100 transition-colors"
+              className="inline-flex items-center gap-1.5 h-9 px-4 rounded-full bg-white border border-stone-300 shadow-sm text-sm font-semibold text-stone-700 hover:bg-stone-100 transition-colors"
             >
               <ClipboardList className="w-4 h-4" />
               설문조사 참여하기
