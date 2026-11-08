@@ -193,7 +193,7 @@ CT2 로도 돌릴 수는 있다(태그는 포기, 평문 전사는 정상).
 
 | 키 | 기본값 | 걸러내는 것 | 기각 라벨 |
 |---|---|---|---|
-| `min_silence_sec` | 0.7 | — (무음 최소 길이) | — |
+| `min_silence_sec` | 3.0 | — (무음 최소 길이) | — |
 | `min_candidate_sec` | 0.10 | timestamp 오차로 생긴 가짜 틈 | `too_short` |
 | `max_candidate_sec` | 3.0 | STT 가 놓친 발화, 긴 잡음 | `too_long` |
 | `min_relative_db` | -18.0 | 숨소리·입소리·주변 소음 | `too_quiet` |
