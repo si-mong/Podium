@@ -540,19 +540,20 @@ function RecordPage() {
               }}
             />
             {phase === "recording" && (
-              <div className="absolute top-4 left-4 flex items-center gap-2 bg-black/60 backdrop-blur-md text-white px-3 py-1.5 rounded-lg text-sm font-bold border border-white/10">
+              <div className="absolute top-4 left-4 flex items-center gap-2 bg-black/60 backdrop-blur-md text-[#ffffff] px-3 py-1.5 rounded-lg text-sm font-bold border border-white/10">
                 <Circle className="w-3 h-3 text-red-500 fill-red-500 animate-pulse" />
                 촬영 중 · {mm}:{ss}
               </div>
             )}
             {(phase === "analyzing" || phase === "finalizing") && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/60 text-white text-center px-6">
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/60 text-[#ffffff] text-center px-6">
+                {/* 덮개는 다크 모드에서도 검정이라 글자색을 고정한다 (white·stone 은 다크 모드에서 어둡게 바뀜) */}
                 <Loader2 className="w-8 h-8 animate-spin" />
                 <p className="font-bold">
                   {phase === "finalizing" ? (isUpload ? "영상을 올리고 준비하는 중이에요..." : "영상을 준비하는 중이에요...") : stepLabel}
                 </p>
                 {phase === "analyzing" && (
-                  <p className="text-xs text-stone-300">분석이 끝날 때까지 이 화면을 닫지 말아주세요.</p>
+                  <p className="text-xs text-[#e7e5e4]">분석이 끝날 때까지 이 화면을 닫지 말아주세요.</p>
                 )}
               </div>
             )}

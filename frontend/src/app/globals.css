@@ -15,7 +15,7 @@
 }
 
 :root.dark {
-  --background: #202023;
+  --background: #18181b;
   --foreground: #e4e4e7;
   --chart-grid: #3f3f46;
   --chart-axis: #a1a1aa;
@@ -35,7 +35,7 @@
 }
 
 :root.dark .dashboard-bg {
-  background-color: #202023;
+  background-color: #18181b;
   background-image:
     radial-gradient(55% 50% at 0% 0%, rgb(59 130 246 / 0.14) 0%, transparent 70%),
     radial-gradient(50% 55% at 100% 20%, rgb(139 92 246 / 0.12) 0%, transparent 70%),
