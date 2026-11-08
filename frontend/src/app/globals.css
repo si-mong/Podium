@@ -15,7 +15,7 @@
 }
 
 :root.dark {
-  --background: #202023;
+  --background: #18181b;
   --foreground: #e4e4e7;
   --chart-grid: #3f3f46;
   --chart-axis: #a1a1aa;
@@ -34,12 +34,14 @@
     radial-gradient(50% 45% at 100% 100%, #dde7fb 0%, transparent 70%);
 }
 
+/* 다크: 바탕을 카드(#2a2a2e)보다 확실히 어둡게 하고 색 번짐을 조금 진하게 — 라이트처럼 카드가 떠 보이게 */
 :root.dark .dashboard-bg {
-  background-color: #202023;
+  background-color: #0f0f12;
   background-image:
-    radial-gradient(55% 50% at 0% 0%, rgb(59 130 246 / 0.14) 0%, transparent 70%),
-    radial-gradient(50% 55% at 100% 20%, rgb(139 92 246 / 0.12) 0%, transparent 70%),
-    radial-gradient(60% 50% at 10% 100%, rgb(20 184 166 / 0.10) 0%, transparent 70%);
+    radial-gradient(55% 50% at 0% 0%, rgb(59 130 246 / 0.22) 0%, transparent 70%),
+    radial-gradient(50% 55% at 100% 20%, rgb(139 92 246 / 0.18) 0%, transparent 70%),
+    radial-gradient(60% 50% at 10% 100%, rgb(20 184 166 / 0.16) 0%, transparent 70%),
+    radial-gradient(50% 45% at 100% 100%, rgb(59 130 246 / 0.12) 0%, transparent 70%);
 }
 
 body {

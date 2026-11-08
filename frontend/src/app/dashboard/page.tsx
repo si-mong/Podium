@@ -3,9 +3,9 @@
 import React, { Suspense, useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
-  Play, Pause, TrendingUp, BarChart2, Video,
+  Play, Pause, TrendingUp, Video,
   Folder, FolderOpen, ChevronRight, ChevronDown, ArrowLeft, Plus, Trash2, Upload, X, Columns, Pencil, LogOut, ShieldCheck, UserRound,
-  ClipboardList, ExternalLink
+  ClipboardList, ExternalLink, Info
 } from 'lucide-react';
 import {
   Line, Bar, XAxis, YAxis,
@@ -14,6 +14,7 @@ import {
 } from 'recharts';
 import { ScriptData, VideoChunk } from './InteractiveScript';
 import CompareView from './CompareView';
+import FolderIcon, { PANEL } from './FolderIcon';
 import SingleView, { ApiSegment, TrendPoint, VoiceSummary } from './SingleView';
 import { PodiumLogo } from '@/components/ServiceGuide';
 
@@ -72,21 +73,10 @@ function toTopic(p: ApiProject): Topic {
   };
 }
 
-// "내 기록" 폴더 카드 아이콘 — 윈도우 탐색기 폴더처럼 생긴 노란 폴더 (직접 그린 SVG).
-// 뒤판(탭 달린 진한 노랑) + 안에 든 흰 종이 + 앞판(밝은 노랑) 세 겹.
-function FolderIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 64 52" className={className} aria-hidden="true">
-      <path d="M4 6a4 4 0 0 1 4-4h14.5a4 4 0 0 1 2.8 1.2L30 8h26a4 4 0 0 1 4 4v34a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4Z" fill="#E5A323" />
-      <rect x="9" y="12" width="46" height="20" rx="2" fill="#FFFFFF" />
-      <path d="M4 20a4 4 0 0 1 4-4h48a4 4 0 0 1 4 4v26a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4Z" fill="#FFC83D" />
-    </svg>
-  );
-}
 
+// 단일 분석은 메뉴에 두지 않는다 — 내 기록에서 세션을 고르면 들어가고, 그동안은 "내 기록"이 선택된 것으로 보인다.
 const MENUS = [
   { id: 'sessions', label: '내 기록', icon: FolderOpen },
-  { id: 'single', label: '단일 분석', icon: BarChart2 },
   { id: 'compare', label: '비교 분석', icon: Columns },
 ];
 
@@ -824,7 +814,7 @@ function PresentationAnalysisDashboard() {
 
   const renderMenuButton = (menu: typeof MENUS[number]) => {
     const Icon = menu.icon;
-    const isActive = activeMenu === menu.id;
+    const isActive = activeMenu === menu.id || (menu.id === 'sessions' && activeMenu === 'single');
     const isDisabled = !activeSessionId && menu.id !== 'sessions' && menu.id !== 'compare';
 
     return (
@@ -856,7 +846,7 @@ function PresentationAnalysisDashboard() {
 
       {/* 상단 바 — 홈 화면처럼 가운데 떠 있는 알약 모양 (로고 · 메뉴 · 휴지통 · 내 정보 · 로그아웃). 왼쪽 사이드바는 없앴다. */}
       <div className="shrink-0 z-20 px-4 pt-4">
-        <header className="max-w-5xl mx-auto h-14 rounded-full bg-white/80 backdrop-blur shadow-sm flex items-center gap-2 sm:gap-4 pl-5 sm:pl-6 pr-2">
+        <header className="max-w-[1200px] mx-auto h-14 rounded-full bg-white/80 backdrop-blur shadow-sm flex items-center gap-2 sm:gap-4 pl-5 sm:pl-6 pr-2">
           {/* 로고 — 누르면 홈 화면으로 */}
           <button onClick={() => router.push('/home')} className="flex items-center shrink-0 hover:opacity-70 transition-opacity">
             <PodiumLogo className="h-5 sm:h-6 w-auto" />
@@ -989,12 +979,15 @@ function PresentationAnalysisDashboard() {
 
             // 2) 폴더 목록: 컴퓨터 폴더처럼 아이콘만. 누르면 그 폴더가 열린다.
             return (
-              <div className="max-w-[1100px] mx-auto animate-in fade-in slide-in-from-bottom-2 duration-300">
-                <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-center mb-6">
-                  <h3 className="text-2xl font-extrabold text-stone-800">프로젝트 &amp; 발표 관리</h3>
+              <div className={`max-w-[1100px] mx-auto animate-in fade-in slide-in-from-bottom-2 duration-300 ${PANEL}`}>
+                <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-center mb-8">
+                  <div>
+                    <h3 className="text-3xl font-extrabold text-stone-900">프로젝트 &amp; 발표 관리</h3>
+                    <p className="mt-2 text-[15px] text-stone-500">발표 주제마다 폴더를 만들고, 연습할 때마다 회차가 쌓여요.</p>
+                  </div>
                   <button
                     onClick={() => setIsTopicModalOpen(true)}
-                    className="flex items-center justify-center gap-2 bg-stone-900 text-white px-5 py-2.5 rounded-xl font-bold hover:bg-stone-700 shadow-sm transition-colors whitespace-nowrap shrink-0"
+                    className="flex items-center justify-center gap-2 bg-stone-900 text-white px-6 py-3 rounded-xl font-bold hover:bg-stone-700 shadow-sm transition-colors whitespace-nowrap shrink-0"
                   >
                     <Plus className="w-4 h-4" />
                     새 주제 폴더 추가
@@ -1005,20 +998,23 @@ function PresentationAnalysisDashboard() {
                 {(() => {
                   const open = guideOpen ?? topics.length === 0;
                   return (
-                <div className="bg-white border border-stone-200 rounded-2xl shadow-sm mb-10 overflow-hidden">
+                <div className="bg-indigo-50/60 rounded-2xl mb-10 overflow-hidden">
                   <button
                     type="button"
                     onClick={() => setGuideOpen(!open)}
-                    className="w-full flex items-center justify-between px-5 py-3.5 text-left hover:bg-stone-50 transition-colors"
+                    className="w-full flex items-center justify-between px-6 py-4 text-left hover:bg-indigo-50 transition-colors"
                   >
-                    <span className="font-bold text-stone-800">사용 방법</span>
+                    <span className="flex items-center gap-2.5 font-bold text-stone-800">
+                      <Info className="w-[18px] h-[18px] text-blue-600" />
+                      사용 방법
+                    </span>
                     <span className="flex items-center gap-1 text-sm font-semibold text-stone-500">
                       {open ? '접기' : '펼치기'}
                       <ChevronDown className={`w-4 h-4 transition-transform ${open ? 'rotate-180' : ''}`} />
                     </span>
                   </button>
                   {open && (
-                  <div className="grid grid-cols-1 sm:grid-cols-3 border-t border-stone-200 divide-y sm:divide-y-0 sm:divide-x divide-stone-200">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 border-t border-indigo-100 divide-y sm:divide-y-0 sm:divide-x divide-indigo-100">
                   {[
                     {
                       title: '주제 폴더 만들기',
@@ -1062,7 +1058,7 @@ function PresentationAnalysisDashboard() {
                         <span className="font-bold text-stone-800">{step.title}</span>
                       </div>
                       <p className="mt-2 text-sm text-stone-500">{step.desc}</p>
-                      <div className="mt-3 text-sm bg-stone-50 border border-stone-100 rounded-xl px-3 py-2.5">{step.example}</div>
+                      <div className="mt-3 text-sm bg-white border border-stone-100 rounded-xl px-3 py-2.5">{step.example}</div>
                     </div>
                   ))}
                   </div>
@@ -1071,8 +1067,11 @@ function PresentationAnalysisDashboard() {
                   );
                 })()}
 
+                <h4 className="font-bold text-stone-800 text-[17px] mb-4">
+                  내 폴더 <span className="text-stone-400 font-semibold">{topics.length}</span>
+                </h4>
                 {topics.length > 0 ? (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-5">
                     {topics.map(topic => (
                       <div
                         key={topic.id}
@@ -1120,9 +1119,19 @@ function PresentationAnalysisDashboard() {
                         <p className="text-[13px] text-stone-500 mt-1 font-medium">연습 {topic.sessions.length}개</p>
                       </div>
                     ))}
+                    {/* 마지막 칸: 새 폴더 만들기 */}
+                    <button
+                      onClick={() => setIsTopicModalOpen(true)}
+                      className="group rounded-2xl p-3 pt-6 flex flex-col items-center text-center transition-colors hover:bg-stone-100"
+                    >
+                      <span className="w-28 h-[91px] mb-2 rounded-xl border-2 border-dashed border-stone-300 flex items-center justify-center text-stone-400 group-hover:border-stone-400 group-hover:text-stone-600 transition-colors">
+                        <Plus className="w-6 h-6" />
+                      </span>
+                      <span className="font-semibold text-stone-500 text-[16px] group-hover:text-stone-700">새 폴더</span>
+                    </button>
                   </div>
                 ) : (
-                  <div className="py-16 flex flex-col items-center justify-center text-stone-400 border border-dashed border-stone-200 rounded-2xl bg-white">
+                  <div className="py-16 flex flex-col items-center justify-center text-stone-400 border border-dashed border-stone-200 rounded-2xl bg-stone-50">
                     <Folder className="w-10 h-10 text-stone-300 mb-3" />
                     <p className="text-[15px] font-medium">아직 폴더가 없습니다. &quot;새 주제 폴더 추가&quot;로 시작해 보세요.</p>
                   </div>
@@ -1245,7 +1254,7 @@ function PresentationAnalysisDashboard() {
               {/* VIEW: Compare Analysis — 같은 폴더의 두 회차 비교 (CompareView.tsx) */}
               {activeMenu === 'compare' && isAdmin && (
                 <CompareView
-                  projects={topics.map((t) => ({ id: t.id, name: t.name }))}
+                  projects={topics.map((t) => ({ id: t.id, name: t.name, count: t.sessions.length }))}
                   projectId={activeTopicId || openFolderId || ''}
                   onProjectChange={(id) => goTo({ folder: id, session: null })}
                   initialSessionId={activeSessionId}
@@ -1263,13 +1272,13 @@ function PresentationAnalysisDashboard() {
           ) : null}
 
           {/* 설문조사 링크 — 모든 화면의 맨 아래 (새 탭으로 열림) */}
-          <div className="max-w-[1200px] mx-auto mt-12 pt-6 border-t border-stone-200 flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-4 text-center">
+          <div className="max-w-[1200px] mx-auto mt-10 flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-4 text-center">
             <p className="text-sm text-stone-500">Podium을 써 보신 소감을 들려주세요. 서비스 개선에 큰 도움이 돼요.</p>
             <a
               href={SURVEY_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 h-9 px-4 rounded-full border border-stone-300 text-sm font-semibold text-stone-700 hover:bg-stone-100 transition-colors"
+              className="inline-flex items-center gap-1.5 h-9 px-4 rounded-full bg-white border border-stone-300 shadow-sm text-sm font-semibold text-stone-700 hover:bg-stone-100 transition-colors"
             >
               <ClipboardList className="w-4 h-4" />
               설문조사 참여하기

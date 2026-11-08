@@ -18,15 +18,19 @@ faster-whisper(CTranslate2)는 `eot` 보다 큰 토큰 id 를 특수/타임스�
 """
 from __future__ import annotations
 
+import logging
 import re
 import threading
 import time
+import zlib
 from pathlib import Path
 
 import numpy as np
 
 from app.pipeline.voice.audio import TARGET_SR, load_wav
 from app.pipeline.voice.stt import Sentence, SttResult, Word
+
+logger = logging.getLogger(__name__)
 
 # 모델이 내보내는 비유창성 태그. 값은 대응하는 한국어 표기(필러 집계용).
 DISFLUENCY_TAGS = {
@@ -40,6 +44,11 @@ TAG_RE = re.compile(r"<[a-z]+>")
 
 # Whisper 인코더가 한 번에 보는 길이(초). 이 단위로 잘라 돌리고 시각을 보정한다.
 WINDOW_SEC = 30.0
+
+# 같은 문장을 되풀이하는 환각 판정 기준 (자세한 내용은 docs/Dev-STEP3.md 5장).
+LOOP_COMPRESSION_RATIO = 2.4   # 같은 말이 많을수록 압축이 잘 된다
+LOOP_TAIL_WORDS = 15           # 윈도우 마지막 1초에 이만큼 몰리면 사람이 말한 게 아니다
+LOOP_MAX_SPLITS = 2            # 30초 → 15초 → 7.5초까지만 나눈다
 
 
 def is_tag(text: str) -> bool:
@@ -151,6 +160,34 @@ def _decode_window(proc, model, device, chunk: np.ndarray, offset: float,
     return words
 
 
+def _is_looping(words: list[Word], end: float) -> bool:
+    """윈도우 전사 결과가 같은 말을 되풀이하는 환각에 빠졌는지. end 는 윈도우 끝 시각(초)."""
+    raw = " ".join(w.text for w in words).encode("utf-8")
+    if raw and len(raw) / len(zlib.compress(raw)) >= LOOP_COMPRESSION_RATIO:
+        return True
+    return sum(1 for w in words if w.t_start >= end - 1.0) >= LOOP_TAIL_WORDS
+
+
+def _decode_with_retry(proc, model, device, chunk: np.ndarray, offset: float, sr: int,
+                       language: str, splits_left: int = LOOP_MAX_SPLITS) -> list[Word]:
+    """윈도우를 전사하고, 환각에 빠졌으면 그 윈도우만 절반으로 나눠 다시 전사한다.
+
+    걸리지 않은 윈도우는 결과가 그대로라 필러·반복 검출에 영향이 없다.
+    ⚠️ no_repeat_ngram_size 는 쓰지 않는다. 문장이 잘린 윈도우 끝에서 환각이 시작되는데,
+       이 옵션은 정상 단어까지 망가뜨리고(`시스템` → `시스튬`) 환각 구간의 내용도 뭉갠다.
+    """
+    words = _decode_window(proc, model, device, chunk, offset, language)
+    end = offset + len(chunk) / sr
+    if splits_left <= 0 or not _is_looping(words, end):
+        return words
+    logger.warning("STT 반복 환각 감지: %.1f~%.1f초를 나눠 다시 전사", offset, end)
+    mid = len(chunk) // 2
+    return (
+        _decode_with_retry(proc, model, device, chunk[:mid], offset, sr, language, splits_left - 1)
+        + _decode_with_retry(proc, model, device, chunk[mid:], offset + mid / sr, sr, language, splits_left - 1)
+    )
+
+
 def transcribe_hf(
     wav_path: Path,
     model_id: str,
@@ -180,7 +217,7 @@ def transcribe_samples(
             chunk = samples[i:i + step]
             if len(chunk) < sr * 0.5:      # 0.5초 미만 꼬리는 버림
                 break
-            words.extend(_decode_window(proc, model, dev, chunk, i / sr, language))
+            words.extend(_decode_with_retry(proc, model, dev, chunk, i / sr, sr, language))
         decode_sec = round(time.perf_counter() - t1, 2)
 
     # 문장 분리: 종결 부호 기준. faster-whisper 의 세그먼트에 대응하는 근사치.

@@ -36,10 +36,10 @@ export function StepDot({ status, title }: { status?: string; title: string }) {
 }
 
 export const fmtMs = (ms: number | null | undefined) =>
-  ms == null ? "-" : ms < 1000 ? `${ms}ms` : ms < 60000 ? `${(ms / 1000).toFixed(1)}초` : `${Math.floor(ms / 60000)}분 ${Math.round((ms % 60000) / 1000)}초`;
+  ms == null ? "-" : ms < 1000 ? `${ms}ms` : ms < 60000 ? `${(ms / 1000).toFixed(1)}초` : `${Math.floor(Math.round(ms / 1000) / 60)}분 ${Math.round(ms / 1000) % 60}초`;
 
 export const fmtSec = (sec: number | null | undefined) =>
-  sec == null ? "-" : `${Math.floor(sec / 60)}:${String(Math.round(sec % 60)).padStart(2, "0")}`;
+  sec == null ? "-" : `${Math.floor(Math.round(sec) / 60)}:${String(Math.round(sec) % 60).padStart(2, "0")}`;
 
 export const fmtDate = (iso: string | null | undefined) =>
   iso ? new Date(iso).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "-";

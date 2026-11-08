@@ -9,8 +9,9 @@
 // "비교하기"를 누르면 저장된 피드백이 없을 때 AI 비교 피드백까지 바로 만든다. 지난 기록을 열 때는 새로 만들지 않는다.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, Check, ChevronDown, ChevronLeft, ChevronRight, Columns, History, Loader2, RefreshCw, Sparkles, Trash2 } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, ChevronDown, ChevronLeft, ChevronRight, History, Loader2, RefreshCw, Sparkles, Trash2 } from 'lucide-react';
 import { API_BASE, apiFetch } from '@/utils/api';
+import FolderIcon, { PANEL } from './FolderIcon';
 import InteractiveScript, { fmtTime, normalizeSentence, ScriptData, VideoChunk } from './InteractiveScript';
 
 // 백엔드 응답 형태 (app/schemas/compare.py)
@@ -435,7 +436,7 @@ function FeedbackItemBlock({ item }: { item: FeedbackItem }) {
 // 회차 고르기 — 폴더의 회차를 카드로 보여 주고 2개를 고르게 한다. 분석이 안 끝난 회차는 고를 수 없다.
 // 고른 순서와 상관없이 앞 회차가 "이전", 뒤 회차가 "이번"이 된다.
 function SessionPicker({ projects, projectId, onProjectChange, sessions, picks, setPicks, onCompare, history, onOpenHistory, onDeleteHistory }: {
-  projects: { id: string; name: string }[]; projectId: string; onProjectChange: (id: string) => void;
+  projects: { id: string; name: string; count?: number }[]; projectId: string; onProjectChange: (id: string) => void;
   sessions: CompareSession[] | null; picks: number[]; setPicks: (p: number[]) => void; onCompare: () => void;
   history: ComparisonListItem[]; onOpenHistory: (base: number, target: number) => void;
   onDeleteHistory: (comparisonId: number) => Promise<void>;
@@ -447,30 +448,46 @@ function SessionPicker({ projects, projectId, onProjectChange, sessions, picks, 
   const chosen = (sessions ?? []).filter((s) => picks.includes(s.session_id)).sort((a, b) => a.session_no - b.session_no);
   const comparableCount = (sessions ?? []).filter((s) => s.comparable).length;
 
-  return (
-    <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 bg-white rounded-xl shadow-sm border border-stone-200 p-5 sm:p-6">
-      <h3 className="font-extrabold text-stone-800 text-xl flex items-center gap-2 mb-1">
-        <span className="bg-stone-100 text-stone-700 p-1.5 rounded-xl"><Columns className="w-5 h-5" /></span>
-        비교할 회차 2개를 골라 주세요
-      </h3>
-      <p className="text-sm text-stone-500 mb-4">같은 프로젝트 안에서 분석이 끝난 회차끼리 비교할 수 있어요. 앞 회차가 &lsquo;이전&rsquo;, 뒤 회차가 &lsquo;이번&rsquo;이 돼요.</p>
+  // 단계 제목: 번호 동그라미 + 이름. 아직 할 수 없는 단계는 흐리게.
+  const step = (no: number, title: string, active: boolean) => (
+    <h4 className={`flex items-center gap-3 font-bold text-[17px] mb-4 ${active ? 'text-stone-900' : 'text-stone-400'}`}>
+      <span className={`w-8 h-8 rounded-full text-sm font-bold flex items-center justify-center shrink-0 ${active ? 'bg-stone-900 text-white' : 'bg-stone-100 text-stone-400'}`}>{no}</span>
+      {title}
+    </h4>
+  );
 
-      {/* 프로젝트 선택 — 설명 바로 아래에 크게. 아직 안 골랐으면 주황 테두리로 강조 */}
-      <div className={`flex flex-wrap items-center gap-3 rounded-xl border px-4 py-3 mb-5 ${projectId ? 'border-stone-200 bg-stone-50' : 'border-amber-300 bg-amber-50'}`}>
-        <span className="text-base font-bold text-stone-700">프로젝트</span>
-        <select value={projectId} onChange={(e) => onProjectChange(e.target.value)}
-          className="flex-1 min-w-[200px] border border-stone-300 rounded-lg px-3 py-2.5 text-[18px] font-semibold text-stone-800 bg-white">
-          {!projectId && <option value="">비교할 프로젝트를 골라 주세요</option>}
-          {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
+  return (
+    <div className={`animate-in fade-in slide-in-from-bottom-2 duration-300 ${PANEL}`}>
+      <h3 className="text-3xl font-extrabold text-stone-900">비교할 회차 2개를 골라 주세요</h3>
+      <p className="mt-2 text-[15px] text-stone-500 mb-8">같은 프로젝트 안에서 분석이 끝난 회차끼리 비교할 수 있어요. 앞 회차가 &lsquo;이전&rsquo;, 뒤 회차가 &lsquo;이번&rsquo;이 돼요.</p>
+
+      {/* 1) 프로젝트 고르기 — 내 기록과 같은 폴더 모양 */}
+      {step(1, '프로젝트 고르기', true)}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 mb-10">
+        {projects.map((p) => {
+          const on = p.id === projectId;
+          return (
+            <button key={p.id} onClick={() => onProjectChange(p.id)}
+              className={`text-left rounded-2xl px-4 py-3 flex items-center gap-4 transition-colors
+                ${on ? 'bg-stone-100' : 'hover:bg-stone-50'}`}>
+              <FolderIcon className="w-14 h-auto shrink-0" />
+              <span className="min-w-0">
+                <span className="block font-bold text-stone-800 text-[16px] truncate">{p.name}</span>
+                {p.count != null && <span className="block text-[13px] text-stone-500 mt-0.5">연습 {p.count}개</span>}
+              </span>
+            </button>
+          );
+        })}
       </div>
 
+      {/* 2) 회차 2개 고르기 */}
+      {step(2, '회차 2개 고르기', !!projectId)}
       {!projectId ? (
-        <p className="text-base text-stone-400 text-center py-6">프로젝트를 고르면 회차 목록이 나와요</p>
+        <p className="text-[15px] text-stone-400 text-center py-10 border border-dashed border-stone-200 rounded-2xl bg-stone-50">프로젝트를 고르면 회차 목록이 나와요</p>
       ) : !sessions ? (
         <div className="flex justify-center py-10"><Loader2 className="w-5 h-5 animate-spin text-stone-400" /></div>
       ) : sessions.length === 0 ? (
-        <p className="text-base text-stone-400 text-center py-10">이 프로젝트에는 아직 회차가 없어요</p>
+        <p className="text-[15px] text-stone-400 text-center py-10 border border-dashed border-stone-200 rounded-2xl bg-stone-50">이 프로젝트에는 아직 회차가 없어요</p>
       ) : (
         <>
           <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3">
@@ -479,7 +496,7 @@ function SessionPicker({ projects, projectId, onProjectChange, sessions, picks, 
               return (
                 <button key={s.session_id} disabled={!s.comparable} onClick={() => toggle(s.session_id)}
                   className={`text-left rounded-xl border px-4 py-3 transition-all flex items-start gap-3
-                    ${on ? 'border-stone-800 bg-stone-50 ring-1 ring-stone-800' : 'border-stone-200 bg-white hover:bg-stone-50'}
+                    ${on ? 'border-stone-200 bg-stone-100' : 'border-stone-200 bg-white hover:bg-stone-50'}
                     disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white`}>
                   <span className={`mt-0.5 w-4 h-4 rounded border flex items-center justify-center shrink-0 ${on ? 'bg-stone-800 border-stone-800' : 'border-stone-300'}`}>
                     {on && <Check className="w-3 h-3 text-white" />}
@@ -497,17 +514,24 @@ function SessionPicker({ projects, projectId, onProjectChange, sessions, picks, 
               분석이 끝난 회차가 2개 이상 있어야 비교할 수 있어요. (지금 {comparableCount}개)
             </p>
           )}
-          <div className="flex flex-wrap items-center justify-end gap-3 mt-5">
-            <span className="text-base font-semibold text-stone-600">
-              {chosen.length === 2 ? `${chosen[0].session_no}회차 → ${chosen[1].session_no}회차` : `${chosen.length}/2 선택`}
-            </span>
-            <button onClick={onCompare} disabled={chosen.length !== 2}
-              className="bg-stone-900 text-white font-bold text-base rounded-xl px-5 py-2.5 hover:bg-stone-800 disabled:opacity-40 flex items-center gap-1.5">
-              비교하기 <ArrowRight className="w-4 h-4" />
-            </button>
-          </div>
         </>
       )}
+
+      {/* 고른 두 회차 + 비교하기 — 옅은 띠. "이전 → 이번"은 회차를 하나라도 고르면 나온다 */}
+      <div className="mt-10 bg-indigo-50/60 rounded-2xl px-6 py-4 flex flex-wrap items-center gap-4">
+        {chosen.length > 0 && (
+          <span className="flex items-center gap-3 text-[15px] text-stone-500 animate-in fade-in duration-200">
+            이전 <b className="font-bold text-stone-900 min-w-[2.5rem]">{`${chosen[0].session_no}회차`}</b>
+            <ArrowRight className="w-4 h-4 text-stone-400" />
+            이번 <b className="font-bold text-stone-900 min-w-[2.5rem]">{chosen[1] ? `${chosen[1].session_no}회차` : '—'}</b>
+          </span>
+        )}
+        <button onClick={onCompare} disabled={chosen.length !== 2}
+          className="ml-auto bg-stone-900 text-white font-bold text-base rounded-xl px-6 py-3 hover:bg-stone-700 transition-colors flex items-center gap-1.5
+            disabled:bg-stone-200 disabled:text-stone-400 disabled:cursor-not-allowed">
+          비교하기 <ArrowRight className="w-4 h-4" />
+        </button>
+      </div>
 
       {projectId && history.length > 0 && <CompareHistory items={history} onOpen={onOpenHistory} onDelete={onDeleteHistory} />}
     </div>
@@ -593,7 +617,7 @@ function CompareHistory({ items, onOpen, onDelete }: {
 }
 
 export default function CompareView({ projects, projectId, onProjectChange, initialSessionId, onOpenFolder }: {
-  projects: { id: string; name: string }[];
+  projects: { id: string; name: string; count?: number }[];
   projectId: string;                       // 지금 열린 프로젝트 (없으면 '')
   onProjectChange: (projectId: string) => void;
   initialSessionId: string;                // 보던 회차가 있으면 미리 골라 둔다
