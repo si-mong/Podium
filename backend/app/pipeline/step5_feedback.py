@@ -245,7 +245,7 @@ outline 은 발표 전체 흐름 속에서 이 구간이 어디쯤인지 파악�
   하나도 쓰지 마세요.** "필러 횟수", "무음 비율", "발화 속도", "가리키기 제스처", "영상 분석 결과"처럼
   발표자가 읽는 말로 쓰세요.
 - 숫자는 데이터 값 그대로: 발화 속도(speaking_rate_spm, 분당 음절 수)는 "spm" 대신 "분당 ○○음절".
-  무음은 몇 번·몇 초로 쓰세요(예: "3초 넘게 멈춘 곳이 2번, 가장 긴 것은 5.7초"). 무음 비율(%)은 쓰지 않아도 됩니다.
+  무음은 "몇 초 멈춘 곳이 몇 번"으로 쓰세요(예: "3초 이상 멈춘 곳이 2번, 가장 긴 것은 5.7초", "6.7초 멈춘 곳이 1번"). 무음 비율(%)은 쓰지 않아도 됩니다.
 - 필러 단어를 예로 들 때는 filler_words 에 있는 단어만 쓰세요. voice_timeline 의 "<uh>" 같은 기호나,
   전사문에만 있는 '그리고' 같은 접속사는 필러 단어로 쓰지 마세요. filler_words 가 비어 있으면
   단어를 들지 말고 "필러"라고만 쓰세요.
@@ -392,7 +392,7 @@ def run_segments(segments: list[dict], video_analysis: list[dict],
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=SEGMENT_MAX_WORKERS) as pool:
         futures = [pool.submit(_run_one_segment, client, s, outline, video_analysis, voice_timeline,
-                               _speech_issues(s, voice_timeline), mi, minor)
+                               _speech_issues(s) + _segment_silence_issues(s, voice_timeline), mi, minor)
                    for s, (mi, minor) in zip(segments, motion_issues)]
         results = [f.result() for f in futures]
 
@@ -438,8 +438,9 @@ segments(구간별 전사문·지표)를 종합해서, 특정 구간 하나만 �
 ## 0. 코드가 미리 판정한 값 — 가장 먼저 보세요
 - headline_mode (headline 구성): {headline_mode} — **headline 에만** 적용됩니다. overall_summary 는 1번 규칙대로 씁니다.
 - habit_fillers (발표 전체에서 말버릇처럼 반복된 필러 단어, 비어 있으면 없음): {habit_fillers}
+- talk_silence (발표 전체에서 오래 멈춘 곳이 잦은지, 비어 있으면 문제 없음): {talk_silence}
 - segments 의 구간마다 들어 있는 판정값:
-  - speech_issues: 그 구간의 말하기 문제 (예: "필러 5회", "무음 2번(가장 긴 것 5.7초)")
+  - speech_issues: 그 구간의 필러·반복 문제 (예: "필러 5회", "반복 3회")
   - motion_issues: 그 구간의 몸짓 문제 (예: "얼굴·머리 만지기 2회", "시선 드묾(청중·카메라를 거의 보지 않음)")
   - minor_motion_issues: 그 구간의 가벼운 몸짓 문제 (예: "얼굴·머리 만지기 2회") — 설명 제스처를 더 많이 쓴
     발표라 얼굴 만지기 같은 동작을 가볍게 보는 항목
@@ -449,12 +450,15 @@ segments(구간별 전사문·지표)를 종합해서, 특정 구간 하나만 �
 
 ## 1. 무엇을 쓸지
 말하기
-- 고칠 점: 어느 한 구간이라도 speech_issues 가 있거나, habit_fillers 가 있을 때.
+- 고칠 점: 어느 한 구간이라도 speech_issues 가 있거나, habit_fillers 나 talk_silence 가 있을 때.
   - speech_issues 가 있으면 "과도하지 않다", "비교적 안정적"처럼 넘기지 마세요.
   - habit_fillers 가 있으면 그 단어와 횟수를 그대로 짚고("'이제'가 12번 나왔습니다"),
     말버릇처럼 반복된다는 점을 분명히 쓰세요.
-- 잘한 점: 모든 구간의 speech_issues 가 비어 있고 habit_fillers 도 비어 있을 때.
-  필러·반복·무음이 몇 번 있어도 speech_issues 에 없으면 문제가 아닙니다(예: speech_issues 에 없는 "반복 2회").
+  - talk_silence 가 있으면 다른 말하기 문제가 더 심해도 **빼먹지 말고** 짚으세요. 필러와 한 문장에 묶어도 됩니다
+    (예: "'어'가 14번 나왔고 3초 이상 멈춘 곳도 6번 있었으니…").
+- 잘한 점: 모든 구간의 speech_issues 가 비어 있고 habit_fillers·talk_silence 도 비어 있을 때.
+  필러·반복·무음이 몇 번 있어도 판정값에 없으면 문제가 아닙니다(예: speech_issues 에 없는 "반복 2회").
+  무음은 talk_silence 로만 판단하세요. 구간 데이터의 무음 목록이나 무음 비율을 보고 따로 문제 삼지 마세요.
 - 발화 속도는 speaking_rate_label 을 그대로 따르세요. "보통"이면 문제로 쓰지 마세요.
 몸짓
 - 고칠 점: 어느 한 구간이라도 motion_issues 가 있을 때.
@@ -518,7 +522,7 @@ headline_mode 는 headline 에만 적용됩니다. "칭찬 위주"여도 overall
 - 영문 데이터 이름(filler_count, silence_ratio, speech_issues 등 소문자와 _ 로 된 이름)을 쓰지 말고
   "필러 횟수", "무음 비율", "발화 속도"처럼 발표자가 읽는 말로 쓰세요.
 - 숫자는 데이터 값 그대로: 발화 속도는 "spm" 대신 "분당 ○○음절".
-  무음은 몇 번·몇 초로 쓰세요(예: "3초 넘게 멈춘 곳이 2번, 가장 긴 것은 5.7초"). 무음 비율(%)은 쓰지 않아도 됩니다.
+  무음은 "몇 초 멈춘 곳이 몇 번"으로 쓰세요(예: "3초 이상 멈춘 곳이 2번, 가장 긴 것은 5.7초", "6.7초 멈춘 곳이 1번"). 무음 비율(%)은 쓰지 않아도 됩니다.
 - 필러 단어를 예로 들 때는 filler_words(그 구간에서 실제로 필러로 잡힌 단어와 횟수)나 habit_fillers 에
   있는 단어만 쓰세요. 전사문에 있어도 거기에 없는 단어('그리고' 같은 접속사 등)는 필러가 아닙니다.
   예시의 '이제'도 거기에 없으면 쓰지 마세요. 둘 다 비어 있으면 단어를 들지 말고 "필러"라고만 쓰세요.
@@ -550,24 +554,50 @@ SPEECH_REPEAT_MIN = 3       # 반복(말더듬) 횟수
 # STEP3 도 무음 최소 길이를 3초로 바꾸지만, 그 전에 분석한 세션(0.7초·2초 기준)도 같게 판정되도록 여기서도 거른다.
 SPEECH_SILENCE_MIN_SEC = 3.0    # 이 길이(초) 이상인 무음만 센다
 SPEECH_SILENCE_COUNT_MIN = 2    # 구간에서 그런 무음이 이 횟수 이상이면 문제
+# 구간별 피드백만: 이 길이(초) 이상인 무음은 한 번만 있어도 문제 (2026-11-08, 팀원 제안).
+SPEECH_SILENCE_SINGLE_SEC = 5.0
+# 종합 피드백: 구간 판정 대신 발표 전체에서 3초 이상 무음이 이 횟수 이상이면 문제 (2026-11-08).
+# 처음엔 5번이었는데 로컬 세션 7개 중 한 번도 안 걸려서 3번으로 낮춤.
+# 종합은 "가장 심한 것"만 짚어서 구간 무음은 필러에 밀려 안 나왔다 → 발표 전체로 잦을 때만 꼭 짚게 한다.
+TALK_SILENCE_COUNT_MIN = 3
 
 
-def _speech_issues(seg: dict, voice_timeline: dict) -> list[str]:
-    """구간 하나에서 기준을 넘은 말하기 문제를 "필러 5회"처럼 사람이 읽는 글로 돌려준다. 없으면 [].
+def _speech_issues(seg: dict) -> list[str]:
+    """구간 하나에서 기준을 넘은 필러·반복을 "필러 5회"처럼 사람이 읽는 글로 돌려준다. 없으면 [].
 
-    무음은 voice_timeline 의 무음 목록에서 이 구간에서 시작한 것만 센다 (STEP4 집계와 같은 기준).
+    무음은 구간별(_segment_silence_issues)과 종합(_talk_silence_issues) 기준이 달라서 따로 판정한다.
     """
     issues = []
     if (seg.get("filler_count") or 0) >= SPEECH_FILLER_MIN:
         issues.append(f"필러 {seg['filler_count']}회")
     if (seg.get("repetition_count") or 0) >= SPEECH_REPEAT_MIN:
         issues.append(f"반복 {seg['repetition_count']}회")
-    long_silences = [x["t_end"] - x["t_start"] for x in voice_timeline.get("silence_segments") or []
-                     if seg["t_start"] <= x["t_start"] < seg["t_end"]
-                     and x["t_end"] - x["t_start"] >= SPEECH_SILENCE_MIN_SEC]
-    if len(long_silences) >= SPEECH_SILENCE_COUNT_MIN:
-        issues.append(f"무음 {len(long_silences)}번(가장 긴 것 {max(long_silences):.1f}초)")
     return issues
+
+
+def _long_silences(silences: list[dict]) -> list[float]:
+    """무음 목록에서 3초 이상인 것의 길이(초)만 돌려준다."""
+    lengths = [x["t_end"] - x["t_start"] for x in silences or []]
+    return [n for n in lengths if n >= SPEECH_SILENCE_MIN_SEC]
+
+
+def _segment_silence_issues(seg: dict, voice_timeline: dict) -> list[str]:
+    """구간별 피드백용 무음 판정: 이 구간에서 시작한 3초 이상 무음이 2번 이상, 또는 5초 이상 무음 1번."""
+    lengths = _long_silences([x for x in voice_timeline.get("silence_segments") or []
+                              if seg["t_start"] <= x["t_start"] < seg["t_end"]])
+    if len(lengths) >= SPEECH_SILENCE_COUNT_MIN:
+        return [f"{SPEECH_SILENCE_MIN_SEC:g}초 이상 멈춘 곳 {len(lengths)}번(가장 긴 것 {max(lengths):.1f}초)"]
+    if lengths and max(lengths) >= SPEECH_SILENCE_SINGLE_SEC:
+        return [f"{max(lengths):.1f}초 멈춘 곳 1번"]
+    return []
+
+
+def _talk_silence_issues(voice_timeline: dict) -> list[str]:
+    """종합 피드백용 무음 판정: 발표 전체에서 3초 이상 무음이 3번 이상이면 ["3초 이상 멈춘 곳 3번(가장 긴 것 8.4초)"]."""
+    lengths = _long_silences(voice_timeline.get("silence_segments"))
+    if len(lengths) >= TALK_SILENCE_COUNT_MIN:
+        return [f"{SPEECH_SILENCE_MIN_SEC:g}초 이상 멈춘 곳 {len(lengths)}번(가장 긴 것 {max(lengths):.1f}초)"]
+    return []
 
 
 # 음성인식 모델이 군소리를 표시하는 태그 → 사람이 읽는 소리 (voice/filler.py 의 MODEL_FILLER_TAGS)
@@ -753,7 +783,7 @@ def run_overall(segments: list[dict], video_analysis: list[dict], voice_timeline
         if isinstance(spm, (int, float)):
             view["speaking_rate_spm"] = round(spm)
         view["speaking_rate_label"] = _speaking_rate_label(spm)
-        view["speech_issues"] = _speech_issues(s, voice_timeline)
+        view["speech_issues"] = _speech_issues(s)   # 무음은 발표 전체 기준(talk_silence)으로 따로 보낸다
         view["filler_words"] = _filler_words(s, voice_timeline)
         view["motion_issues"] = mi
         view["minor_motion_issues"] = minor
@@ -764,6 +794,7 @@ def run_overall(segments: list[dict], video_analysis: list[dict], voice_timeline
         outline=json.dumps(labeled["outline"], ensure_ascii=False, indent=2),
         segments=json.dumps(labeled["segments"], ensure_ascii=False, indent=2),
         habit_fillers=json.dumps(_habit_fillers(voice_timeline), ensure_ascii=False),
+        talk_silence=json.dumps(_talk_silence_issues(voice_timeline), ensure_ascii=False),
         headline_mode=_headline_mode(ratings),
     )
 
