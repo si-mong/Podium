@@ -299,12 +299,14 @@ function SegmentFeedbackRow({ seg, no, open, onToggle, onSeek }: { seg: ApiSegme
 }
 
 export default function SingleView({
-  topicName, sessionName, onOpenFolder, missingSteps, retrying, retryLabel, retryFailed, retryError, onRetry, reportHref, headline, summary, durationSec, voice, chunks, script,
+  topicName, sessionName, onOpenFolder, missingSteps, retrying, retryLabel, retryFailed, retryError, onRetry, onRerunFeedback, reportHref, headline, summary, durationSec, voice, chunks, script,
   segments, trend, activeSegmentIndex, playingSegment, currentTime, isPlaying, videoNode, onSeek, onSelectSegment,
 }: {
   topicName: string; sessionName: string; onOpenFolder: () => void;
   missingSteps: string[]; retrying: boolean; retryLabel: string; retryFailed: boolean; retryError: string | null;
-  onRetry: () => void; reportHref: string; headline: string | null; summary: string | null; durationSec: number | null;
+  onRetry: () => void;
+  onRerunFeedback?: () => void; // 관리자만 넘어온다 — 구간별·종합 피드백만 다시 만들기
+  reportHref: string; headline: string | null; summary: string | null; durationSec: number | null;
   voice: VoiceSummary | null; chunks: VideoChunk[]; script: ScriptData | null;
   segments: ApiSegment[]; trend: TrendPoint[]; activeSegmentIndex: number; playingSegment: ApiSegment | null;
   currentTime: number; isPlaying: boolean; videoNode: React.ReactNode;
@@ -343,10 +345,32 @@ export default function SingleView({
   return (
     <div className="bg-white rounded-3xl shadow-sm px-5 sm:px-8 py-7">
       {/* 경로 — 폴더 이름을 누르면 그 폴더(세션 목록 + 종합추이)로 */}
-      <div className="flex items-center gap-1.5 text-[14px] text-stone-500 min-w-0 mb-5">
-        <button onClick={onOpenFolder} title={`${topicName} 폴더로 이동`} className="hover:text-stone-900 hover:underline truncate">{topicName}</button>
-        <span className="text-stone-300">/</span>
-        <span className="font-semibold text-stone-900 whitespace-nowrap">{sessionName}</span>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-5">
+        <div className="flex items-center gap-1.5 text-[14px] text-stone-500 min-w-0">
+          <button onClick={onOpenFolder} title={`${topicName} 폴더로 이동`} className="hover:text-stone-900 hover:underline truncate">{topicName}</button>
+          <span className="text-stone-300">/</span>
+          <span className="font-semibold text-stone-900 whitespace-nowrap">{sessionName}</span>
+        </div>
+        {/* 관리자 전용: 음성·구간·동작 결과는 그대로 두고 구간별·종합 피드백만 다시 만든다 (STEP5 프롬프트 바꾼 뒤 확인용) */}
+        {onRerunFeedback && missingSteps.length === 0 && (
+          <div className="ml-auto flex items-center gap-3">
+            {!retrying && retryFailed && (
+              <span className={`text-[13px] font-semibold ${retryError ? 'text-rose-600' : 'text-green-700'}`}>
+                {retryError ? '일부 피드백을 만들지 못했어요' : '피드백을 다시 만들었어요'}
+              </span>
+            )}
+            <button
+              onClick={onRerunFeedback}
+              disabled={retrying}
+              title={retryError ?? undefined}
+              className="inline-flex items-center gap-1.5 text-[13px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg px-3 py-1.5 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {retrying ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+              {retrying ? (retryLabel || '준비하고 있어요') : '피드백 다시 분석'}
+              <span className="text-[11px] font-semibold text-indigo-400">관리자</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {missingSteps.length > 0 && (

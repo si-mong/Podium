@@ -475,17 +475,22 @@ function PresentationAnalysisDashboard() {
 
   // 빠진 단계만 다시 분석한 뒤 결과를 새로 받는다. 끝난 뒤에도 빠진 단계가 남으면 안내가 그대로 남아 신고를 권한다.
   const retrying = !!retryingSessionId && retryingSessionId === activeSessionId;
-  const retryAnalysis = async () => {
+  const retryAnalysis = async (steps: AnalysisStep[] = missingSteps) => {
     const sessionId = activeSessionId;
     setRetryingSessionId(sessionId);
     setRetryLabel('');
     setRetryDone(null);
     let error: string | null = null;
+    const warns: string[] = []; // 피드백 단계는 실패해도 예외 없이 경고만 남기므로 따로 모은다
     try {
-      await runSteps(sessionId, missingSteps, { onStep: setRetryLabel });
+      await runSteps(sessionId, steps, {
+        onStep: setRetryLabel,
+        onLog: (message, level) => { if (level === 'warn') warns.push(message); },
+      });
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
     }
+    if (!error && warns.length) error = warns.join(' ');
     setRetryingSessionId(null);
     setRetryDone({ sessionId, error });
     setReloadKey((k) => k + 1);
@@ -1203,7 +1208,12 @@ function PresentationAnalysisDashboard() {
                   retryLabel={retryLabel}
                   retryFailed={retryDone?.sessionId === activeSessionId}
                   retryError={retryDone?.sessionId === activeSessionId ? retryDone.error : null}
-                  onRetry={retryAnalysis}
+                  onRetry={() => retryAnalysis()}
+                  onRerunFeedback={isAdmin ? () => {
+                    if (window.confirm('이 회차의 구간별 피드백과 종합 피드백을 다시 만들까요?\n음성·구간·동작 결과는 그대로 두고, 기존 피드백은 새 결과로 바뀌어요. (AI 호출 비용이 들어요)')) {
+                      retryAnalysis(['segmentFeedback', 'overall']);
+                    }
+                  } : undefined}
                   reportHref={reportMailto(activeTopicName, activeSessionName, activeSessionId, missingSteps)}
                   headline={overallHeadline}
                   summary={overallFeedback}
