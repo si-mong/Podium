@@ -20,7 +20,8 @@ MIN_SILENCE_SEC = 3.0
 
 # 녹음 시작/끝에서 이 길이(초) 안의 무음은 무시. 녹화 버튼을 누르고 말을 시작하기까지,
 # 말을 마치고 녹화를 멈추기까지의 침묵은 발표 중 멈춤이 아님.
-EDGE_IGNORE_SEC = 7.0
+# (7초로는 시작 전 대기 0:07~0:16 이 "긴 침묵"으로 잡혀서 2026-11-09 15초로 늘림)
+EDGE_IGNORE_SEC = 15.0
 
 # --- VAD 파라미터 (faster-whisper 기본값을 그대로 쓰면 안 되는 이유) ---
 # faster-whisper 의 기본값은 min_silence_duration_ms=2000, speech_pad_ms=400 인데
