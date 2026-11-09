@@ -40,6 +40,25 @@ function pickMime() {
   return "";
 }
 
+// 녹화 형식에 맞는 확장자. iPhone(WebKit)은 webm 을 못 만들어서 mp4 로 녹화된다.
+function extOf(mimeType: string) {
+  return mimeType.includes("mp4") ? ".mp4" : ".webm";
+}
+
+// 녹화기가 멈추면 모인 조각을 하나로 합쳐 upload 에 넘긴다. 반환값은 "멈춤 + 업로드"가 끝나는 약속.
+// 녹화기를 만들 때 바로 이 약속을 대기 목록에 넣어 두므로, 촬영 종료 때 업로드를 빠뜨리지 않는다.
+// (iPhone 은 stop 이벤트 순서가 달라서, 멈춘 뒤에 업로드를 목록에 넣는 방식이면 업로드 전에 /end 가 먼저 불렸다)
+function whenRecorderDone(recorder: MediaRecorder, parts: Blob[], upload: (blob: Blob) => Promise<unknown>) {
+  return new Promise<unknown>((resolve) => {
+    recorder.onstop = async () => {
+      // WebKit 은 마지막 조각(dataavailable)을 stop 뒤에 보내기도 해서 잠깐 기다린다
+      await new Promise((r) => setTimeout(r, 300));
+      const blob = new Blob(parts, { type: recorder.mimeType || "video/webm" });
+      resolve(upload(blob));
+    };
+  });
+}
+
 // 카메라를 못 켰을 때 원인별 안내 문구. 모바일은 권한 팝업 없이 바로 거부되는 경우가 많아서
 // 어디서 권한을 켜야 하는지까지 알려준다.
 function cameraErrorMessage(err: unknown): string {
@@ -196,23 +215,21 @@ function RecordPage() {
 
   const uploadChunk = (blob: Blob, idx: number) => {
     const fd = new FormData();
-    fd.append("file", blob, `chunk_${String(idx).padStart(3, "0")}.webm`);
-    const p = apiFetch(`/sessions/${sessionIdRef.current}/chunks?chunk_index=${idx}`, {
+    fd.append("file", blob, `chunk_${String(idx).padStart(3, "0")}${extOf(blob.type)}`);
+    return apiFetch(`/sessions/${sessionIdRef.current}/chunks?chunk_index=${idx}`, {
       method: "POST",
       body: fd,
     }).catch(() => log("영상을 저장하는 중 잠깐 문제가 있었어요. 촬영은 계속 진행돼요.", "warn"));
-    pendingUploadsRef.current.push(p);
   };
 
   const uploadFullVideo = (blob: Blob) => {
     const fd = new FormData();
-    fd.append("file", blob, "full_video.webm");
-    const p = apiFetch(`/sessions/${sessionIdRef.current}/video`, {
+    // 백엔드가 파일 이름의 확장자로 저장 형식을 정한다 (iPhone 은 mp4)
+    fd.append("file", blob, `full_video${extOf(blob.type)}`);
+    return apiFetch(`/sessions/${sessionIdRef.current}/video`, {
       method: "POST",
       body: fd,
-    })
-      .catch(() => log("영상 파일을 저장하는 중 문제가 있었어요.", "warn"));
-    pendingUploadsRef.current.push(p);
+    }).catch(() => log("영상 파일을 저장하는 중 문제가 있었어요.", "warn"));
   };
 
   const startRecorderForChunk = () => {
@@ -225,10 +242,7 @@ function RecordPage() {
     recorder.ondataavailable = (e) => {
       if (e.data && e.data.size > 0) parts.push(e.data);
     };
-    recorder.onstop = () => {
-      const blob = new Blob(parts, { type: recorder.mimeType || "video/webm" });
-      uploadChunk(blob, idx);
-    };
+    pendingUploadsRef.current.push(whenRecorderDone(recorder, parts, (blob) => uploadChunk(blob, idx)));
     recorder.start();
     return recorder;
   };
@@ -336,10 +350,7 @@ function RecordPage() {
       fullRecorder.ondataavailable = (e) => {
         if (e.data && e.data.size > 0) fullPartsRef.current.push(e.data);
       };
-      fullRecorder.onstop = () => {
-        const blob = new Blob(fullPartsRef.current, { type: fullRecorder.mimeType || "video/webm" });
-        uploadFullVideo(blob);
-      };
+      pendingUploadsRef.current.push(whenRecorderDone(fullRecorder, fullPartsRef.current, uploadFullVideo));
       recordingRef.current = true;
       blurRef.current?.setLocked(true); // 녹화 중에는 휴대폰을 돌려도 녹화 크기를 바꾸지 않는다
       fullRecorder.start();
