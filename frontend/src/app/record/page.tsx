@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, Camera, Circle, Square, Sparkles, Loader2, AlertCircle, RotateCcw, CheckCircle2, Upload, FileText } from "lucide-react";
+import { ArrowLeft, Camera, SwitchCamera, Circle, Square, Sparkles, Loader2, AlertCircle, RotateCcw, CheckCircle2, Upload, FileText } from "lucide-react";
 
 // API 호출은 apiFetch (로그인 토큰 자동 첨부, 만료 시 자동 갱신) — frontend/src/utils/api.ts
 import { apiFetch } from "@/utils/api";
@@ -107,6 +107,11 @@ function RecordPage() {
     if (phase === "previewing") openCamera(on);
   };
   const [cameraBusy, setCameraBusy] = useState(false); // 카메라(배경 흐림 포함)를 켜는 중
+  // 전면(user)/후면(environment) 카메라. 후면은 휴대폰을 세워 두고 찍거나 다른 사람이 찍어 줄 때 쓴다.
+  const [facing, setFacing] = useState<"user" | "environment">("user");
+  const [canSwitch, setCanSwitch] = useState(false); // 카메라가 2개 이상일 때만 전환 버튼을 보여준다
+  // 전면 카메라는 거울처럼 좌우를 뒤집어 보여준다 (화면에서만, 녹화 파일은 원래 방향 그대로)
+  const [mirrored, setMirrored] = useState(true);
 
   const [phase, setPhase] = useState<Phase>("idle");
   const [elapsedSec, setElapsedSec] = useState(0);
@@ -244,7 +249,7 @@ function RecordPage() {
   };
 
   // 1단계: 카메라만 켜서 미리보기를 띄운다. 녹화는 "촬영 시작"을 눌러야 시작된다.
-  const openCamera = async (blur: boolean = blurOn) => {
+  const openCamera = async (blur: boolean = blurOn, face: "user" | "environment" = facing) => {
     setErrorMsg(null);
     setLogs([]); // 이전 촬영/분석 시도의 로그를 지우고 새로 시작
     setCameraBusy(true);
@@ -253,7 +258,7 @@ function RecordPage() {
     try {
       if (!navigator.mediaDevices?.getUserMedia) throw new Error("getUserMedia 없음");
       camera = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+        video: { facingMode: { ideal: face }, width: { ideal: 1280 }, height: { ideal: 720 } },
         audio: true,
       });
     } catch (err) {
@@ -264,6 +269,14 @@ function RecordPage() {
       return;
     }
     // 배경 흐림을 켰으면 흐린 영상을 보여주고 녹화한다. 준비에 실패하면 원본으로 그냥 촬영한다.
+    // 실제로 켜진 카메라 방향 (PC 웹캠은 값이 없어서 요청한 방향으로 본다)
+    const actualFacing = camera.getVideoTracks()[0]?.getSettings().facingMode;
+    setMirrored((actualFacing ?? face) !== "environment");
+    // 카메라 이름 목록은 권한을 받은 뒤에야 정확히 나온다
+    navigator.mediaDevices
+      .enumerateDevices()
+      .then((ds) => setCanSwitch(ds.filter((d) => d.kind === "videoinput").length > 1))
+      .catch(() => {});
     let stream = camera;
     if (blur) {
       log("배경을 흐리게 만드는 중이에요...");
@@ -281,6 +294,13 @@ function RecordPage() {
     log('카메라를 켰어요. 얼굴과 상반신이 화면에 잘 들어오는지 확인하고 "촬영 시작"을 눌러주세요.', "success");
     setPhase("previewing");
     setCameraBusy(false);
+  };
+
+  // 미리보기 중 전면 ↔ 후면 전환
+  const switchCamera = () => {
+    const next = facing === "user" ? "environment" : "user";
+    setFacing(next);
+    openCamera(blurOn, next);
   };
 
   // 2단계: 켜 둔 카메라로 세션을 만들고 녹화를 시작한다.
@@ -591,7 +611,13 @@ function RecordPage() {
           >
             {!isUpload ? (
               <>
-                <video ref={videoPreviewRef} autoPlay muted playsInline className="w-full h-full object-cover" />
+                <video
+                  ref={videoPreviewRef}
+                  autoPlay
+                  muted
+                  playsInline
+                  className={`w-full h-full object-cover ${mirrored ? "-scale-x-100" : ""}`}
+                />
                 {(phase === "idle" || phase === "error") && (
                   <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-[#a8a29e] text-center px-6">
                     {cameraBusy ? <Loader2 className="w-8 h-8 animate-spin" /> : <Camera className="w-8 h-8" />}
@@ -602,6 +628,16 @@ function RecordPage() {
                   <div className="absolute top-4 left-4 bg-black/60 backdrop-blur-md text-[#ffffff] px-3 py-1.5 rounded-lg text-sm font-bold border border-white/10">
                     미리보기 · 아직 녹화 전이에요
                   </div>
+                )}
+                {phase === "previewing" && canSwitch && (
+                  <button
+                    onClick={switchCamera}
+                    disabled={cameraBusy}
+                    className="absolute bottom-3 right-3 flex items-center gap-1.5 bg-black/60 backdrop-blur-md text-[#ffffff] px-3 py-2 rounded-lg text-sm font-bold border border-white/10 hover:bg-black/75 disabled:opacity-50"
+                  >
+                    {cameraBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <SwitchCamera className="w-4 h-4" />}
+                    {facing === "user" ? "후면 카메라로" : "전면 카메라로"}
+                  </button>
                 )}
               </>
             ) : previewUrl ? (
