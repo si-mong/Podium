@@ -41,7 +41,7 @@ from app.models import (
     Chunk, Feedback, Segment, SegmentAnalysis, Session, SessionSummary,
     SttSentence, VideoAnalysis, VoiceRaw,
 )
-from app.pipeline.step1_preprocess import FFmpegError, concat_audio, extract_chunk_audio, probe_duration
+from app.pipeline.step1_preprocess import FFmpegError, concat_audio, extract_chunk_audio, probe_duration, rotate_video
 from app.schemas.session import (
     VideoTicket,
     MotionAnalysisResult,
@@ -186,6 +186,44 @@ async def upload_full_video(
     db.commit()
 
     return UploadResult(size_bytes=size)
+
+
+@router.post("/sessions/{session_id}/video/rotate", response_model=UploadResult)
+def rotate_full_video(
+    session_id: int,
+    quarter: int,
+    db: DbSession = Depends(get_db),
+    user_id: int = Depends(get_current_user_id),
+):
+    """전체 영상을 시계 방향 90°×quarter(1~3) 만큼 돌려 full_video.mp4 로 바꾼다.
+
+    휴대폰을 가로로 들었는데 화면 방향 고정 때문에 페이지가 세로로 남으면, 휴대폰이 세로 영상을
+    보내서 사람이 옆으로 누운 채 녹화된다. 촬영 화면은 촬영 후 "분석 시작" 전에 방향을 확인받고,
+    돌려야 하면 동작 분석(STEP 2) 전에 이걸 부른다. 소리만 쓰는 전처리·음성 분석은 영향 없다.
+    다시 인코딩하므로 영상 길이에 비례해 시간이 걸린다.
+    """
+    session = get_owned_session(db, session_id, user_id)
+    if quarter not in (1, 2, 3):
+        raise HTTPException(400, "quarter 는 1, 2, 3 중 하나여야 해요.")
+    if not session.full_video_path:
+        raise HTTPException(400, "전체 영상이 아직 저장되지 않았어요.")
+
+    upload_dir = _settings_upload_dir()
+    src = upload_dir / session.full_video_path
+    dst = storage.full_video_path(session_id, ".mp4")
+    tmp = dst.with_name("full_video_rotating.mp4")
+    try:
+        rotate_video(src, tmp, quarter)
+    except FFmpegError as exc:
+        tmp.unlink(missing_ok=True)
+        raise HTTPException(500, f"영상 방향을 바꾸지 못했어요: {exc}")
+    tmp.replace(dst)
+    if src.resolve() != dst.resolve():
+        src.unlink(missing_ok=True)
+
+    session.full_video_path = str(dst.relative_to(upload_dir))
+    db.commit()
+    return UploadResult(size_bytes=dst.stat().st_size)
 
 
 # ---------------------------------------------------------------------------

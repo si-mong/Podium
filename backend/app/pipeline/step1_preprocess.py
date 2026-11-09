@@ -33,6 +33,30 @@ def extract_chunk_audio(chunk_webm: Path, out_wav: Path) -> Path:
     return out_wav
 
 
+# 시계 방향 90°×quarter 회전에 쓰는 ffmpeg 필터
+_ROTATE_FILTERS = {1: "transpose=1", 2: "transpose=1,transpose=1", 3: "transpose=2"}
+
+
+def rotate_video(src: Path, dst: Path, quarter: int) -> Path:
+    """영상을 시계 방향 90°×quarter 만큼 돌려 mp4(H.264)로 다시 저장한다.
+
+    휴대폰을 가로로 들었는데 화면 방향 고정 때문에 세로 영상으로 녹화된 경우,
+    촬영 후 사용자가 고른 방향으로 세운다. 소리는 그대로 옮긴다.
+    """
+    if quarter not in _ROTATE_FILTERS:
+        raise ValueError(f"quarter must be 1, 2 or 3 (got {quarter})")
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    _run([
+        "ffmpeg", "-y", "-i", str(src),
+        "-vf", _ROTATE_FILTERS[quarter],
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p",
+        "-c:a", "aac",
+        "-movflags", "+faststart",  # 브라우저에서 바로 재생되게 앞쪽에 색인
+        str(dst),
+    ])
+    return dst
+
+
 def concat_audio(wav_paths: list[Path], out_wav: Path) -> Path:
     """여러 wav를 concat 데먹서로 합쳐 단일 wav 생성. 모든 입력은 같은 포맷이어야 함."""
     if not wav_paths:
