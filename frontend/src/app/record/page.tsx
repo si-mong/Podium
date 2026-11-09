@@ -112,6 +112,8 @@ function RecordPage() {
   const [canSwitch, setCanSwitch] = useState(false); // 카메라가 2개 이상일 때만 전환 버튼을 보여준다
   // 전면 카메라는 거울처럼 좌우를 뒤집어 보여준다 (화면에서만, 녹화 파일은 원래 방향 그대로)
   const [mirrored, setMirrored] = useState(true);
+  // 카메라 영상의 가로/세로 비율. 휴대폰 방향에 따라 바뀌고, 촬영 화면 틀도 이 비율을 따른다.
+  const [videoAspect, setVideoAspect] = useState(16 / 9);
 
   const [phase, setPhase] = useState<Phase>("idle");
   const [elapsedSec, setElapsedSec] = useState(0);
@@ -339,6 +341,7 @@ function RecordPage() {
         uploadFullVideo(blob);
       };
       recordingRef.current = true;
+      blurRef.current?.setLocked(true); // 녹화 중에는 휴대폰을 돌려도 녹화 크기를 바꾸지 않는다
       fullRecorder.start();
       fullRecorderRef.current = fullRecorder;
 
@@ -354,6 +357,7 @@ function RecordPage() {
       console.error(err);
       // 녹화를 시작하다 실패하면 녹화기·타이머만 정리하고, 카메라는 켜 둔 채 미리보기로 돌아간다.
       recordingRef.current = false;
+      blurRef.current?.setLocked(false);
       if (chunkTimerRef.current) clearTimeout(chunkTimerRef.current);
       if (elapsedTimerRef.current) clearInterval(elapsedTimerRef.current);
       for (const r of [chunkRecorderRef.current, fullRecorderRef.current]) {
@@ -601,8 +605,10 @@ function RecordPage() {
           {/* 촬영 모드: 카메라 화면 / 업로드 모드: 같은 자리에 파일 선택 칸 (고르면 미리보기로 바뀜)
               카메라 크기 — 슬라이드 있음: 카드 너비의 1/3 / 슬라이드 없음: 절반, 가운데 정렬 (좁은 화면에선 꽉 채움) */}
           <div
-            className={`relative rounded-xl overflow-hidden aspect-video mb-4 ${
-              hasSlide ? "w-full lg:w-1/3 shrink-0" : !isUpload ? "w-full lg:w-1/2 mx-auto" : ""
+            // 촬영 모드: 틀을 카메라 영상 비율에 맞추고(가로/세로), 화면 높이의 70%를 넘지 않게 한다 (휴대폰 가로 화면에서도 한눈에)
+            style={!isUpload ? { aspectRatio: videoAspect, maxWidth: `calc(70svh * ${videoAspect})` } : undefined}
+            className={`relative rounded-xl overflow-hidden mb-4 ${isUpload ? "aspect-video" : "mx-auto"} ${
+              hasSlide ? "w-full lg:w-1/3 shrink-0" : !isUpload ? "w-full lg:w-1/2" : ""
             } ${
               isUpload && !previewUrl
                 ? `border-2 border-dashed transition-colors ${dragOver ? "border-stone-500 bg-stone-100" : "border-stone-300 bg-stone-50"}`
@@ -616,6 +622,10 @@ function RecordPage() {
                   autoPlay
                   muted
                   playsInline
+                  onResize={(e) => {
+                    const v = e.currentTarget;
+                    if (v.videoWidth && v.videoHeight) setVideoAspect(v.videoWidth / v.videoHeight);
+                  }}
                   className={`w-full h-full object-cover ${mirrored ? "-scale-x-100" : ""}`}
                 />
                 {(phase === "idle" || phase === "error") && (
@@ -697,6 +707,16 @@ function RecordPage() {
 
           {/* 버튼 + 오류 안내. 슬라이드 있으면 카메라 오른쪽 남은 칸을 채운다 */}
           <div className={hasSlide ? "flex-1 w-full" : ""}>
+          {/* 휴대폰을 세로로 들고 있거나, 가로로 돌렸는데 화면 방향이 고정돼 있으면 영상이 세로로 찍힌다 */}
+          {!isUpload && phase === "previewing" && videoAspect < 1 && (
+            <div className={`flex items-start gap-2 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl p-3 text-sm font-medium mb-4 ${!hasSlide ? "w-full lg:w-1/2 mx-auto" : ""}`}>
+              <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+              <span>
+                지금은 세로 화면으로 찍혀요. 휴대폰을 가로로 돌려주세요.
+                돌려도 화면이 그대로라면 iPhone은 제어 센터의 &lsquo;화면 방향 고정&rsquo;을 끄고, Android는 &lsquo;자동 회전&rsquo;을 켜주세요.
+              </span>
+            </div>
+          )}
           {/* 버튼 줄도 촬영 모드(슬라이드 없음)에선 카메라와 같은 너비(절반)로 맞춘다 */}
           <div className={`flex items-center gap-3 mb-4 ${!isUpload && !hasSlide ? "w-full lg:w-1/2 mx-auto" : ""}`}>
             {isUpload && (phase === "idle" || phase === "error") ? (
@@ -907,6 +927,13 @@ function RecordPage() {
                 <div>
                   <p className="font-extrabold text-stone-900 text-[15px]">대본·PPT는 프린트물이나 패드로</p>
                   <p className="text-sm text-stone-600 mt-0.5 leading-relaxed">실제 대본이나 PPT가 있다면 프린트물이나 패드에 담아 읽는 것을 추천드려요!</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3.5">
+                <Camera className="w-5 h-5 mt-0.5 shrink-0 text-amber-600" />
+                <div>
+                  <p className="font-extrabold text-stone-900 text-[15px]">휴대폰은 가로로, 촬영 중엔 돌리지 않기</p>
+                  <p className="text-sm text-stone-600 mt-0.5 leading-relaxed">휴대폰으로 찍는다면 가로로 세워 두고 촬영해주세요. 촬영 중에 방향을 바꾸면 영상이 어긋날 수 있어요.</p>
                 </div>
               </div>
             </div>
