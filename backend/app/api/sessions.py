@@ -24,9 +24,11 @@ from __future__ import annotations
 
 import logging
 import mimetypes
+import re
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session as DbSession
 
@@ -254,9 +256,13 @@ def stream_video(
     session_id: int,
     request: Request,
     ticket: str | None = None,
+    download: bool = False,
     db: DbSession = Depends(get_db),
 ):
     """녹화 원본(full_video.webm)을 Range 지원으로 내려준다 — 구간 재생용.
+
+    `?download=1` 이면 "파일로 저장" 응답(Content-Disposition: attachment)으로 통째로 준다.
+    파일 이름은 "폴더이름_N회차.확장자". 대시보드의 "영상 다운로드" 버튼이 쓴다.
 
     인증은 **둘 중 하나**를 받는다:
       - `Authorization: Bearer <access_token>`  (fetch/XHR 로 받을 때)
@@ -280,6 +286,12 @@ def stream_video(
 
     # 촬영본은 webm, "영상 업로드하기"로 올린 파일은 mp4 등이라 확장자로 정한다.
     media_type = mimetypes.guess_type(path.name)[0] or "video/webm"
+    if download:
+        # 파일 이름에 못 쓰는 글자는 _ 로 바꾼다 (한글은 그대로 — 응답에서 filename* 로 인코딩됨)
+        title = re.sub(r'[\\/:*?"<>|\x00-\x1f]+', "_", session.project.title).strip() or "podium"
+        filename = f"{title}_{session.session_no}회차{path.suffix}"
+        return FileResponse(path, media_type=media_type, filename=filename,
+                            headers={"Cache-Control": "private, no-store"})
     return streaming.range_response(path, request, media_type=media_type)
 
 

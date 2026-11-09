@@ -537,6 +537,21 @@ function PresentationAnalysisDashboard() {
     };
   }, [activeSessionId, hasVideo]);
 
+  // 영상 다운로드 — 재생 티켓은 30분이면 만료되므로 누를 때 새로 받는다.
+  // 서버가 ?download=1 이면 "파일로 저장" 응답을 주므로 주소만 열면 브라우저가 내려받는다 (화면은 그대로).
+  const [downloading, setDownloading] = useState(false);
+  const downloadVideo = async () => {
+    if (!activeSessionId || downloading) return;
+    setDownloading(true);
+    const ticket = await fetchVideoTicket(activeSessionId);
+    setDownloading(false);
+    if (!ticket) {
+      window.alert('영상을 받지 못했어요. 잠시 후 다시 시도해주세요.');
+      return;
+    }
+    window.location.href = `${API_BASE}/sessions/${activeSessionId}/video?ticket=${encodeURIComponent(ticket)}&download=1`;
+  };
+
   const videoSrc =
     hasVideo && videoTicket
       ? `${API_BASE}/sessions/${activeSessionId}/video?ticket=${encodeURIComponent(videoTicket)}`
@@ -1209,6 +1224,8 @@ function PresentationAnalysisDashboard() {
                   retryFailed={retryDone?.sessionId === activeSessionId}
                   retryError={retryDone?.sessionId === activeSessionId ? retryDone.error : null}
                   onRetry={() => retryAnalysis()}
+                  onDownloadVideo={hasVideo ? downloadVideo : undefined}
+                  downloading={downloading}
                   onRerunFeedback={isAdmin ? () => {
                     if (window.confirm('이 회차의 구간별 피드백과 종합 피드백을 다시 만들까요?\n음성·구간·동작 결과는 그대로 두고, 기존 피드백은 새 결과로 바뀌어요. (AI 호출 비용이 들어요)')) {
                       retryAnalysis(['segmentFeedback', 'overall']);
