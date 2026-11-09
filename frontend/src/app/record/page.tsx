@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, Circle, Square, Sparkles, Loader2, AlertCircle, RotateCcw, CheckCircle2, Upload, FileText } from "lucide-react";
+import { ArrowLeft, Camera, Circle, Square, Sparkles, Loader2, AlertCircle, RotateCcw, CheckCircle2, Upload, FileText } from "lucide-react";
 
 // API 호출은 apiFetch (로그인 토큰 자동 첨부, 만료 시 자동 갱신) — frontend/src/utils/api.ts
 import { apiFetch } from "@/utils/api";
@@ -11,7 +11,8 @@ import { isLoggedIn } from "@/utils/auth";
 import { startBackgroundBlur, BlurredCamera } from "./backgroundBlur";
 const CHUNK_MS = 30_000; // 전송용 청크 길이 (STEP1 전처리 단위, app/api/sessions.py CHUNK_DURATION_SEC와 동일)
 
-type Phase = "idle" | "recording" | "finalizing" | "ready" | "analyzing" | "done" | "error";
+// previewing = 카메라만 켜고 아직 녹화 전 (구도를 맞추는 단계)
+type Phase = "idle" | "previewing" | "recording" | "finalizing" | "ready" | "analyzing" | "done" | "error";
 
 // 진행 상황 로그 한 줄. kind로 아이콘·색을 정한다 (success=완료, warn=실패했지만 계속 진행, error=완전히 실패, info=진행 중).
 type LogKind = "info" | "success" | "warn" | "error";
@@ -37,6 +38,35 @@ function pickMime() {
     if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(m)) return m;
   }
   return "";
+}
+
+// 카메라를 못 켰을 때 원인별 안내 문구. 모바일은 권한 팝업 없이 바로 거부되는 경우가 많아서
+// 어디서 권한을 켜야 하는지까지 알려준다.
+function cameraErrorMessage(err: unknown): string {
+  const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
+  const inApp = /KAKAOTALK|Instagram|FBAN|FBAV|NAVER\(inapp|Line\//i.test(ua);
+  const isIOS = /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/i.test(ua) && typeof document !== "undefined" && "ontouchend" in document);
+  const isAndroid = /Android/i.test(ua);
+
+  if (inApp) {
+    return "앱 안 브라우저(카카오톡·인스타그램 등)에서는 카메라를 쓸 수 없어요. 오른쪽 위 메뉴에서 \"다른 브라우저로 열기\"를 눌러 Chrome이나 Safari로 열어주세요.";
+  }
+  if (typeof window !== "undefined" && (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia)) {
+    return "이 브라우저에서는 카메라를 쓸 수 없어요. 최신 Chrome이나 Safari로 열어주세요.";
+  }
+  const name = (err as { name?: string } | null)?.name;
+  if (name === "NotAllowedError" || name === "SecurityError") {
+    if (isIOS) return "카메라·마이크 권한이 꺼져 있어요. iPhone 설정 앱 → 사용 중인 브라우저(Chrome 또는 Safari) → 카메라·마이크를 켠 뒤, 브라우저를 완전히 껐다가 다시 열어주세요.";
+    if (isAndroid) return "카메라·마이크 권한이 꺼져 있어요. 주소창 왼쪽 아이콘 → 권한에서 허용하거나, 휴대폰 설정 → 애플리케이션 → Chrome → 권한에서 카메라·마이크를 켜주세요.";
+    return "카메라·마이크 권한이 꺼져 있어요. 주소창 왼쪽 아이콘을 눌러 카메라·마이크를 허용한 뒤 새로고침해주세요.";
+  }
+  if (name === "NotFoundError" || name === "OverconstrainedError") {
+    return "카메라나 마이크를 찾지 못했어요. 기기에 연결돼 있는지 확인해주세요.";
+  }
+  if (name === "NotReadableError" || name === "AbortError") {
+    return "다른 앱(Zoom, 카메라 앱 등)이 카메라를 쓰고 있어요. 그 앱을 끄고 다시 시도해주세요.";
+  }
+  return "카메라를 켜지 못했어요. 페이지를 새로고침한 뒤 다시 시도해주세요.";
 }
 
 function RecordPage() {
@@ -73,7 +103,10 @@ function RecordPage() {
     try {
       localStorage.setItem("podium.backgroundBlur", on ? "on" : "off");
     } catch {}
+    // 미리보기 중에 바꾸면 카메라를 다시 켜서 바로 보이게 한다
+    if (phase === "previewing") openCamera(on);
   };
+  const [cameraBusy, setCameraBusy] = useState(false); // 카메라(배경 흐림 포함)를 켜는 중
 
   const [phase, setPhase] = useState<Phase>("idle");
   const [elapsedSec, setElapsedSec] = useState(0);
@@ -201,44 +234,75 @@ function RecordPage() {
     chunkTimerRef.current = setTimeout(rotateRecorder, CHUNK_MS);
   };
 
+  // 카메라를 끈다. 배경 흐림을 썼으면 blur.stop() 이 원본 카메라까지 끈다.
+  const closeCamera = () => {
+    blurRef.current?.stop();
+    blurRef.current = null;
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    if (videoPreviewRef.current) videoPreviewRef.current.srcObject = null;
+  };
+
+  // 1단계: 카메라만 켜서 미리보기를 띄운다. 녹화는 "촬영 시작"을 눌러야 시작된다.
+  const openCamera = async (blur: boolean = blurOn) => {
+    setErrorMsg(null);
+    setLogs([]); // 이전 촬영/분석 시도의 로그를 지우고 새로 시작
+    setCameraBusy(true);
+    closeCamera();
+    let camera: MediaStream;
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) throw new Error("getUserMedia 없음");
+      camera = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: true,
+      });
+    } catch (err) {
+      console.error(err);
+      setErrorMsg(cameraErrorMessage(err));
+      setPhase("error");
+      setCameraBusy(false);
+      return;
+    }
+    // 배경 흐림을 켰으면 흐린 영상을 보여주고 녹화한다. 준비에 실패하면 원본으로 그냥 촬영한다.
+    let stream = camera;
+    if (blur) {
+      log("배경을 흐리게 만드는 중이에요...");
+      try {
+        blurRef.current = await startBackgroundBlur(camera);
+        stream = blurRef.current.stream;
+        log("배경 흐림을 켰어요.", "success");
+      } catch (err) {
+        console.error(err);
+        log("배경 흐림을 켜지 못해서 원래 화면으로 촬영할게요.", "warn");
+      }
+    }
+    streamRef.current = stream;
+    if (videoPreviewRef.current) videoPreviewRef.current.srcObject = stream;
+    log('카메라를 켰어요. 얼굴과 상반신이 화면에 잘 들어오는지 확인하고 "촬영 시작"을 눌러주세요.', "success");
+    setPhase("previewing");
+    setCameraBusy(false);
+  };
+
+  // 2단계: 켜 둔 카메라로 세션을 만들고 녹화를 시작한다.
   const startRecording = async () => {
     if (!projectId) {
       setErrorMsg("발표 프로젝트 정보를 찾을 수 없어요. 세션 관리 화면에서 다시 시도해주세요.");
       return;
     }
+    const stream = streamRef.current;
+    if (!stream) return; // 카메라를 먼저 켜야 한다
     setErrorMsg(null);
-    setLogs([]); // 이전 촬영/분석 시도의 로그를 지우고 새로 시작
+    let createdSession: number | null = null;
     try {
-      const camera = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 1280 }, height: { ideal: 720 } },
-        audio: true,
-      });
-      // 배경 흐림을 켰으면 흐린 영상을 녹화한다. 준비에 실패하면 원본으로 그냥 촬영한다.
-      let stream = camera;
-      if (blurOn) {
-        log("배경을 흐리게 만드는 중이에요...");
-        try {
-          blurRef.current = await startBackgroundBlur(camera);
-          stream = blurRef.current.stream;
-          log("배경 흐림을 켰어요.", "success");
-        } catch (err) {
-          console.error(err);
-          log("배경 흐림을 켜지 못해서 원래 화면으로 촬영할게요.", "warn");
-        }
-      }
-      streamRef.current = stream;
-      if (videoPreviewRef.current) videoPreviewRef.current.srcObject = stream;
-
       const startRes = await apiFetch(`/projects/${projectId}/sessions/start`, { method: "POST" });
       if (!startRes.ok) throw new Error("세션 생성 실패");
       const session = await startRes.json();
+      createdSession = session.session_id;
       sessionIdRef.current = session.session_id;
-      log("카메라 연결 완료! 촬영을 시작합니다.", "success");
 
       chunkIndexRef.current = 0;
       pendingUploadsRef.current = [];
       fullPartsRef.current = [];
-      recordingRef.current = true;
 
       // 풀 recorder는 트랙을 clone() 한 별도 스트림에 붙인다 (동시 두 recorder 인코더 충돌 방지).
       const fullStream = new MediaStream(stream.getTracks().map((t) => t.clone()));
@@ -254,6 +318,7 @@ function RecordPage() {
         const blob = new Blob(fullPartsRef.current, { type: fullRecorder.mimeType || "video/webm" });
         uploadFullVideo(blob);
       };
+      recordingRef.current = true;
       fullRecorder.start();
       fullRecorderRef.current = fullRecorder;
 
@@ -263,13 +328,35 @@ function RecordPage() {
       setElapsedSec(0);
       elapsedTimerRef.current = setInterval(() => setElapsedSec((s) => s + 1), 1000);
 
+      log("촬영을 시작했어요!", "success");
       setPhase("recording");
     } catch (err) {
       console.error(err);
-      blurRef.current?.stop(); // 배경 흐림 그리기가 혼자 계속 돌지 않게
-      blurRef.current = null;
-      setErrorMsg("카메라에 연결하지 못했어요. 브라우저의 카메라 권한을 확인해주세요.");
-      setPhase("error");
+      // 녹화를 시작하다 실패하면 녹화기·타이머만 정리하고, 카메라는 켜 둔 채 미리보기로 돌아간다.
+      recordingRef.current = false;
+      if (chunkTimerRef.current) clearTimeout(chunkTimerRef.current);
+      if (elapsedTimerRef.current) clearInterval(elapsedTimerRef.current);
+      for (const r of [chunkRecorderRef.current, fullRecorderRef.current]) {
+        if (r && r.state === "recording") {
+          r.onstop = null; // 반쯤 녹화된 영상을 올리지 않게
+          r.stop();
+        }
+      }
+      chunkRecorderRef.current = null;
+      fullRecorderRef.current = null;
+      fullStreamRef.current?.getTracks().forEach((t) => t.stop());
+      fullStreamRef.current = null;
+      // 세션까지 만들었으면 빈 회차가 남지 않게 지운다.
+      if (createdSession) {
+        await apiFetch(`/sessions/${createdSession}`, { method: "DELETE" }).catch(() => {});
+        sessionIdRef.current = null;
+      }
+      setErrorMsg(
+        createdSession
+          ? "이 브라우저에서는 녹화를 시작하지 못했어요. 최신 Chrome이나 Safari로 다시 시도해주세요."
+          : "서버에 연결하지 못해 촬영을 시작하지 못했어요. 잠시 후 다시 시도해주세요."
+      );
+      setPhase("previewing");
     }
   };
 
@@ -366,7 +453,7 @@ function RecordPage() {
       setRetaking(false);
       return;
     }
-    await startRecording();
+    await openCamera(); // 바로 녹화하지 않고 미리보기부터 다시 띄운다
     setRetaking(false);
   };
 
@@ -503,7 +590,20 @@ function RecordPage() {
             }`}
           >
             {!isUpload ? (
-              <video ref={videoPreviewRef} autoPlay muted playsInline className="w-full h-full object-cover" />
+              <>
+                <video ref={videoPreviewRef} autoPlay muted playsInline className="w-full h-full object-cover" />
+                {(phase === "idle" || phase === "error") && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-[#a8a29e] text-center px-6">
+                    {cameraBusy ? <Loader2 className="w-8 h-8 animate-spin" /> : <Camera className="w-8 h-8" />}
+                    <p className="text-sm font-semibold">{cameraBusy ? "카메라를 켜는 중이에요..." : "카메라를 켜면 여기에 미리보기가 나와요"}</p>
+                  </div>
+                )}
+                {phase === "previewing" && (
+                  <div className="absolute top-4 left-4 bg-black/60 backdrop-blur-md text-[#ffffff] px-3 py-1.5 rounded-lg text-sm font-bold border border-white/10">
+                    미리보기 · 아직 녹화 전이에요
+                  </div>
+                )}
+              </>
             ) : previewUrl ? (
               <video src={previewUrl} controls playsInline className="w-full h-full object-contain" />
             ) : (
@@ -585,8 +685,18 @@ function RecordPage() {
               </>
             ) : phase === "idle" || phase === "error" ? (
               <button
+                onClick={() => openCamera()}
+                disabled={cameraBusy}
+                className="flex-1 flex items-center justify-center gap-2 bg-blue-600 text-white px-5 py-3 rounded-xl font-bold hover:bg-blue-700 shadow-sm transition-colors disabled:bg-stone-300 disabled:cursor-not-allowed"
+              >
+                {cameraBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
+                {cameraBusy ? "카메라 켜는 중..." : "카메라 켜기"}
+              </button>
+            ) : phase === "previewing" ? (
+              <button
                 onClick={() => setShowStartNotice(true)}
-                className="flex-1 flex items-center justify-center gap-2 bg-blue-600 text-white px-5 py-3 rounded-xl font-bold hover:bg-blue-700 shadow-sm transition-colors"
+                disabled={cameraBusy}
+                className="flex-1 flex items-center justify-center gap-2 bg-blue-600 text-white px-5 py-3 rounded-xl font-bold hover:bg-blue-700 shadow-sm transition-colors disabled:bg-stone-300 disabled:cursor-not-allowed"
               >
                 <Circle className="w-4 h-4 fill-white" />
                 촬영 시작
@@ -629,12 +739,13 @@ function RecordPage() {
             )}
           </div>
 
-          {/* 배경 흐리게 켜기/끄기 — 촬영 시작 전에만 보인다 (촬영 중에는 바꿀 수 없음) */}
-          {!isUpload && (phase === "idle" || phase === "error") && (
+          {/* 배경 흐리게 켜기/끄기 — 녹화 전(미리보기 포함)에만 보인다. 미리보기 중에 바꾸면 바로 반영된다 */}
+          {!isUpload && (phase === "idle" || phase === "error" || phase === "previewing") && (
             <label className={`flex items-center gap-3 mb-4 cursor-pointer select-none ${!hasSlide ? "w-full lg:w-1/2 mx-auto" : ""}`}>
               <input
                 type="checkbox"
                 checked={blurOn}
+                disabled={cameraBusy}
                 onChange={(e) => changeBlur(e.target.checked)}
                 className="sr-only peer"
               />
@@ -645,7 +756,7 @@ function RecordPage() {
           )}
 
           {/* 발표 자료 PDF (선택) — 촬영 시작 전에만 고르거나 바꿀 수 있다. 고르면 위에 슬라이드로 크게 뜬다 */}
-          {!isUpload && (phase === "idle" || phase === "error") && (
+          {!isUpload && (phase === "idle" || phase === "error" || phase === "previewing") && (
             <div className={`pt-2 mb-4 ${!hasSlide ? "w-full lg:w-1/2 mx-auto" : ""}`}>
               <input
                 ref={pdfInputRef}
@@ -710,7 +821,7 @@ function RecordPage() {
             <div ref={logBoxRef} className="flex-1 overflow-y-auto p-4 space-y-3">
               {logs.length === 0 ? (
                 <p className="text-sm text-stone-400 font-medium">
-                  {isUpload ? "업로드를 시작하면" : "촬영을 시작하면"} 진행 상황이 여기에 표시됩니다.
+                  {isUpload ? "업로드를 시작하면" : "카메라를 켜면"} 진행 상황이 여기에 표시됩니다.
                 </p>
               ) : (
                 logs.map((l, i) => {
