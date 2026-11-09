@@ -2,14 +2,14 @@
 
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, Camera, SwitchCamera, RotateCw, Circle, Square, Sparkles, Loader2, AlertCircle, RotateCcw, CheckCircle2, Upload, FileText } from "lucide-react";
+import { ArrowLeft, Camera, SwitchCamera, Circle, Square, Sparkles, Loader2, AlertCircle, RotateCcw, CheckCircle2, Upload, FileText } from "lucide-react";
 
 // API 호출은 apiFetch (로그인 토큰 자동 첨부, 만료 시 자동 갱신) — frontend/src/utils/api.ts
 import { apiFetch } from "@/utils/api";
 import { runAnalysis } from "@/utils/analysis";
 import { isLoggedIn } from "@/utils/auth";
 import { startBackgroundBlur, BlurredCamera } from "./backgroundBlur";
-import { startRotated, RotatedStream } from "./rotate";
+import OrientationCheck from "./OrientationCheck";
 const CHUNK_MS = 30_000; // 전송용 청크 길이 (STEP1 전처리 단위, app/api/sessions.py CHUNK_DURATION_SEC와 동일)
 
 // previewing = 카메라만 켜고 아직 녹화 전 (구도를 맞추는 단계)
@@ -110,10 +110,6 @@ function RecordPage() {
   const recordingRef = useRef(false);
   const logBoxRef = useRef<HTMLDivElement>(null);
   const blurRef = useRef<BlurredCamera | null>(null); // 배경 흐림을 켜고 촬영 중일 때만 값이 있다
-  const rotateRef = useRef<RotatedStream | null>(null); // "영상 돌리기"를 쓴 적이 있으면 값이 있다
-  const baseStreamRef = useRef<MediaStream | null>(null); // 돌리기 전 영상 (카메라 원본 또는 배경 흐림 결과)
-  // 영상 돌리기 (시계 방향 90° 단위, 0~3). 화면 방향 고정 때문에 누워서 찍힐 때 사용자가 직접 세운다.
-  const [rotation, setRotation] = useState(0);
 
   // 배경 흐리게 — 촬영 시작 전에만 바꿀 수 있다. 마지막 선택은 브라우저에 기억해 둔다.
   const [blurOn, setBlurOn] = useState(false);
@@ -138,6 +134,16 @@ function RecordPage() {
   const [mirrored, setMirrored] = useState(true);
   // 카메라 영상의 가로/세로 비율. 휴대폰 방향에 따라 바뀌고, 촬영 화면 틀도 이 비율을 따른다.
   const [videoAspect, setVideoAspect] = useState(16 / 9);
+  // 촬영 후 방향 확인 — 세로로 녹화됐으면 "분석 시작" 전에 녹화본 한 장면을 보여주고 방향을 고르게 한다.
+  const [recordedPortrait, setRecordedPortrait] = useState(false);
+  const [recordedUrl, setRecordedUrl] = useState<string | null>(null); // 녹화본 임시 주소 (장면 뽑기용)
+  const [outQuarter, setOutQuarter] = useState(0);  // 고른 방향 (시계 방향 90° 단위)
+  const [rotated, setRotated] = useState(false);    // 서버에서 이미 돌렸으면 true (분석 다시 시도 때 또 돌리지 않게)
+  useEffect(() => {
+    return () => {
+      if (recordedUrl) URL.revokeObjectURL(recordedUrl);
+    };
+  }, [recordedUrl]);
 
   const [phase, setPhase] = useState<Phase>("idle");
   const [elapsedSec, setElapsedSec] = useState(0);
@@ -210,9 +216,7 @@ function RecordPage() {
   // 페이지를 벗어날 때 카메라/타이머 정리
   useEffect(() => {
     return () => {
-      rotateRef.current?.stop();
       streamRef.current?.getTracks().forEach((t) => t.stop());
-      baseStreamRef.current?.getTracks().forEach((t) => t.stop());
       fullStreamRef.current?.getTracks().forEach((t) => t.stop());
       blurRef.current?.stop();
       if (chunkTimerRef.current) clearTimeout(chunkTimerRef.current);
@@ -233,6 +237,7 @@ function RecordPage() {
     const fd = new FormData();
     // 백엔드가 파일 이름의 확장자로 저장 형식을 정한다 (iPhone 은 mp4)
     fd.append("file", blob, `full_video${extOf(blob.type)}`);
+    setRecordedUrl(URL.createObjectURL(blob));
     return apiFetch(`/sessions/${sessionIdRef.current}/video`, {
       method: "POST",
       body: fd,
@@ -264,14 +269,10 @@ function RecordPage() {
 
   // 카메라를 끈다. 배경 흐림을 썼으면 blur.stop() 이 원본 카메라까지 끈다.
   const closeCamera = () => {
-    rotateRef.current?.stop();
-    rotateRef.current = null;
     blurRef.current?.stop();
     blurRef.current = null;
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
-    baseStreamRef.current?.getTracks().forEach((t) => t.stop());
-    baseStreamRef.current = null;
     if (videoPreviewRef.current) videoPreviewRef.current.srcObject = null;
   };
 
@@ -316,41 +317,11 @@ function RecordPage() {
         log("배경 흐림을 켜지 못해서 원래 화면으로 촬영할게요.", "warn");
       }
     }
-    baseStreamRef.current = stream;
-    // 전에 영상 돌리기를 해 뒀으면 (배경 흐림·카메라 전환으로 다시 켤 때) 그대로 다시 돌린다
-    if (rotation) {
-      try {
-        rotateRef.current = await startRotated(stream, rotation);
-        stream = rotateRef.current.stream;
-      } catch (err) {
-        console.error(err);
-      }
-    }
     streamRef.current = stream;
     if (videoPreviewRef.current) videoPreviewRef.current.srcObject = stream;
     log('카메라를 켰어요. 얼굴과 상반신이 화면에 잘 들어오는지 확인하고 "촬영 시작"을 눌러주세요.', "success");
     setPhase("previewing");
     setCameraBusy(false);
-  };
-
-  // 미리보기 중 영상 돌리기 (누를 때마다 시계 방향 90°)
-  const rotateVideo = async () => {
-    const next = (rotation + 1) % 4;
-    setRotation(next);
-    if (rotateRef.current) {
-      rotateRef.current.setQuarter(next);
-      return;
-    }
-    const base = baseStreamRef.current;
-    if (!base) return;
-    try {
-      rotateRef.current = await startRotated(base, next);
-      streamRef.current = rotateRef.current.stream;
-      if (videoPreviewRef.current) videoPreviewRef.current.srcObject = rotateRef.current.stream;
-    } catch (err) {
-      console.error(err);
-      log("영상을 돌리지 못했어요.", "warn");
-    }
   };
 
   // 미리보기 중 전면 ↔ 후면 전환
@@ -394,7 +365,6 @@ function RecordPage() {
       pendingUploadsRef.current.push(whenRecorderDone(fullRecorder, fullPartsRef.current, uploadFullVideo));
       recordingRef.current = true;
       blurRef.current?.setLocked(true); // 녹화 중에는 휴대폰을 돌려도 녹화 크기를 바꾸지 않는다
-      rotateRef.current?.setLocked(true);
       fullRecorder.start();
       fullRecorderRef.current = fullRecorder;
 
@@ -404,6 +374,10 @@ function RecordPage() {
       setElapsedSec(0);
       elapsedTimerRef.current = setInterval(() => setElapsedSec((s) => s + 1), 1000);
 
+      setRecordedPortrait(videoAspect < 1);
+      setRecordedUrl(null);
+      setOutQuarter(0);
+      setRotated(false);
       log("촬영을 시작했어요!", "success");
       setPhase("recording");
     } catch (err) {
@@ -411,7 +385,6 @@ function RecordPage() {
       // 녹화를 시작하다 실패하면 녹화기·타이머만 정리하고, 카메라는 켜 둔 채 미리보기로 돌아간다.
       recordingRef.current = false;
       blurRef.current?.setLocked(false);
-      rotateRef.current?.setLocked(false);
       if (chunkTimerRef.current) clearTimeout(chunkTimerRef.current);
       if (elapsedTimerRef.current) clearInterval(elapsedTimerRef.current);
       for (const r of [chunkRecorderRef.current, fullRecorderRef.current]) {
@@ -462,10 +435,7 @@ function RecordPage() {
     }
     await Promise.all(stopPromises);
 
-    rotateRef.current?.stop();
-    rotateRef.current = null;
     streamRef.current?.getTracks().forEach((t) => t.stop());
-    baseStreamRef.current?.getTracks().forEach((t) => t.stop());
     fullStreamRef.current?.getTracks().forEach((t) => t.stop());
     blurRef.current?.stop(); // 배경 흐림을 썼으면 원본 카메라도 여기서 꺼진다
     blurRef.current = null;
@@ -500,6 +470,16 @@ function RecordPage() {
     setErrorMsg(null);
     setAnalysisFailed(false);
     try {
+      // 촬영 후 방향을 바꿨으면 동작 분석 전에 서버에서 영상을 돌린다 (소리는 그대로라 음성 분석과 무관)
+      if (outQuarter && !rotated) {
+        setStepLabel("영상 방향을 맞추는 중이에요");
+        log("영상 방향을 맞추고 있어요...");
+        const res = await apiFetch(`/sessions/${sessionIdRef.current}/video/rotate?quarter=${outQuarter}`, { method: "POST" });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.detail || "영상 방향을 맞추지 못했어요.");
+        setRotated(true);
+        log("영상 방향을 맞췄어요.", "success");
+      }
       await runAnalysis(sessionIdRef.current, { onStep: setStepLabel, onLog: log });
 
       log("분석이 모두 끝났습니다! 결과 화면으로 이동할게요.", "success");
@@ -696,16 +676,6 @@ function RecordPage() {
                     미리보기 · 아직 녹화 전이에요
                   </div>
                 )}
-                {phase === "previewing" && (
-                  <button
-                    onClick={rotateVideo}
-                    disabled={cameraBusy}
-                    className="absolute bottom-3 left-3 flex items-center gap-1.5 bg-black/60 backdrop-blur-md text-[#ffffff] px-3 py-2 rounded-lg text-sm font-bold border border-white/10 hover:bg-black/75 disabled:opacity-50"
-                  >
-                    <RotateCw className="w-4 h-4" />
-                    돌리기
-                  </button>
-                )}
                 {phase === "previewing" && canSwitch && (
                   <button
                     onClick={switchCamera}
@@ -778,17 +748,9 @@ function RecordPage() {
           {!isUpload && phase === "previewing" && videoAspect < 1 && (
             <div className={`flex items-start gap-2 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl p-3 text-sm font-medium mb-4 ${!hasSlide ? "w-full lg:w-1/2 mx-auto" : ""}`}>
               <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
-              <span className="flex-1">
-                지금은 세로 화면으로 찍혀요. 휴대폰을 가로로 들었는데 사람이 옆으로 누워 보이면 &lsquo;돌리기&rsquo;를 눌러 똑바로 세워주세요.
-                (화면 방향 고정을 끄면 저절로 맞춰져요)
-                <button
-                  onClick={rotateVideo}
-                  disabled={cameraBusy}
-                  className="mt-2 flex items-center gap-1.5 bg-amber-600 text-white px-3 py-1.5 rounded-lg text-sm font-bold hover:bg-amber-700 disabled:opacity-50"
-                >
-                  <RotateCw className="w-4 h-4" />
-                  영상 돌리기
-                </button>
+              <span>
+                지금은 세로 화면으로 찍혀요. 발표 영상은 휴대폰을 가로로 들고 찍는 게 좋아요.
+                가로로 들어도 화면이 안 돌아가면 그대로 촬영하세요. 촬영이 끝나면 영상 방향을 맞출 수 있어요.
               </span>
             </div>
           )}
@@ -931,6 +893,13 @@ function RecordPage() {
               ) : (
                 !slideFile && <p className="text-xs text-stone-400 mt-1.5 text-center">PPT는 PDF로 저장해서 올려주세요</p>
               )}
+            </div>
+          )}
+
+          {/* 촬영 후 방향 확인 — 세로로 녹화된 경우에만 */}
+          {!isUpload && phase === "ready" && recordedPortrait && recordedUrl && !rotated && (
+            <div className={`mb-4 ${!hasSlide ? "w-full lg:w-1/2 mx-auto" : ""}`}>
+              <OrientationCheck url={recordedUrl} quarter={outQuarter} onChange={setOutQuarter} />
             </div>
           )}
 
