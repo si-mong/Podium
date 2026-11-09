@@ -4,7 +4,7 @@
 // 데이터를 불러오고 영상을 다루는 일은 page.tsx 가 하고, 여기서는 받은 값을 보여 주기만 한다.
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { AlertCircle, ChevronDown, Loader2, RefreshCw } from 'lucide-react';
+import { AlertCircle, ChevronDown, Download, Loader2, RefreshCw } from 'lucide-react';
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import InteractiveScript, { fmtTime, ScriptData, TimestampText, VideoChunk } from './InteractiveScript';
 
@@ -299,13 +299,15 @@ function SegmentFeedbackRow({ seg, no, open, onToggle, onSeek }: { seg: ApiSegme
 }
 
 export default function SingleView({
-  topicName, sessionName, onOpenFolder, missingSteps, retrying, retryLabel, retryFailed, retryError, onRetry, onRerunFeedback, reportHref, headline, summary, durationSec, voice, chunks, script,
+  topicName, sessionName, onOpenFolder, missingSteps, retrying, retryLabel, retryFailed, retryError, onRetry, onRerunFeedback, onDownloadVideo, downloading, reportHref, headline, summary, durationSec, voice, chunks, script,
   segments, trend, activeSegmentIndex, playingSegment, currentTime, isPlaying, videoNode, onSeek, onSelectSegment,
 }: {
   topicName: string; sessionName: string; onOpenFolder: () => void;
   missingSteps: string[]; retrying: boolean; retryLabel: string; retryFailed: boolean; retryError: string | null;
   onRetry: () => void;
   onRerunFeedback?: () => void; // 관리자만 넘어온다 — 구간별·종합 피드백만 다시 만들기
+  onDownloadVideo?: () => void; // 영상이 있을 때만 넘어온다
+  downloading?: boolean;
   reportHref: string; headline: string | null; summary: string | null; durationSec: number | null;
   voice: VoiceSummary | null; chunks: VideoChunk[]; script: ScriptData | null;
   segments: ApiSegment[]; trend: TrendPoint[]; activeSegmentIndex: number; playingSegment: ApiSegment | null;
@@ -444,7 +446,19 @@ export default function SingleView({
         <section className="border-t border-stone-200 pt-7 mt-9">
           <div className="grid grid-cols-1 min-[1000px]:grid-cols-[minmax(0,1.08fr)_minmax(0,1fr)] gap-x-8 gap-y-6 items-start">
             <div className="min-w-0">
-              <h3 className="min-h-10 flex items-center mb-3 font-extrabold text-stone-900 text-lg">구간별 영상 타임라인</h3>
+              <div className="min-h-10 flex items-center justify-between gap-3 mb-3">
+                <h3 className="font-extrabold text-stone-900 text-lg">구간별 영상 타임라인</h3>
+                {onDownloadVideo && (
+                  <button
+                    onClick={onDownloadVideo}
+                    disabled={downloading}
+                    className="inline-flex items-center gap-1.5 text-[14px] font-bold text-stone-700 bg-stone-100 hover:bg-stone-200 rounded-lg px-3 py-1.5 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    {downloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                    영상 다운로드
+                  </button>
+                )}
+              </div>
               <div className="relative bg-black rounded-xl overflow-hidden aspect-video">
                 {videoNode}
                 {playingSegment && (
