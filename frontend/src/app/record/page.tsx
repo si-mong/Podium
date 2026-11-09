@@ -744,16 +744,6 @@ function RecordPage() {
 
           {/* 버튼 + 오류 안내. 슬라이드 있으면 카메라 오른쪽 남은 칸을 채운다 */}
           <div className={hasSlide ? "flex-1 w-full" : ""}>
-          {/* 휴대폰을 세로로 들고 있거나, 가로로 돌렸는데 화면 방향이 고정돼 있으면 영상이 세로로 찍힌다 */}
-          {!isUpload && phase === "previewing" && videoAspect < 1 && (
-            <div className={`flex items-start gap-2 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl p-3 text-sm font-medium mb-4 ${!hasSlide ? "w-full lg:w-1/2 mx-auto" : ""}`}>
-              <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
-              <span>
-                지금은 세로 화면으로 찍혀요. 발표 영상은 휴대폰을 가로로 들고 찍는 게 좋아요.
-                가로로 들어도 화면이 안 돌아가면 그대로 촬영하세요. 촬영이 끝나면 영상 방향을 맞출 수 있어요.
-              </span>
-            </div>
-          )}
           {/* 버튼 줄도 촬영 모드(슬라이드 없음)에선 카메라와 같은 너비(절반)로 맞춘다 */}
           <div className={`flex items-center gap-3 mb-4 ${!isUpload && !hasSlide ? "w-full lg:w-1/2 mx-auto" : ""}`}>
             {isUpload && (phase === "idle" || phase === "error") ? (
