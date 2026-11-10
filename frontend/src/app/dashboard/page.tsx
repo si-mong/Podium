@@ -342,7 +342,6 @@ function PresentationAnalysisDashboard() {
   }, [activeMenu]);
 
   const [isAdmin, setIsAdmin] = useState(false);
-  const [adminChecked, setAdminChecked] = useState(false);
 
   useEffect(() => {
     // 로그인 안 한 상태로 들어오면 바로 로그인 화면으로
@@ -351,18 +350,12 @@ function PresentationAnalysisDashboard() {
       return;
     }
     fetchTopics();
-    // 관리자만 보이는 것: 비교 분석 메뉴. 실패하면 일반 회원 화면 그대로.
+    // 관리자만 보이는 것: 관리자 버튼, 피드백 다시 분석. 실패하면 일반 회원 화면 그대로.
     apiFetch('/auth/me')
       .then((res) => (res.ok ? res.json() : null))
       .then((me) => setIsAdmin(Boolean(me?.is_admin)))
-      .catch(() => {})
-      .finally(() => setAdminChecked(true));
+      .catch(() => {});
   }, []);
-
-  // 비교 분석은 아직 관리자에게만 공개 — 일반 회원이 주소로 들어오면 단일 분석으로 보낸다
-  useEffect(() => {
-    if (adminChecked && !isAdmin && activeMenu === 'compare') goTo({ view: 'single' }, true);
-  }, [adminChecked, isAdmin, activeMenu]);
 
   // 로그아웃: 서버에 refresh 토큰 폐기를 알리고(실패해도 무시), 저장된 토큰을 지운 뒤 첫 화면(랜딩)으로.
   const logout = async () => {
@@ -829,9 +822,6 @@ function PresentationAnalysisDashboard() {
     goTo({ view: 'single', session: sessionId }); // 세션을 고르면 단일 분석 화면으로
   };
 
-  // 상단 바 메뉴 (비교 분석은 관리자만)
-  const visibleMenus = MENUS.filter((m) => m.id !== 'compare' || isAdmin);
-
   const renderMenuButton = (menu: typeof MENUS[number]) => {
     const Icon = menu.icon;
     const isActive = activeMenu === menu.id || (menu.id === 'sessions' && activeMenu === 'single');
@@ -872,7 +862,7 @@ function PresentationAnalysisDashboard() {
             <PodiumLogo className="h-5 sm:h-6 w-auto" />
           </button>
           <nav className="flex items-center gap-1 min-w-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {visibleMenus.map(menu => renderMenuButton(menu))}
+            {MENUS.map(menu => renderMenuButton(menu))}
           </nav>
           <div className="ml-auto flex items-center gap-1">
             {isAdmin && (
@@ -1279,7 +1269,7 @@ function PresentationAnalysisDashboard() {
               )}
 
               {/* VIEW: Compare Analysis — 같은 폴더의 두 회차 비교 (CompareView.tsx) */}
-              {activeMenu === 'compare' && isAdmin && (
+              {activeMenu === 'compare' && (
                 <CompareView
                   projects={topics.map((t) => ({ id: t.id, name: t.name, count: t.sessions.length }))}
                   projectId={activeTopicId || openFolderId || ''}
