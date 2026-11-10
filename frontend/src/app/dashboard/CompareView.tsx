@@ -342,7 +342,7 @@ function MetricBars({ m }: { m: MetricDiff }) {
       <span className="text-[15px] text-stone-700 break-keep">{m.label}</span>
       <div className="space-y-2.5">
         <div className="h-1.5 rounded-full bg-stone-100 overflow-hidden"><div className="h-full rounded-full bg-stone-400" style={{ width: width(m.base) }} /></div>
-        <div className="h-1.5 rounded-full bg-stone-100 overflow-hidden"><div className={`h-full rounded-full ${m.verdict === 'improved' ? 'bg-emerald-600' : 'bg-orange-600'}`} style={{ width: width(m.target) }} /></div>
+        <div className="h-1.5 rounded-full bg-stone-100 overflow-hidden"><div className={`h-full rounded-full ${m.verdict === 'improved' ? 'bg-emerald-600' : m.verdict === 'same' ? 'bg-stone-400' : 'bg-orange-600'}`} style={{ width: width(m.target) }} /></div>
       </div>
       <div className="text-[14px] leading-[1.35] whitespace-nowrap">
         <p className="text-stone-500">{fmtValue(m.base, m.unit)} {unit}</p>
@@ -398,6 +398,7 @@ function SegmentCompare({ labels, base, target }: { labels: LabelCompare[]; base
           <span className="inline-flex items-center gap-1.5"><span className="w-4 h-1.5 rounded-full bg-stone-400" />{base.session_no}회차 (위)</span>
           <span className="inline-flex items-center gap-1.5"><span className="w-4 h-1.5 rounded-full bg-orange-600" />{target.session_no}회차 (아래)</span>
           <span className="inline-flex items-center gap-1.5"><span className="w-4 h-1.5 rounded-full bg-emerald-600" />{target.session_no}회차 (좋아진 지표)</span>
+          <span>비슷한 지표는 두 회차 모두 회색</span>
           <span>막대 길이는 지표마다 두 회차 중 큰 값을 기준으로 그려요</span>
         </div>
       </div>
