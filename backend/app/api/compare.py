@@ -6,7 +6,7 @@
   DELETE /projects/{id}/comparisons/{comparison_id}   -> AI 비교 피드백 기록 삭제
 
 두 회차는 같은 폴더에 있고 구간 분리(STEP4)까지 끝나 있어야 한다. 아니면 400.
-**지금은 관리자만** 쓸 수 있다 (더 다듬은 뒤 공개). 관리자도 자기 폴더만 비교할 수 있다.
+모든 회원이 쓸 수 있다 (2026-11-10 공개, 그전엔 관리자만). 자기 폴더만 비교할 수 있다 — 각 라우트가 get_owned_project 로 확인.
 GET 에 base/target 을 둘 다 주지 않으면 회차 목록만 돌려준다 — 화면에서 사용자가 두 회차를 먼저 고른다.
 """
 from __future__ import annotations
@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
-from app.api._deps import get_current_user_id, get_owned_project, require_admin
+from app.api._deps import get_current_user_id, get_owned_project
 from app.core.database import get_db
 from app.models import Session, SessionComparison
 from app.pipeline import compare_feedback
@@ -32,7 +32,7 @@ from app.services.analysis_log import tracked
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/projects", tags=["compare"], dependencies=[Depends(require_admin)])
+router = APIRouter(prefix="/projects", tags=["compare"])
 
 
 def _project_sessions(db: DbSession, project_id: int) -> tuple[list[CompareSession], dict]:
