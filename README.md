@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="./docs/images/banner.webp" alt="Podium — 혼자 하는 발표 연습, AI 코치와 함께. AI 발표 코칭 서비스 (소프트웨어학부 03-06 · 최은재, 홍진수 · 지도교수 홍신)" width="100%"/>
+
 # Podium
 2026 CBNU CapstoneDesign
 ### **발표 연습, AI와 함께 혼자서도 쉽게!**
