@@ -3,8 +3,9 @@
 // 서비스 안내 화면 — 로그인 전 첫 화면(/)과 로그인 후 홈(/home)이 똑같이 쓴다.
 //   1) 가운데 떠 있는 알약 모양 상단 바 (Podium 워드마크 + 오른쪽 버튼)
 //   2) 소개: 아주 큰 제목 + 사실 한 줄 + 검은 알약 버튼 (로고는 상단 바에 있어서 여기엔 안 넣음)
-//   3) 분석하는 항목: 항목이 하나씩 돌아가며 켜지고 아래에 설명이 바뀐다 (마우스를 올리면 그 항목에서 멈춤)
-//   4) 이렇게 사용해요: 스크롤 따라 진행 — UsageSteps.tsx
+//   3) AI의 눈: 발표 영상 그림 위에서 커서를 움직이면 돋보기 안에만 분석 레이어가 보인다 — LoupeHero.tsx
+//   4) 분석하는 항목: 항목이 하나씩 돌아가며 켜지고 아래에 설명이 바뀐다 (마우스를 올리면 그 항목에서 멈춤)
+//   5) 이렇게 사용해요: 스크롤 따라 진행 — UsageSteps.tsx
 // 디자인: 파란색 없이 검정·흰색·따뜻한 회색(stone)만 쓰고, 글꼴은 Pretendard (layout.tsx 에서 불러옴).
 // 두 화면의 차이는 상단 오른쪽 버튼(headerActions)과 시작 버튼(primaryAction)뿐이다.
 
@@ -12,6 +13,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight, ChevronDown, Eye, Gauge, Hand, MessageCircleMore, Pause, PersonStanding, Repeat, type LucideIcon } from "lucide-react";
+import LoupeHero from "./LoupeHero";
 import UsageSteps from "./UsageSteps";
 
 interface Props {
@@ -145,7 +147,10 @@ export default function ServiceGuide({ headerActions, primaryAction, secondaryAc
             )}
           </div>
 
-          {/* 3) 분석하는 항목 — 하나씩 돌아가며 켜진다 */}
+          {/* 3) AI의 눈 — 돋보기 안에서만 분석 레이어가 보인다 (LoupeHero.tsx) */}
+          <LoupeHero />
+
+          {/* 4) 분석하는 항목 — 하나씩 돌아가며 켜진다 */}
           <div className="mt-14">
             <AnalysisItems />
           </div>
@@ -161,7 +166,7 @@ export default function ServiceGuide({ headerActions, primaryAction, secondaryAc
           </button>
         </section>
 
-        {/* 4) 이렇게 사용해요 — 스크롤하면 단계가 하나씩 켜지고 오른쪽 그림이 바뀐다 (UsageSteps.tsx) */}
+        {/* 5) 이렇게 사용해요 — 스크롤하면 단계가 하나씩 켜지고 오른쪽 그림이 바뀐다 (UsageSteps.tsx) */}
         <section id="how-to" className="scroll-mt-24 pt-16 border-t border-stone-200 motion-safe:animate-fade-up [animation-delay:80ms]">
           <h2 className="text-3xl font-extrabold tracking-[-0.03em]">이렇게 사용해요.</h2>
           <div className="mt-10">
