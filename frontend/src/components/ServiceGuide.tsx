@@ -2,17 +2,17 @@
 
 // 서비스 안내 화면 — 로그인 전 첫 화면(/)과 로그인 후 홈(/home)이 똑같이 쓴다.
 //   1) 가운데 떠 있는 알약 모양 상단 바 (Podium 워드마크 + 오른쪽 버튼)
-//   2) 소개: 아주 큰 제목 + 사실 한 줄 + 검은 알약 버튼 (로고는 상단 바에 있어서 여기엔 안 넣음)
-//   3) AI의 눈: 발표 영상 그림 위에서 커서를 움직이면 돋보기 안에만 분석 레이어가 보인다 — LoupeHero.tsx
-//   4) 분석하는 항목: 항목이 하나씩 돌아가며 켜지고 아래에 설명이 바뀐다 (마우스를 올리면 그 항목에서 멈춤)
-//   5) 이렇게 사용해요: 스크롤 따라 진행 — UsageSteps.tsx
+//   2) 히어로: 꽉 찬 무대 + 제목·시작 버튼 → 스크롤하면 박스로 줄어들며 분석 장면이 되고,
+//      그 위에서 커서를 움직이면 돋보기 안에만 분석 레이어가 보인다 — LoupeHero.tsx
+//   3) 분석하는 항목: 항목이 하나씩 돌아가며 켜지고 아래에 설명이 바뀐다 (마우스를 올리면 그 항목에서 멈춤)
+//   4) 이렇게 사용해요: 스크롤 따라 진행 — UsageSteps.tsx
 // 디자인: 파란색 없이 검정·흰색·따뜻한 회색(stone)만 쓰고, 글꼴은 Pretendard (layout.tsx 에서 불러옴).
 // 두 화면의 차이는 상단 오른쪽 버튼(headerActions)과 시작 버튼(primaryAction)뿐이다.
 
 import { useEffect, useState, type ReactNode } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowRight, ChevronDown, Eye, Gauge, Hand, MessageCircleMore, Pause, PersonStanding, Repeat, type LucideIcon } from "lucide-react";
+import { ChevronDown, Eye, Gauge, Hand, MessageCircleMore, Pause, PersonStanding, Repeat, type LucideIcon } from "lucide-react";
 import LoupeHero from "./LoupeHero";
 import UsageSteps from "./UsageSteps";
 
@@ -113,45 +113,14 @@ export default function ServiceGuide({ headerActions, primaryAction, secondaryAc
         </header>
       </div>
 
+      {/* 2) 히어로 — 꽉 찬 무대로 시작해 스크롤하면 박스로 줄어들며 분석 장면이 된다 (LoupeHero.tsx).
+             제목·소개문·시작 버튼도 무대 위에 얹혀 있어서 LoupeHero 가 같이 그린다. */}
+      <LoupeHero primaryAction={primaryAction} secondaryAction={secondaryAction} />
+
       <main className="max-w-5xl mx-auto px-6">
-        {/* 2) 소개 */}
-        <section className="pt-16 md:pt-20 pb-10 text-center motion-safe:animate-fade-up">
-          <h1 className="text-5xl md:text-6xl font-extrabold tracking-[-0.04em] leading-[1.1]">
-            발표 연습,
-            <br />
-            혼자서도 쉽게!
-          </h1>
-          <p className="mt-6 text-lg text-stone-500 leading-relaxed">
-            목소리와 제스처, 시선을 분석하고 발표를 내용 흐름에 따라 구간으로 나눠
-            <br className="hidden md:block" />
-            구간별 피드백과 전체 총평을 보여줍니다.
-          </p>
-
-          <div className="mt-8 flex items-center justify-center gap-2">
-            <button
-              onClick={primaryAction.onClick}
-              className="h-11 px-5 rounded-full bg-stone-900 hover:bg-stone-700 text-white text-[15px] font-semibold transition-colors"
-            >
-              {primaryAction.label}
-            </button>
-            {secondaryAction && (
-              <button
-                onClick={secondaryAction.onClick}
-                className="h-11 pl-5 pr-2 rounded-full border border-stone-300 hover:bg-stone-50 text-[15px] font-semibold flex items-center gap-2 transition-colors"
-              >
-                {secondaryAction.label}
-                <span className="w-7 h-7 rounded-full bg-stone-100 flex items-center justify-center">
-                  <ArrowRight className="w-4 h-4" />
-                </span>
-              </button>
-            )}
-          </div>
-
-          {/* 3) AI의 눈 — 돋보기 안에서만 분석 레이어가 보인다 (LoupeHero.tsx) */}
-          <LoupeHero />
-
-          {/* 4) 분석하는 항목 — 하나씩 돌아가며 켜진다 */}
-          <div className="mt-14">
+        <section className="pt-4 pb-10 text-center">
+          {/* 3) 분석하는 항목 — 하나씩 돌아가며 켜진다 */}
+          <div className="mt-6">
             <AnalysisItems />
           </div>
 
@@ -166,7 +135,7 @@ export default function ServiceGuide({ headerActions, primaryAction, secondaryAc
           </button>
         </section>
 
-        {/* 5) 이렇게 사용해요 — 스크롤하면 단계가 하나씩 켜지고 오른쪽 그림이 바뀐다 (UsageSteps.tsx) */}
+        {/* 4) 이렇게 사용해요 — 스크롤하면 단계가 하나씩 켜지고 오른쪽 그림이 바뀐다 (UsageSteps.tsx) */}
         <section id="how-to" className="scroll-mt-24 pt-16 border-t border-stone-200 motion-safe:animate-fade-up [animation-delay:80ms]">
           <h2 className="text-3xl font-extrabold tracking-[-0.03em]">이렇게 사용해요.</h2>
           <div className="mt-10">
