@@ -74,7 +74,7 @@
 프론트엔드는 Vercel, 백엔드와 DB는 AWS EC2의 Docker 환경에서 운영하며, STT·LLM·VLM·소셜 로그인은 외부 API로 연동합니다.
 
 <p align="center">
-  <img src="./docs/images/system-architecture.png" alt="시스템 아키텍처: Vercel의 Next.js 프론트엔드가 REST API로 AWS EC2의 Docker(Caddy, FastAPI, PostgreSQL)와 통신하고, FastAPI가 Serverless GPU, LLM, VLM, 소셜 로그인 외부 API를 호출" width="100%"/>
+  <img src="./docs/images/system-architecture.png" alt="시스템 아키텍처: 개발자가 GitHub에 push하면 Vercel(Next.js 14 프론트엔드)에 자동 배포되고, 사용자는 HTTPS로 접속한다. 프론트엔드는 REST API로 AWS EC2의 Docker(Caddy 웹 서버, FastAPI 애플리케이션 서버, PostgreSQL)와 통신하고, FastAPI가 Serverless GPU, LLM(피드백), VLM(영상 분석), 소셜 로그인 외부 API를 호출" width="100%"/>
 </p>
 
 ---
