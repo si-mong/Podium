@@ -8,7 +8,7 @@ import {
   ClipboardList, ExternalLink, Info
 } from 'lucide-react';
 import {
-  Line, Bar, XAxis, YAxis,
+  Line, XAxis, YAxis,
   CartesianGrid, Tooltip, ResponsiveContainer,
   ComposedChart
 } from 'recharts';
@@ -127,19 +127,20 @@ interface ProjectTrendPoint {
   negative_gesture: number | null;
 }
 
+// 모든 지표를 선 그래프로 그린다 (회차별 흐름이 한눈에 보이게 — 예전엔 무음 비율·말 더듬만 막대).
 // lowerIsBetter: 줄어들면 좋아진 것 (초록), 늘면 나빠진 것 (빨강). null 이면 좋고 나쁨을 따지지 않는다.
 const TREND_METRICS = [
-  { id: 'filler', label: '필러', unit: '회', color: '#f43f5e', type: 'line', lowerIsBetter: true,
+  { id: 'filler', label: '필러', unit: '회', color: '#f43f5e', lowerIsBetter: true,
     get: (p: ProjectTrendPoint) => p.filler_count },
-  { id: 'rate', label: '말하기 속도', unit: '음절/분', color: '#3b82f6', type: 'line', lowerIsBetter: null,
+  { id: 'rate', label: '말하기 속도', unit: '음절/분', color: '#3b82f6', lowerIsBetter: null,
     get: (p: ProjectTrendPoint) => (p.speaking_rate_spm == null ? null : Math.round(p.speaking_rate_spm)) },
-  { id: 'silence', label: '무음 비율', unit: '%', color: '#c084fc', type: 'bar', lowerIsBetter: true,
+  { id: 'silence', label: '무음 비율', unit: '%', color: '#c084fc', lowerIsBetter: true,
     get: (p: ProjectTrendPoint) => (p.silence_ratio == null ? null : Math.round(p.silence_ratio * 1000) / 10) },
-  { id: 'repetition', label: '말 더듬', unit: '회', color: '#fb923c', type: 'bar', lowerIsBetter: true,
+  { id: 'repetition', label: '말 더듬', unit: '회', color: '#fb923c', lowerIsBetter: true,
     get: (p: ProjectTrendPoint) => p.repetition_count },
-  { id: 'generalGesture', label: '일반 제스처', unit: '회', color: '#0ea5e9', type: 'line', lowerIsBetter: null,
+  { id: 'generalGesture', label: '일반 제스처', unit: '회', color: '#0ea5e9', lowerIsBetter: null,
     get: (p: ProjectTrendPoint) => p.general_gesture },
-  { id: 'negativeGesture', label: '부정적 제스처', unit: '회', color: '#ef4444', type: 'line', lowerIsBetter: true,
+  { id: 'negativeGesture', label: '부정적 제스처', unit: '회', color: '#ef4444', lowerIsBetter: true,
     get: (p: ProjectTrendPoint) => p.negative_gesture },
 ] as const;
 
@@ -223,32 +224,21 @@ function GrowthTrendChart({ projectId }: { projectId: string }) {
             />
             <Tooltip
               key={`tooltip-${metric.id}`}
-              cursor={{fill: 'var(--chart-cursor)', stroke: metric.type === 'line' ? 'var(--chart-cursor-line)' : 'none', strokeWidth: 1, strokeDasharray: '4 4'}}
+              cursor={{fill: 'var(--chart-cursor)', stroke: 'var(--chart-cursor-line)', strokeWidth: 1, strokeDasharray: '4 4'}}
               contentStyle={{ borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 10px 25px -5px rgb(0 0 0 / 0.1)', padding: '16px 20px', fontWeight: 600 }}
               formatter={(value) => [value == null ? '분석 전' : `${value}${metric.unit}`, metric.label]}
             />
-            {metric.type === 'line' ? (
-              <Line
-                key={`line-${metric.id}`}
-                type="monotone"
-                dataKey="value"
-                name={metric.label}
-                stroke={metric.color}
-                strokeWidth={4}
-                connectNulls
-                dot={{r: 6, fill: metric.color, strokeWidth: 3, stroke: 'var(--chart-dot-ring)'}}
-                activeDot={{r: 8}}
-              />
-            ) : (
-              <Bar
-                key={`bar-${metric.id}`}
-                dataKey="value"
-                name={metric.label}
-                fill={metric.color}
-                radius={[6, 6, 0, 0]}
-                barSize={40}
-              />
-            )}
+            <Line
+              key={`line-${metric.id}`}
+              type="monotone"
+              dataKey="value"
+              name={metric.label}
+              stroke={metric.color}
+              strokeWidth={4}
+              connectNulls
+              dot={{r: 6, fill: metric.color, strokeWidth: 3, stroke: 'var(--chart-dot-ring)'}}
+              activeDot={{r: 8}}
+            />
           </ComposedChart>
         </ResponsiveContainer>
       </div>
