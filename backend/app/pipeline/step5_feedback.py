@@ -444,8 +444,8 @@ segments(구간별 전사문·지표)를 종합해서, 특정 구간 하나만 �
 
 ## 0. 코드가 미리 판정한 값 — 가장 먼저 보세요
 - headline_mode (headline 구성): {headline_mode} — **headline 에만** 적용됩니다. overall_summary 는 1번 규칙대로 씁니다.
-- headline_good (headline 에 쓸 잘한 점, 비어 있으면 잘한 점을 쓰지 않음): {headline_good}
-- headline_fix (headline 에 쓸 고칠 점, 비어 있으면 고칠 점을 쓰지 않음): {headline_fix}
+- headline_good (headline 에 쓸 잘한 점의 주제, (없음)이면 잘한 점을 쓰지 않음): {headline_good}
+- headline_fix (headline 에 쓸 고칠 점의 주제, (없음)이면 고칠 점을 쓰지 않음): {headline_fix}
 - strengths (칭찬해도 되는 항목, 쓸 순서대로): {strengths}
 - habit_fillers (발표 전체에서 말버릇처럼 반복된 필러 단어, 비어 있으면 없음): {habit_fillers}
 - talk_silence (발표 전체에서 오래 멈춘 곳이 잦은지, 비어 있으면 문제 없음): {talk_silence}
@@ -490,6 +490,10 @@ segments(구간별 전사문·지표)를 종합해서, 특정 구간 하나만 �
 한 문장, 약 20~35자, 시각 없이. 구성은 headline_mode 를 그대로 따르세요.
 **무엇을 쓸지는 이미 골라 두었습니다.** 잘한 점은 headline_good, 고칠 점은 headline_fix 에 있는 것만 쓰고,
 다른 항목으로 바꾸지 마세요. 둘 다 있으면 반드시 둘 다 한 문장에 담으세요(고칠 점만 쓰면 안 됩니다).
+headline_good·headline_fix 는 **주제 이름**입니다. 그대로 붙여 넣지 말고 문장 안에 자연스럽게 녹이세요.
+구간 이름·구간 수·횟수·"—"·괄호·대괄호는 headline 에 넣지 마세요(근거는 overall_summary 에서 씁니다).
+  예: headline_good "설명 제스처", headline_fix "청중·카메라를 보는 시선"
+      → "설명 제스처는 잘 썼지만, 화면 대신 청중을 봐 주세요"
 headline_mode 는 headline 에만 적용됩니다. "칭찬 위주"여도 overall_summary 에서는 판정값의 고칠 점을
 1번 규칙대로 **반드시** 다루고, 판정값과 반대되는 말("말하기 문제가 없었다", "시선 처리가 적절했다" 등)을 쓰지 마세요.
 - "칭찬 위주": headline_good 의 잘한 점만 1~2개. 고칠 점은 넣지 마세요.
@@ -787,11 +791,17 @@ def _all_motion_issues(segments: list[dict], video_analysis: list[dict]) -> list
 HEADLINE_GESTURE_MIN_SEGMENTS = 2     # 설명 제스처가 이 개수 이상의 구간에서 나와야 잘한 점
 HEADLINE_STEADY_RATE_SHARE = 2 / 3    # 발화 속도 "보통"인 구간이 이 비율 이상이면 잘한 점
 _HEADLINE_FIX_ORDER = ("필러", "시선", "산만한 동작", "자세", "무음", "반복")
+_POSTURE_TOPIC = {"구부정": "구부정한 자세", "기댐": "기대는 자세", "과도한 움직임": "과도한 몸 움직임"}
 
 
 def _headline_points(segments: list[dict], video_analysis: list[dict], voice_timeline: dict,
-                     motion_issues: list[tuple[list[str], list[str]]]) -> tuple[list[str], list[str]]:
-    """(잘한 점 후보, 고칠 점 후보)를 쓸 순서대로 돌려준다. 각 항목은 LLM 이 읽는 한 줄 설명.
+                     motion_issues: list[tuple[list[str], list[str]]]
+                     ) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
+    """(잘한 점 후보, 고칠 점 후보)를 쓸 순서대로 돌려준다. 각 항목은 (주제, 근거) 쌍.
+
+    주제는 headline 에 넣을 짧은 이름("설명 제스처", "청중을 보는 시선"), 근거는 부가 설명용 한 줄.
+    처음엔 근거 한 줄만 보냈더니 LLM 이 headline 에 그 글을 그대로 붙여 넣었다
+    ("[시선 — 청중·카메라를 거의 보지 않음, 5개 구간(…)]", 2026-11-24).
 
     motion_issues: _all_motion_issues() 결과 (구간마다 (motion_issues, minor_motion_issues)).
     """
@@ -836,18 +846,26 @@ def _headline_points(segments: list[dict], video_analysis: list[dict], voice_tim
             text = f"필러가 잦음 — {where(idx)}" if idx else "필러가 잦음"
             if habit:
                 text += f", 말버릇처럼 반복된 단어: {', '.join(habit)}"
+                topic = "·".join(f"'{h.split()[0]}'" for h in habit) + " 말버릇"
+            else:
+                topic = "잦은 필러"
         elif key == "시선":
             text = f"시선 — 청중·카메라를 거의 보지 않음, {where(idx)}"
+            topic = "청중·카메라를 보는 시선"
         elif key == "자세":
             names = sorted({m for i in idx for m in motion_issues[i][0] if m.startswith("자세")})
             text = f"{', '.join(names)} — {where(idx)}"
+            topic = "·".join(_POSTURE_TOPIC.get(n.removeprefix("자세 "), "자세") for n in names)
         elif key == "산만한 동작":
             text = f"산만한 동작(얼굴 만지기·만지작거리기 등) — {where(idx)}"
+            topic = "얼굴 만지기 같은 산만한 동작"
         elif key == "무음":
             text = f"말이 오래 끊김 — {talk_silence[0]}" if talk_silence else f"말이 오래 끊김 — {where(idx)}"
+            topic = "말이 오래 끊기는 곳"
         else:
             text = f"같은 말 반복(말더듬) — {where(idx)}"
-        fixes.append(text)
+            topic = "같은 말 반복"
+        fixes.append((topic, text))
 
     # ── 잘한 점 ──
     goods = []
@@ -857,22 +875,22 @@ def _headline_points(segments: list[dict], video_analysis: list[dict], voice_tim
     gesture_idx = [i for i, m in enumerate(motions) if m["positive"] > 0]
     # ① 실제로 한 행동
     if talk_positive > talk_negative and len(gesture_idx) >= HEADLINE_GESTURE_MIN_SEGMENTS:
-        goods.append(f"설명 제스처 — {where(gesture_idx)}에서 손으로 설명하거나 가리키며 내용을 강조함")
+        goods.append(("설명 제스처", f"설명 제스처 — {where(gesture_idx)}에서 손으로 설명하거나 가리키며 내용을 강조함"))
     # ② 문제가 없었던 것 (고칠 점으로 잡힌 항목은 빼고)
     if not fix_size("시선"):
-        goods.append("시선 — 청중·카메라를 거의 보지 않은 구간이 없음")
+        goods.append(("청중을 보는 시선", "시선 — 청중·카메라를 거의 보지 않은 구간이 없음"))
     if not fix_size("자세") and not fix_size("산만한 동작"):
-        goods.append("자세 — 구부정하거나 기대는 구간 없이 안정적")
+        goods.append(("안정적인 자세", "자세 — 구부정하거나 기대는 구간 없이 안정적"))
     if not fix_size("필러") and not fix_size("반복"):
-        goods.append("필러·반복 — 모든 구간에서 적음")
+        goods.append(("적은 필러", "필러·반복 — 모든 구간에서 적음"))
     steady = [i for i, s in enumerate(segments) if _speaking_rate_label(s.get("speaking_rate_spm")) == "보통"]
     if segments and len(steady) / len(segments) >= HEADLINE_STEADY_RATE_SHARE:
-        goods.append(f"발화 속도 — {len(segments)}개 구간 중 {len(steady)}개에서 보통 속도로 일정")
+        goods.append(("일정한 말 속도", f"발화 속도 — {len(segments)}개 구간 중 {len(steady)}개에서 보통 속도로 일정"))
     return goods, fixes
 
 
-def _headline_plan(mode: str, goods: list[str], fixes: list[str],
-                   habit_fillers: bool = False) -> tuple[str, list[str], list[str]]:
+def _headline_plan(mode: str, goods: list, fixes: list,
+                   habit_fillers: bool = False) -> tuple[str, list, list]:
     """headline_mode 에 맞춰 headline 에 쓸 (모드, 잘한 점, 고칠 점)을 정한다.
 
     쓸 거리가 없는 쪽은 모드를 바꾼다: 균형인데 잘한 점 후보가 없으면 고칠 점 위주, 고칠 점이 없으면 칭찬 위주.
@@ -941,9 +959,52 @@ def run_overall(segments: list[dict], video_analysis: list[dict], voice_timeline
         habit_fillers=json.dumps(_habit_fillers(voice_timeline), ensure_ascii=False),
         talk_silence=json.dumps(_talk_silence_issues(voice_timeline), ensure_ascii=False),
         headline_mode=mode,
-        headline_good=json.dumps(head_good, ensure_ascii=False),
-        headline_fix=json.dumps(head_fix, ensure_ascii=False),
-        strengths=json.dumps(goods, ensure_ascii=False),
+        headline_good=" / ".join(t for t, _ in head_good) or "(없음)",
+        headline_fix=" / ".join(t for t, _ in head_fix) or "(없음)",
+        strengths=json.dumps([d for _, d in goods], ensure_ascii=False),
     )
 
-    return _generate_validated(client, prompt, _collect_time_tokens(labeled), "STEP 5 종합")
+    allowed = _collect_time_tokens(labeled)
+    hint = ""
+    for _ in range(HEADLINE_MAX_ATTEMPTS):
+        result = _generate_validated(client, prompt + hint, allowed, "STEP 5 종합")
+        problem = _headline_problem(result.get("headline"))
+        if not problem:
+            return result
+        logger.warning("STEP 5 종합: headline 이 이상함(%s) → 다시 요청: %r", problem, result.get("headline"))
+        hint = ("\n\n## 정정 요청\n이전 headline 이 " + problem + ". 2번 규칙대로 20~35자의 자연스러운 "
+                "한 문장으로 처음부터 다시 작성하세요.")
+    # 그래도 이상하면 코드가 고른 주제로 짧게 만든다 — 설명 글이 화면에 그대로 나가는 것보다 낫다.
+    result["headline"] = _fallback_headline(head_good, head_fix) or result.get("headline")
+    return result
+
+
+# headline 검사: 근거 글을 그대로 붙여 넣은 흔적이 있으면 다시 요청한다 (2026-11-24).
+HEADLINE_MAX_ATTEMPTS = 2
+HEADLINE_MAX_LEN = 45
+_HEADLINE_COPY_MARKS = ("—", "[", "]", "개 구간", "headline_", "strengths")
+
+
+def _headline_problem(headline) -> str | None:
+    """headline 이 이상하면 이유 한 줄, 괜찮으면 None."""
+    if not isinstance(headline, str) or not headline.strip():
+        return "비어 있습니다"
+    marks = [m for m in _HEADLINE_COPY_MARKS if m in headline]
+    if marks:
+        return f"데이터 설명 글을 그대로 옮겨 적었습니다({', '.join(marks)} 포함)"
+    if len(headline) > HEADLINE_MAX_LEN:
+        return f"{len(headline)}자로 너무 깁니다"
+    return None
+
+
+def _fallback_headline(goods: list, fixes: list) -> str | None:
+    """재요청해도 headline 이 이상할 때 쓰는 짧은 문장 (조사가 필요 없는 모양)."""
+    good = goods[0][0] if goods else None
+    fix = fixes[0][0] if fixes else None
+    if good and fix:
+        return f"잘한 점: {good} · 고칠 점: {fix}"
+    if fix:
+        return f"이번에 고칠 점: {fix}"
+    if good:
+        return f"이번에 잘한 점: {good}"
+    return None
