@@ -50,6 +50,12 @@
 
 ## 주요 서비스 화면
 
+<p align="center">
+  <img src="./docs/images/screenshots/landing.webp" alt="Podium 첫 화면: 왼쪽에 「발표 연습, 혼자서도 쉽게!」 제목과 시작 버튼, 오른쪽에 노트북 화면 속 발표 장면 위로 돋보기를 움직이면 AI가 읽어낸 제스처·시선·목소리 분석이 보인다" width="100%"/>
+  <br/>
+  <sub>첫 화면 — 커서로 돋보기를 움직이면 AI가 발표 장면에서 읽어내는 것들(제스처·시선·목소리)이 보여요</sub>
+</p>
+
 <!-- 캡처본을 docs/images/screenshots/ 에 넣은 뒤, 아래 "캡처 추가 예정"을 <img src="./docs/images/screenshots/파일명.png" width="100%"/> 로 교체 -->
 
 | 단일 발표 분석 | 회차 비교 분석 | 회차별 성장 추이 |
