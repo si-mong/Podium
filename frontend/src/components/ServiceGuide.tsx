@@ -4,16 +4,16 @@
 //   1) 가운데 떠 있는 알약 모양 상단 바 (Podium 워드마크 + 오른쪽 버튼)
 //   2) 히어로: 왼쪽에 제목·시작 버튼, 오른쪽에 발표 장면 그림.
 //      그림 위에서 커서를 움직이면 돋보기 안에만 분석 레이어가 보인다 — LoupeHero.tsx
-//   3) 분석하는 항목: 항목이 하나씩 돌아가며 켜지고 아래에 설명이 바뀐다 (마우스를 올리면 그 항목에서 멈춤)
+//   3) 분석하는 항목: 목소리 4가지 · 몸짓 3가지를 카드로 늘어놓고, 마지막 칸은 사용 방법으로 보내는 버튼
 //   4) 이렇게 사용해요: 스크롤 따라 진행 — UsageSteps.tsx
 // 디자인: 바탕은 대시보드와 같은 파스텔(.dashboard-bg), 글자는 검정·따뜻한 회색(stone), 글꼴은 Pretendard.
 // 두 화면의 차이는 상단 오른쪽 버튼(headerActions)과 시작 버튼(primaryAction)뿐이다.
 
-import { useEffect, useState, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { ChevronDown, Eye, Gauge, Hand, MessageCircleMore, Pause, PersonStanding, Repeat, type LucideIcon } from "lucide-react";
 import LoupeHero from "./LoupeHero";
+import SegmentMetrics from "./SegmentMetrics";
 import UsageSteps from "./UsageSteps";
 
 interface Props {
@@ -21,18 +21,6 @@ interface Props {
   primaryAction: { label: string; onClick: () => void; google?: boolean }; // google: 구글 로고가 붙은 흰 버튼으로 // 소개 아래 검은 버튼
   secondaryAction?: { label: string; onClick: () => void };
 }
-
-// 분석하는 항목 — 실제로 분석하는 것만 적는다 (음성: STEP3, 동작: STEP2)
-const ANALYSIS_ITEMS: { name: string; desc: string; Icon: LucideIcon }[] = [
-  { name: "발화 속도", desc: "1분에 몇 음절을 말하는지 재서 너무 빠르거나 느린 구간을 알려줘요.", Icon: Gauge },
-  { name: "필러", desc: "‘음’, ‘어’ 같은 군말이 언제, 몇 번 나왔는지 세어 줘요.", Icon: MessageCircleMore },
-  { name: "무음", desc: "말이 길게 끊긴 곳을 찾아 흐름이 멈춘 지점을 짚어 줘요.", Icon: Pause },
-  { name: "반복", desc: "같은 말을 되풀이한 곳을 찾아 대본에 표시해 줘요.", Icon: Repeat },
-  { name: "제스처", desc: "손동작이 언제, 얼마나 자주 나왔는지 구간별로 보여줘요.", Icon: Hand },
-  { name: "시선", desc: "청중(카메라)을 바라보는지, 자료만 보고 있는지 확인해요.", Icon: Eye },
-  { name: "자세", desc: "몸이 기울거나 흔들리지 않고 안정적인지 살펴봐요.", Icon: PersonStanding },
-];
-const ROTATE_MS = 2400;
 
 // Podium 워드마크 (마이크가 o 자리에 들어간 로고). public/podium-logo.png — 투명 배경, 1237×309
 export function PodiumLogo({ className }: { className?: string }) {
@@ -42,66 +30,6 @@ export function PodiumLogo({ className }: { className?: string }) {
 
 // 분석하는 항목: 2.4초마다 다음 항목으로 넘어간다. 마우스를 올리거나 눌러서 고르면 그 항목에서 멈춘다.
 // "애니메이션 줄이기"를 켠 사용자에게는 자동으로 넘기지 않는다.
-function AnalysisItems() {
-  const [active, setActive] = useState(0);
-  const [paused, setPaused] = useState(false);
-
-  useEffect(() => {
-    if (paused || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    const t = setTimeout(() => setActive((i) => (i + 1) % ANALYSIS_ITEMS.length), ROTATE_MS);
-    return () => clearTimeout(t);
-  }, [active, paused]);
-
-  const item = ANALYSIS_ITEMS[active];
-  return (
-    <div onMouseLeave={() => setPaused(false)}>
-      <p className="text-sm text-stone-500">분석하는 항목</p>
-      <ul className="mt-5 flex flex-wrap justify-center gap-2">
-        {ANALYSIS_ITEMS.map((it, i) => {
-          const on = i === active;
-          return (
-            <li key={it.name}>
-              <button
-                type="button"
-                onMouseEnter={() => { setActive(i); setPaused(true); }}
-                onFocus={() => { setActive(i); setPaused(true); }}
-                onClick={() => { setActive(i); setPaused(true); }}
-                className={`relative overflow-hidden h-11 px-5 rounded-full text-[17px] font-bold tracking-tight transition-all duration-300 ${
-                  on ? "bg-stone-900 text-white scale-105 shadow-md" : "bg-white/70 text-stone-400 hover:text-stone-600"
-                }`}
-              >
-                {it.name}
-                {/* 다음 항목으로 넘어가기까지 남은 시간 */}
-                {on && !paused && (
-                  <span
-                    key={active}
-                    style={{ ["--fill-duration" as string]: `${ROTATE_MS}ms` }}
-                    className="absolute left-0 bottom-0 h-[3px] w-full origin-left bg-white/40 motion-safe:animate-fill-x"
-                  />
-                )}
-              </button>
-            </li>
-          );
-        })}
-      </ul>
-
-      {/* 선택된 항목 설명 — 바뀔 때마다 살짝 올라오며 나타난다 */}
-      <div
-        key={active}
-        className="mt-6 mx-auto max-w-md flex items-center gap-4 text-left rounded-2xl bg-white/80 border border-slate-200 px-5 py-4 motion-safe:animate-fade-up"
-      >
-        <div className="w-11 h-11 rounded-xl bg-white border border-stone-200 flex items-center justify-center shrink-0">
-          <item.Icon className="w-5 h-5 text-stone-800" />
-        </div>
-        <div>
-          <div className="font-bold text-stone-900">{item.name}</div>
-          <div className="text-sm text-stone-500 leading-relaxed">{item.desc}</div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export default function ServiceGuide({ headerActions, primaryAction, secondaryAction }: Props) {
   return (
     <div className="dashboard-bg min-h-screen text-stone-900 font-['Pretendard_Variable',Pretendard,sans-serif]">
@@ -118,21 +46,10 @@ export default function ServiceGuide({ headerActions, primaryAction, secondaryAc
       <LoupeHero primaryAction={primaryAction} secondaryAction={secondaryAction} />
 
       <main className="max-w-7xl mx-auto px-5 sm:px-6 lg:px-8">
-        <section className="pt-6 pb-10 text-center">
-          {/* 3) 분석하는 항목 — 하나씩 돌아가며 켜진다 */}
-          <div className="mt-6">
-            <AnalysisItems />
-          </div>
-
-          {/* 아래 "이렇게 사용해요"가 첫 화면에 안 보여서, 누르면 내려가는 안내 버튼 */}
-          <button
-            type="button"
-            onClick={() => document.getElementById("how-to")?.scrollIntoView({ behavior: "smooth" })}
-            className="mt-12 inline-flex flex-col items-center gap-1 text-sm font-semibold text-stone-500 hover:text-stone-800 transition-colors"
-          >
-            이렇게 사용해요
-            <ChevronDown className="w-5 h-5 motion-safe:animate-bounce" />
-          </button>
+        {/* 3) 분석하는 항목 — 실제 분석 화면의 「구간별 지표」를 줄여 놓은 카드 (SegmentMetrics.tsx).
+               탭을 고르면 숫자와 꺾은선이 같이 바뀌고, 스크롤하면 누워 있던 카드가 똑바로 선다 */}
+        <section className="pt-12 pb-20">
+          <SegmentMetrics />
         </section>
 
         {/* 4) 이렇게 사용해요 — 스크롤하면 단계가 하나씩 켜지고 오른쪽 그림이 바뀐다 (UsageSteps.tsx) */}

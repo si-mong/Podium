@@ -8,7 +8,7 @@
 //
 // 돋보기 움직임:
 //   - 커서(손가락)를 올리면 돋보기가 따라온다. 부드럽게 따라가도록 매 프레임 조금씩 다가간다.
-//   - 커서가 없으면 볼거리(얼굴 → 목소리 → 자막 → 제스처)를 2.4초마다 혼자 돌아다닌다.
+//   - 커서가 없으면 볼거리(얼굴 → 목소리 → 자막 → 제스처) 사이를 천천히 미끄러지듯 혼자 돌아다닌다.
 //   - "애니메이션 줄이기"를 켠 사용자: 혼자 돌아다니지 않고, 커서를 따라갈 때도 바로 그 자리로 간다.
 //   - 「분석 레이어 전체 보기」를 누르면 돋보기 없이 전부 보인다 (키보드 사용자·터치 사용자용).
 //
@@ -39,7 +39,8 @@ const SPOTS_NARROW = [
   { x: 0.483, y: 0.812 },
   { x: 0.659, y: 0.396 },
 ];
-const SPOT_MS = 2400;
+const LEG_MS = 2800; // 볼거리 한 곳에서 다음 곳까지 미끄러지는 시간
+const HOLD_MS = 900; // 도착해서 잠깐 머무는 시간
 
 // 발표 장면 그림을 놓는 자리 (그림판 좌표). 원본 1400×857.
 const FIG = { x: 30, y: 24, w: 940, h: 575 };
@@ -104,26 +105,37 @@ export default function LoupeHero({ primaryAction, secondaryAction }: Props) {
     if (!box) return;
     const spots = () => (narrowRef.current ? SPOTS_NARROW : SPOTS_WIDE);
     const toPx = (s: { x: number; y: number }) => ({ x: box.clientWidth * s.x, y: box.clientHeight * s.y });
+    const smooth = (t: number) => t * t * (3 - 2 * t); // 출발·도착이 느린 곡선
 
-    let spot = 0;
-    target.current = toPx(spots()[0]);
-    pos.current = { ...target.current };
+    // 혼자 돌아다닐 때는 "다음 볼거리까지 LEG_MS 동안 미끄러지고 HOLD_MS 쉬기"를 되풀이한다.
+    // 목표만 바꿔 두고 따라가게 하면 처음엔 확 움직이고 끝엔 멈춰 있어서 뚝뚝 끊겨 보인다.
+    const trip = { from: toPx(spots()[0]), to: toPx(spots()[1 % spots().length]), at: 0, i: 1 };
+    pos.current = { ...trip.from };
+    target.current = { ...trip.from };
     draw();
 
-    // 혼자 돌아다니기 — 커서를 따라가는 중이면 쉰다
-    const timer = reduce
-      ? null
-      : setInterval(() => {
-          if (following.current) return;
-          spot = (spot + 1) % spots().length;
-          target.current = toPx(spots()[spot]);
-        }, SPOT_MS);
-
-    // 매 프레임 목표 쪽으로 조금씩 (0.12 만큼) 다가간다
     let raf = 0;
-    const tick = () => {
-      pos.current.x += (target.current.x - pos.current.x) * 0.12;
-      pos.current.y += (target.current.y - pos.current.y) * 0.12;
+    const tick = (now: number) => {
+      if (following.current) {
+        // 커서를 따라갈 때는 조금 빠르게 붙는다
+        pos.current.x += (target.current.x - pos.current.x) * 0.16;
+        pos.current.y += (target.current.y - pos.current.y) * 0.16;
+      } else {
+        if (!trip.at) trip.at = now;
+        const e = now - trip.at;
+        if (e < LEG_MS) {
+          const t = smooth(e / LEG_MS);
+          pos.current.x = trip.from.x + (trip.to.x - trip.from.x) * t;
+          pos.current.y = trip.from.y + (trip.to.y - trip.from.y) * t;
+        } else if (e < LEG_MS + HOLD_MS) {
+          pos.current = { ...trip.to };
+        } else {
+          trip.i = (trip.i + 1) % spots().length;
+          trip.from = { ...pos.current };
+          trip.to = toPx(spots()[trip.i]);
+          trip.at = now;
+        }
+      }
       draw();
       raf = requestAnimationFrame(tick);
     };
@@ -141,14 +153,19 @@ export default function LoupeHero({ primaryAction, secondaryAction }: Props) {
     };
     const leave = () => {
       following.current = false;
+      // 커서를 치운 자리에서 다음 볼거리로 이어서 미끄러진다
+      trip.from = { ...pos.current };
+      trip.to = toPx(spots()[trip.i]);
+      trip.at = 0;
       if (reduce) {
         pos.current = toPx(spots()[0]);
-        target.current = { ...pos.current };
         draw();
       }
     };
     const resize = () => {
-      if (!following.current) target.current = toPx(spots()[spot]);
+      trip.from = { ...pos.current };
+      trip.to = toPx(spots()[trip.i]);
+      trip.at = 0;
       draw();
     };
 
@@ -156,7 +173,6 @@ export default function LoupeHero({ primaryAction, secondaryAction }: Props) {
     box.addEventListener("pointerleave", leave);
     window.addEventListener("resize", resize);
     return () => {
-      if (timer) clearInterval(timer);
       cancelAnimationFrame(raf);
       box.removeEventListener("pointermove", move);
       box.removeEventListener("pointerleave", leave);
@@ -215,7 +231,7 @@ export default function LoupeHero({ primaryAction, secondaryAction }: Props) {
         </div>
 
         {/* 오른쪽 — 돋보기 박스 */}
-        <div className="motion-safe:animate-fade-up [animation-delay:80ms]">
+        <div className="lg:pt-8 motion-safe:animate-fade-up [animation-delay:80ms]">
           <p className="sr-only">
             발표하는 장면 위에 돋보기를 올리면 돋보기 안에서만 AI 분석 결과(시선, 자세, 제스처, 목소리 파형, 자막의
             군말)가 보이는 그림입니다. 아래 「분석 레이어 전체 보기」 버튼으로 전체를 펼쳐 볼 수 있습니다.
@@ -287,6 +303,14 @@ export default function LoupeHero({ primaryAction, secondaryAction }: Props) {
             </button>
           </div>
         </div>
+      </div>
+
+      {/* 아래에 더 있다는 걸 알려 주는 작은 표시 */}
+      <div className="mt-14 flex flex-col items-center gap-2" aria-hidden="true">
+        <span className="relative block h-9 w-[22px] rounded-full border border-stone-300">
+          <span className="absolute left-1/2 top-[7px] h-[6px] w-[2px] -translate-x-1/2 rounded-full bg-stone-400 motion-safe:animate-scroll-dot" />
+        </span>
+        <span className="text-[11px] font-semibold tracking-wide text-stone-400">스크롤</span>
       </div>
     </section>
   );

@@ -70,7 +70,13 @@ const config: Config = {
           from: { opacity: "0", transform: "translateY(8px)" },
           to: { opacity: "1", transform: "translateY(0)" },
         },
-        // 첫 화면 "분석하는 항목": 선택된 항목 아래 막대가 차오르며 다음 항목으로 넘어갈 때까지 남은 시간을 보여준다
+        // 첫 화면 아래 "스크롤" 안내: 작은 점이 아래로 흘러내린다
+        "scroll-dot": {
+          "0%": { transform: "translateY(0)", opacity: "0" },
+          "25%": { opacity: "1" },
+          "70%": { opacity: "1" },
+          "100%": { transform: "translateY(12px)", opacity: "0" },
+        },
         "fill-x": {
           from: { transform: "scaleX(0)" },
           to: { transform: "scaleX(1)" },
@@ -79,6 +85,7 @@ const config: Config = {
       animation: {
         "fade-up": "fade-up 0.3s ease-out both",
         "fill-x": "fill-x var(--fill-duration, 2.4s) linear both",
+        "scroll-dot": "scroll-dot 1.8s ease-in-out infinite",
       },
     },
   },
