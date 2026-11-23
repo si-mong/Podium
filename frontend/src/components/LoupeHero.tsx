@@ -243,14 +243,17 @@ export default function LoupeHero({ primaryAction, secondaryAction }: Props) {
             군말)가 보이는 그림입니다. 아래 「분석 레이어 전체 보기」 버튼으로 전체를 펼쳐 볼 수 있습니다.
           </p>
 
-          {/* 노트북 — 화면 덮개(베젤) + 아래 본체. 돋보기 박스는 화면 안에 들어간다 */}
-          <div className="relative">
-          <div className="relative mx-[4%] sm:mx-[5%] rounded-t-[14px] sm:rounded-t-[20px] rounded-b-[4px] bg-stone-900 p-[2%] pt-[3%] pb-[2.4%] shadow-2xl shadow-slate-400/40 ring-1 ring-black/40">
-            {/* 카메라 */}
-            <span aria-hidden="true" className="absolute left-1/2 top-[1.1%] -translate-x-1/2 h-1.5 w-1.5 rounded-full bg-stone-700 ring-1 ring-stone-600/60" />
+          {/* 브라우저 창 — 흰 창 + 연회색 테두리 + 위쪽 신호등 버튼. 돋보기 박스는 창 안에 들어간다 */}
+          <div className="relative rounded-[18px] sm:rounded-[22px] border border-stone-200/80 bg-white p-1.5 sm:p-2 shadow-[0_2px_6px_rgba(15,23,42,0.04),0_24px_48px_-16px_rgba(15,23,42,0.18)]">
+            {/* 제목 표시줄 */}
+            <div aria-hidden="true" className="flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 pt-1.5 pb-2.5 sm:pt-2 sm:pb-3">
+              <span className="h-2.5 w-2.5 sm:h-3 sm:w-3 rounded-full bg-[#ff5f57]" />
+              <span className="h-2.5 w-2.5 sm:h-3 sm:w-3 rounded-full bg-[#febc2e]" />
+              <span className="h-2.5 w-2.5 sm:h-3 sm:w-3 rounded-full bg-[#28c840]" />
+            </div>
           <div
             ref={boxRef}
-            className="relative overflow-hidden rounded-[4px] sm:rounded-[6px] bg-white select-none"
+            className="relative overflow-hidden rounded-xl sm:rounded-2xl border border-stone-200/70 bg-white shadow-[0_1px_4px_rgba(15,23,42,0.06)] select-none"
             style={{ aspectRatio: narrow ? "580 / 570" : "1000 / 620", cursor: showAll ? "default" : "crosshair" }}
           >
             {/* 아래 칸 — 사람 눈에 보이는 그대로의 발표 영상 */}
@@ -317,11 +320,6 @@ export default function LoupeHero({ primaryAction, secondaryAction }: Props) {
               </div>
             )}
           </div>
-          </div>
-            {/* 본체 — 화면보다 넓은 알루미늄 판과 가운데 손잡이 홈 */}
-            <div aria-hidden="true" className="relative h-3 sm:h-4 rounded-t-[3px] rounded-b-[12px] sm:rounded-b-[18px] bg-gradient-to-b from-stone-200 via-stone-300 to-stone-400 shadow-[0_12px_24px_-8px_rgba(71,85,105,0.45)]">
-              <span className="absolute left-1/2 top-0 h-[45%] w-[16%] -translate-x-1/2 rounded-b-md bg-gradient-to-b from-stone-400 to-stone-300" />
-            </div>
           </div>
 
           <div className="mt-5 flex items-center justify-center gap-3 text-xs text-stone-400">
