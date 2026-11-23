@@ -77,30 +77,32 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-stone-50 flex items-center justify-center p-4 font-['Pretendard_Variable',Pretendard,sans-serif]">
-      <div className="w-full max-w-sm">
+    <div className="min-h-screen dashboard-bg flex items-center justify-center p-4 font-['Pretendard_Variable',Pretendard,sans-serif]">
+      <div className="w-full max-w-md">
         {/* 로고 — 누르면 첫 화면(랜딩)으로 */}
-        <Link href="/" className="flex justify-center mb-8 group">
-          <PodiumLogo className="h-10 w-auto group-hover:opacity-70 transition-opacity" />
+        <Link href="/" className="flex justify-center mb-10 group">
+          <PodiumLogo className="h-11 w-auto group-hover:opacity-70 transition-opacity" />
         </Link>
 
-        <div className="bg-white rounded-2xl shadow-sm border border-stone-200 p-8">
-          <h2 className="text-lg font-bold text-stone-800">시작하기</h2>
-          <p className="text-sm text-stone-500 mt-1 mb-6">구글 계정으로 바로 로그인하세요. 처음이면 자동으로 가입돼요.</p>
+        <div className="bg-white/90 backdrop-blur rounded-3xl shadow-xl shadow-teal-900/5 border border-stone-200/80 px-7 py-9 sm:px-10 sm:py-11">
+          <h2 className="text-2xl sm:text-[28px] font-extrabold tracking-[-0.03em] text-stone-900">시작하기</h2>
+          <p className="text-[15px] sm:text-base leading-relaxed text-stone-500 mt-2 mb-8">구글 계정으로 바로 로그인하세요.<br />처음이면 자동으로 가입돼요.</p>
 
           <button
             onClick={loginWithGoogle}
             disabled={redirecting || providers?.google === false}
-            className="w-full flex items-center justify-center gap-3 bg-white border border-stone-300 hover:bg-stone-50 disabled:opacity-60 text-stone-700 text-sm font-bold py-3 rounded-xl transition-colors"
+            className="w-full h-14 flex items-center justify-center gap-3 bg-[#3b94f0] hover:bg-[#2a83e0] active:bg-[#1f72cc] disabled:opacity-60 text-white text-base font-bold rounded-full shadow-lg shadow-[#3b94f0]/30 transition-colors"
           >
-            {redirecting ? <Loader2 className="w-5 h-5 animate-spin" /> : <GoogleLogo />}
+            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white">
+              {redirecting ? <Loader2 className="w-4 h-4 animate-spin text-[#2a83e0]" /> : <GoogleLogo />}
+            </span>
             Google로 계속하기
           </button>
           {providers?.google === false && (
             <p className="text-xs text-amber-700 mt-2">서버에 구글 로그인이 아직 설정되지 않았어요.</p>
           )}
 
-          <p className="text-xs text-stone-400 text-center mt-3">
+          <p className="text-[13px] text-stone-400 text-center mt-4">
             계속하면{" "}
             <Link href="/terms" className="underline hover:text-stone-600">이용약관</Link>과{" "}
             <Link href="/privacy" className="underline hover:text-stone-600">개인정보 처리방침</Link>에 동의하게 돼요.

@@ -85,7 +85,7 @@ function ProfileForm() {
   };
 
   return (
-    <div className="min-h-screen bg-stone-50 flex items-center justify-center p-4 font-['Pretendard_Variable',Pretendard,sans-serif]">
+    <div className="min-h-screen dashboard-bg flex items-center justify-center p-4 font-['Pretendard_Variable',Pretendard,sans-serif]">
       <div className="w-full max-w-md">
         <Link href={welcome ? "/" : "/home"} className="flex justify-center mb-8">
           <PodiumLogo className="h-10 w-auto hover:opacity-70 transition-opacity" />

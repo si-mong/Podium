@@ -53,7 +53,7 @@ export default function AuthCallbackPage() {
   }, [router]);
 
   return (
-    <div className="min-h-screen bg-stone-50 flex items-center justify-center p-4 font-['Pretendard_Variable',Pretendard,sans-serif]">
+    <div className="min-h-screen dashboard-bg flex items-center justify-center p-4 font-['Pretendard_Variable',Pretendard,sans-serif]">
       {error ? (
         <div className="bg-white rounded-2xl shadow-sm border border-stone-200 p-8 max-w-sm w-full text-center space-y-4">
           <p className="text-sm text-red-500 font-medium">{error}</p>
