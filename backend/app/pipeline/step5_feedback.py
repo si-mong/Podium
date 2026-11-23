@@ -428,6 +428,10 @@ def run_segments(segments: list[dict], video_analysis: list[dict],
 # 2026-11-20: 습관 필러가 있으면 headline 의 고칠 점은 무조건 습관 필러(단어 포함)로 쓰게 했다.
 #   그전엔 headline 규칙에 habit_fillers 가 없어서, "칭찬 위주"면 아예 빠지고 그 밖에도 몸짓 문제에 자주 밀렸다.
 #   "칭찬 위주"여도 이때는 잘한 점 1개 + 습관 필러 1개로 쓴다. 밀려난 고칠 점은 overall_summary 에서 다룬다.
+# 2026-11-24: headline 에 쓸 잘한 점·고칠 점을 코드가 골라 headline_good / headline_fix 로 보낸다
+#   (_headline_points·_headline_plan). 위 습관 필러 규칙도 프롬프트 글 대신 코드가 지킨다.
+#   칭찬해도 되는 항목은 strengths 로 보내고, 부가 설명 ①도 그 안에서만 칭찬하게 했다
+#   (예시 "자세는 안정적"을 베껴 구부정한 발표의 자세를 칭찬했다).
 # 발화 속도는 구간별 피드백과 같은 느림/보통/빠름 라벨을 같이 보낸다.
 # 구간별처럼 항목마다 시각을 강제하지 않는다 — 총평은 짧아야 해서 문장마다
 # 시각을 넣으면 오히려 읽기 어려워진다. 다만 시각을 언급하는 경우엔 구간별과 같은 검증
@@ -440,6 +444,9 @@ segments(구간별 전사문·지표)를 종합해서, 특정 구간 하나만 �
 
 ## 0. 코드가 미리 판정한 값 — 가장 먼저 보세요
 - headline_mode (headline 구성): {headline_mode} — **headline 에만** 적용됩니다. overall_summary 는 1번 규칙대로 씁니다.
+- headline_good (headline 에 쓸 잘한 점, 비어 있으면 잘한 점을 쓰지 않음): {headline_good}
+- headline_fix (headline 에 쓸 고칠 점, 비어 있으면 고칠 점을 쓰지 않음): {headline_fix}
+- strengths (칭찬해도 되는 항목, 쓸 순서대로): {strengths}
 - habit_fillers (발표 전체에서 말버릇처럼 반복된 필러 단어, 비어 있으면 없음): {habit_fillers}
 - talk_silence (발표 전체에서 오래 멈춘 곳이 잦은지, 비어 있으면 문제 없음): {talk_silence}
 - segments 의 구간마다 들어 있는 판정값:
@@ -458,7 +465,7 @@ segments(구간별 전사문·지표)를 종합해서, 특정 구간 하나만 �
   - habit_fillers 가 있으면 그 단어와 횟수를 그대로 짚고("'이제'가 12번 나왔습니다"),
     말버릇처럼 반복된다는 점을 분명히 쓰세요.
   - talk_silence 가 있으면 다른 말하기 문제가 더 심해도 **빼먹지 말고** 짚으세요. 필러와 한 문장에 묶어도 됩니다
-    (예: "'어'가 14번 나왔고 3초 이상 멈춘 곳도 6번 있었으니…").
+    (예: "'어'가 14번 나왔고 3.5초 이상 멈춘 곳도 4번 있었으니…").
 - 잘한 점: 모든 구간의 speech_issues 가 비어 있고 habit_fillers·talk_silence 도 비어 있을 때.
   필러·반복·무음이 몇 번 있어도 판정값에 없으면 문제가 아닙니다(예: speech_issues 에 없는 "반복 2회").
   무음은 talk_silence 로만 판단하세요. 구간 데이터의 무음 목록이나 무음 비율을 보고 따로 문제 삼지 마세요.
@@ -475,24 +482,24 @@ segments(구간별 전사문·지표)를 종합해서, 특정 구간 하나만 �
   ("제스처를 추가하세요", "손으로 화면을 가리키세요" 같은 조언 금지).
   motion_notes 에 "제스처가 거의 없다"고 적혀 있어도 고칠 점이 아닙니다.
 공통
+- 칭찬은 strengths 에 있는 항목으로만 하세요. strengths 에 없는 항목(예: 자세가 없으면 자세)은 칭찬하지 마세요.
 - 같은 항목(예: 시선)을 잘한 점으로 쓰고 고칠 점으로도 쓰지 마세요.
 - 문제가 없는 쪽에 고칠 점이나 행동을 억지로 만들어 넣지 마세요.
 
 ## 2. headline (핵심 한 줄)
 한 문장, 약 20~35자, 시각 없이. 구성은 headline_mode 를 그대로 따르세요.
+**무엇을 쓸지는 이미 골라 두었습니다.** 잘한 점은 headline_good, 고칠 점은 headline_fix 에 있는 것만 쓰고,
+다른 항목으로 바꾸지 마세요. 둘 다 있으면 반드시 둘 다 한 문장에 담으세요(고칠 점만 쓰면 안 됩니다).
 headline_mode 는 headline 에만 적용됩니다. "칭찬 위주"여도 overall_summary 에서는 판정값의 고칠 점을
 1번 규칙대로 **반드시** 다루고, 판정값과 반대되는 말("말하기 문제가 없었다", "시선 처리가 적절했다" 등)을 쓰지 마세요.
-- "칭찬 위주": 잘한 점만 1~2개. 고칠 점은 넣지 마세요(단, habit_fillers 가 있으면 아래 규칙을 따르세요).
+- "칭찬 위주": headline_good 의 잘한 점만 1~2개. 고칠 점은 넣지 마세요.
   예: "발화 속도와 자세가 끝까지 안정적이었어요"
-- "균형": 가장 잘한 점 1개 + 가장 고칠 점 1개.
-  예: "말 속도는 안정적이지만, 시선 처리를 고쳐봐요"
-- "고칠 점 위주": 가장 고칠 점 1개만.
+- "균형": headline_good 1개 + headline_fix 1개.
+  예: "설명 제스처는 잘 썼지만, 화면 대신 청중을 봐 주세요"
+- "고칠 점 위주": headline_fix 의 고칠 점 1개만.
   예: "필러가 잦으니, 문장 끝에서 잠시 멈추는 연습을 해봐요"
-habit_fillers 가 있으면 (모든 모드에서 우선 적용)
-- headline 의 고칠 점 1개는 **반드시 습관 필러**로 쓰고, 그 단어를 넣으세요. 다른 고칠 점은 overall_summary 에서 다루세요.
-  예: "'이제'가 말버릇처럼 나오니, 문장 끝에서 잠시 멈춰봐요"
-- "칭찬 위주"여도 이때는 가장 잘한 점 1개 + 습관 필러 1개로 쓰세요.
-  예: "자세는 안정적이지만, '이제'가 말버릇처럼 반복돼요"
+headline_fix 가 습관 필러(말버릇처럼 반복된 단어)이면 그 단어를 headline 에 그대로 넣으세요.
+  예: "설명 제스처는 잘 썼지만, '이제'가 말버릇처럼 나와요"
 어느 모드든 고칠 점은 **1개만** 쓰세요. "필러와 시선을 개선하세요", "시선을 들지 않고 필러가 반복됩니다"처럼
 두 가지를 나열하지 마세요. 고칠 점이 말하기·몸짓 둘 다 있으면 headline 에는 하나만 쓰고,
 나머지는 overall_summary 에서 다루세요. minor_motion_issues 는 headline 에 쓰지 마세요.
@@ -501,7 +508,8 @@ habit_fillers 가 있으면 (모든 모드에서 우선 적용)
 ## 3. overall_summary (부가 설명)
 목록이 아니라 이어지는 글 한 문단입니다. **아래 틀의 순서대로 3~4문장**(약 150~250자)으로 쓰고,
 4문장을 넘기지 마세요. 말하기와 몸짓은 잘한 점이든 고칠 점이든 둘 다 한 번 이상 나와야 합니다.
-  ① 잘한 점 1문장: 1번에서 잘한 점이 된 쪽의 근거. 둘 다 고칠 점이면 그중 나은 점 한 가지(예: 자세는 안정적).
+  ① 잘한 점 1문장: strengths 의 앞쪽 항목(headline 에 쓴 잘한 점이 있으면 그것)의 근거.
+     strengths 가 비어 있으면 이 문장은 쓰지 마세요.
   ② 말하기 1문장: 고칠 점이면 근거(구간·숫자)와 고치는 행동을 한 문장에 쓰세요.
      잘한 점이면 ①에서 다뤘으니 따로 쓰지 않아도 됩니다.
   ③ 몸짓 1문장: 고칠 점이면 근거(구간·동작 이름·횟수)와 고치는 행동을 한 문장에 쓰세요.
@@ -564,10 +572,12 @@ SPEECH_SILENCE_MIN_SEC = 3.0    # 이 길이(초) 이상인 무음만 센다
 SPEECH_SILENCE_COUNT_MIN = 2    # 구간에서 그런 무음이 이 횟수 이상이면 문제
 # 구간별 피드백만: 이 길이(초) 이상인 무음은 한 번만 있어도 문제 (2026-11-08, 팀원 제안).
 SPEECH_SILENCE_SINGLE_SEC = 5.0
-# 종합 피드백: 구간 판정 대신 발표 전체에서 3초 이상 무음이 이 횟수 이상이면 문제 (2026-11-08).
-# 처음엔 5번이었는데 로컬 세션 7개 중 한 번도 안 걸려서 3번으로 낮춤.
+# 종합 피드백: 구간 판정 대신 발표 전체에서 센다 (2026-11-08).
 # 종합은 "가장 심한 것"만 짚어서 구간 무음은 필러에 밀려 안 나왔다 → 발표 전체로 잦을 때만 꼭 짚게 한다.
-TALK_SILENCE_COUNT_MIN = 3
+# 2026-11-24: "3초 이상 3번" 한 가지 → 길이별 3단계 중 하나라도 해당하면 문제로 바꿈.
+#   길게 멈출수록 적은 횟수로도 눈에 띈다. (길이 초, 횟수) — 3.5초 이상 3번 / 4초 이상 2번 / 5초 이상 1번.
+#   구간 카드(_segment_silence_issues)는 그대로 3초 2번 / 5초 1번.
+TALK_SILENCE_RULES = ((3.5, 3), (4.0, 2), (5.0, 1))
 
 
 def _speech_issues(seg: dict) -> list[str]:
@@ -601,10 +611,13 @@ def _segment_silence_issues(seg: dict, voice_timeline: dict) -> list[str]:
 
 
 def _talk_silence_issues(voice_timeline: dict) -> list[str]:
-    """종합 피드백용 무음 판정: 발표 전체에서 3초 이상 무음이 3번 이상이면 ["3초 이상 멈춘 곳 3번(가장 긴 것 8.4초)"]."""
-    lengths = _long_silences(voice_timeline.get("silence_segments"))
-    if len(lengths) >= TALK_SILENCE_COUNT_MIN:
-        return [f"{SPEECH_SILENCE_MIN_SEC:g}초 이상 멈춘 곳 {len(lengths)}번(가장 긴 것 {max(lengths):.1f}초)"]
+    """종합 피드백용 무음 판정: 발표 전체에서 TALK_SILENCE_RULES 중 하나라도 해당하면
+    ["3.5초 이상 멈춘 곳 3번(가장 긴 것 8.4초)"] 처럼 처음 걸린 단계로 돌려준다. 없으면 []."""
+    lengths = [x["t_end"] - x["t_start"] for x in voice_timeline.get("silence_segments") or []]
+    for sec, count in TALK_SILENCE_RULES:
+        hit = [n for n in lengths if n >= sec]
+        if len(hit) >= count:
+            return [f"{sec:g}초 이상 멈춘 곳 {len(hit)}번(가장 긴 것 {max(hit):.1f}초)"]
     return []
 
 
@@ -759,6 +772,127 @@ def _all_motion_issues(segments: list[dict], video_analysis: list[dict]) -> list
     return result
 
 
+# headline 에 올릴 잘한 점·고칠 점은 코드가 고른다 (2026-11-24).
+# 그전엔 headline_mode 만 넘기고 "가장 잘한 점 / 가장 고칠 점"을 LLM 이 골랐더니
+#   - 고칠 점이 여러 개면 돌릴 때마다 다른 항목을 골랐고,
+#   - 1번 규칙이 잘한 점을 말하기·몸짓 큰 묶음으로만 정해서, 두 묶음 다 문제가 조금씩 있으면
+#     "균형"인데도 잘한 점이 없다고 보고 고칠 점만 썼다
+#     (구간 6개 중 보통 5·개선필요 1 → 균형인데 headline 은 필러 지적만).
+#     구간 카드에는 "설명 제스처로 강조했다"가 3번이나 나왔는데도.
+# 고칠 점: 습관 필러가 있으면 무조건 필러(2026-11-20 팀원 규칙을 코드로 옮김). 그 밖에는 문제가 난
+#   구간이 가장 많은 항목. 구간 수가 같으면 _HEADLINE_FIX_ORDER 순서.
+# 잘한 점: ① 실제로 한 행동(설명 제스처) 먼저 → ② 없으면 문제가 없었던 것(시선·자세·필러·발화 속도).
+#   "발화 속도 보통"은 거의 모든 발표에 나와서 맨 뒤. 고칠 점으로 잡힌 항목은 잘한 점에서 뺀다
+#   (구부정한 구간이 있는데 "바른 자세를 유지했다"고 칭찬하던 모순을 막는다).
+HEADLINE_GESTURE_MIN_SEGMENTS = 2     # 설명 제스처가 이 개수 이상의 구간에서 나와야 잘한 점
+HEADLINE_STEADY_RATE_SHARE = 2 / 3    # 발화 속도 "보통"인 구간이 이 비율 이상이면 잘한 점
+_HEADLINE_FIX_ORDER = ("필러", "시선", "산만한 동작", "자세", "무음", "반복")
+
+
+def _headline_points(segments: list[dict], video_analysis: list[dict], voice_timeline: dict,
+                     motion_issues: list[tuple[list[str], list[str]]]) -> tuple[list[str], list[str]]:
+    """(잘한 점 후보, 고칠 점 후보)를 쓸 순서대로 돌려준다. 각 항목은 LLM 이 읽는 한 줄 설명.
+
+    motion_issues: _all_motion_issues() 결과 (구간마다 (motion_issues, minor_motion_issues)).
+    """
+    labels = [s.get("label") or f"{i + 1}번 구간" for i, s in enumerate(segments)]
+
+    def where(idx: list[int]) -> str:
+        return f"{len(idx)}개 구간({'·'.join(labels[i] for i in idx)})"
+
+    # ── 고칠 점: 항목별로 문제가 난 구간 번호를 모은다 ──
+    hits: dict[str, list[int]] = {k: [] for k in _HEADLINE_FIX_ORDER}
+    for i, s in enumerate(segments):
+        if (s.get("filler_count") or 0) >= SPEECH_FILLER_MIN:
+            hits["필러"].append(i)
+        if (s.get("repetition_count") or 0) >= SPEECH_REPEAT_MIN:
+            hits["반복"].append(i)
+        if _segment_silence_issues(s, voice_timeline):
+            hits["무음"].append(i)
+        major = motion_issues[i][0]
+        if any(m.startswith("시선") for m in major):
+            hits["시선"].append(i)
+        if any(m.startswith("자세") for m in major):
+            hits["자세"].append(i)
+        if any(not m.startswith(("시선", "자세")) for m in major):
+            hits["산만한 동작"].append(i)
+    habit = _habit_fillers(voice_timeline)
+    talk_silence = _talk_silence_issues(voice_timeline)
+
+    def fix_size(key: str) -> int:
+        n = len(hits[key])
+        # 발표 전체 기준으로만 잡히는 문제(습관 필러·잦은 무음)는 구간이 0개여도 1개로 친다
+        if (key == "필러" and habit) or (key == "무음" and talk_silence):
+            n = max(n, 1)
+        return n
+
+    fixes = []
+    def rank(k: str) -> tuple:
+        return (not (k == "필러" and habit), -fix_size(k), _HEADLINE_FIX_ORDER.index(k))
+
+    for key in sorted((k for k in _HEADLINE_FIX_ORDER if fix_size(k)), key=rank):
+        idx = hits[key]
+        if key == "필러":
+            text = f"필러가 잦음 — {where(idx)}" if idx else "필러가 잦음"
+            if habit:
+                text += f", 말버릇처럼 반복된 단어: {', '.join(habit)}"
+        elif key == "시선":
+            text = f"시선 — 청중·카메라를 거의 보지 않음, {where(idx)}"
+        elif key == "자세":
+            names = sorted({m for i in idx for m in motion_issues[i][0] if m.startswith("자세")})
+            text = f"{', '.join(names)} — {where(idx)}"
+        elif key == "산만한 동작":
+            text = f"산만한 동작(얼굴 만지기·만지작거리기 등) — {where(idx)}"
+        elif key == "무음":
+            text = f"말이 오래 끊김 — {talk_silence[0]}" if talk_silence else f"말이 오래 끊김 — {where(idx)}"
+        else:
+            text = f"같은 말 반복(말더듬) — {where(idx)}"
+        fixes.append(text)
+
+    # ── 잘한 점 ──
+    goods = []
+    motions = [_segment_motion(s, video_analysis) for s in segments]
+    talk_positive = sum(m["positive"] for m in motions)
+    talk_negative = sum(sum(m["negative"].values()) for m in motions)
+    gesture_idx = [i for i, m in enumerate(motions) if m["positive"] > 0]
+    # ① 실제로 한 행동
+    if talk_positive > talk_negative and len(gesture_idx) >= HEADLINE_GESTURE_MIN_SEGMENTS:
+        goods.append(f"설명 제스처 — {where(gesture_idx)}에서 손으로 설명하거나 가리키며 내용을 강조함")
+    # ② 문제가 없었던 것 (고칠 점으로 잡힌 항목은 빼고)
+    if not fix_size("시선"):
+        goods.append("시선 — 청중·카메라를 거의 보지 않은 구간이 없음")
+    if not fix_size("자세") and not fix_size("산만한 동작"):
+        goods.append("자세 — 구부정하거나 기대는 구간 없이 안정적")
+    if not fix_size("필러") and not fix_size("반복"):
+        goods.append("필러·반복 — 모든 구간에서 적음")
+    steady = [i for i, s in enumerate(segments) if _speaking_rate_label(s.get("speaking_rate_spm")) == "보통"]
+    if segments and len(steady) / len(segments) >= HEADLINE_STEADY_RATE_SHARE:
+        goods.append(f"발화 속도 — {len(segments)}개 구간 중 {len(steady)}개에서 보통 속도로 일정")
+    return goods, fixes
+
+
+def _headline_plan(mode: str, goods: list[str], fixes: list[str],
+                   habit_fillers: bool = False) -> tuple[str, list[str], list[str]]:
+    """headline_mode 에 맞춰 headline 에 쓸 (모드, 잘한 점, 고칠 점)을 정한다.
+
+    쓸 거리가 없는 쪽은 모드를 바꾼다: 균형인데 잘한 점 후보가 없으면 고칠 점 위주, 고칠 점이 없으면 칭찬 위주.
+    habit_fillers: 습관 필러가 있으면 "칭찬 위주"여도 잘한 점 1개 + 습관 필러 1개(균형)로 쓴다 (2026-11-20 팀원 규칙).
+    """
+    if mode == "칭찬 위주" and habit_fillers and fixes:
+        mode = "균형"
+    if mode == "칭찬 위주" and not goods and fixes:
+        mode = "고칠 점 위주"
+    elif mode == "고칠 점 위주" and not fixes and goods:
+        mode = "칭찬 위주"
+    elif mode == "균형" and not (goods and fixes):
+        mode = "고칠 점 위주" if fixes else "칭찬 위주"
+    if mode == "칭찬 위주":
+        return mode, goods[:2], []
+    if mode == "고칠 점 위주":
+        return mode, [], fixes[:1]
+    return mode, goods[:1], fixes[:1]
+
+
 def _to_percent(ratio):
     """0~1 비율 → "30%" 글자. 값이 없으면 그대로 둔다."""
     return f"{round(ratio * 100)}%" if isinstance(ratio, (int, float)) else ratio
@@ -797,13 +931,19 @@ def run_overall(segments: list[dict], video_analysis: list[dict], voice_timeline
         view["minor_motion_issues"] = minor
         segs_view.append(view)
     labeled = {"outline": _add_time_labels(outline), "segments": _add_time_labels(segs_view)}
+    goods, fixes = _headline_points(segments, video_analysis, voice_timeline, motion_issues)
+    mode, head_good, head_fix = _headline_plan(_headline_mode(ratings), goods, fixes,
+                                               habit_fillers=bool(_habit_fillers(voice_timeline)))
 
     prompt = OVERALL_PROMPT.format(
         outline=json.dumps(labeled["outline"], ensure_ascii=False, indent=2),
         segments=json.dumps(labeled["segments"], ensure_ascii=False, indent=2),
         habit_fillers=json.dumps(_habit_fillers(voice_timeline), ensure_ascii=False),
         talk_silence=json.dumps(_talk_silence_issues(voice_timeline), ensure_ascii=False),
-        headline_mode=_headline_mode(ratings),
+        headline_mode=mode,
+        headline_good=json.dumps(head_good, ensure_ascii=False),
+        headline_fix=json.dumps(head_fix, ensure_ascii=False),
+        strengths=json.dumps(goods, ensure_ascii=False),
     )
 
     return _generate_validated(client, prompt, _collect_time_tokens(labeled), "STEP 5 종합")
