@@ -40,7 +40,7 @@ export default function LandingPage() {
           </Link>
         </>
       }
-      primaryAction={{ label: "구글 계정으로 시작하기", onClick: () => router.push("/login") }}
+      primaryAction={{ label: "구글 계정으로 시작하기", onClick: () => router.push("/login"), google: true }}
     />
   );
 }
