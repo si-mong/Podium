@@ -24,29 +24,32 @@
   --chart-dot-ring: #2a2a2e;
 }
 
-/* 대시보드 배경: 모서리에서 번지는 옅은 파랑·보라·민트 */
-.dashboard-bg {
-  background-color: #f1f4fb;
+/* 모든 페이지 배경: 모서리에서 번지는 옅은 청록·하늘·크림 파스텔 (화사하고 은은하게).
+   각 페이지 맨 바깥 div 에 .dashboard-bg 를 붙이고, 안 붙인 페이지도 body 가 같은 바탕을 깐다. */
+.dashboard-bg,
+body {
+  background-color: #f7fcfc;
   background-image:
-    radial-gradient(55% 50% at 0% 0%, #cfe3ff 0%, transparent 70%),
-    radial-gradient(50% 55% at 100% 20%, #e6defd 0%, transparent 70%),
-    radial-gradient(60% 50% at 10% 100%, #c9f3ea 0%, transparent 70%),
-    radial-gradient(50% 45% at 100% 100%, #dde7fb 0%, transparent 70%);
+    radial-gradient(65% 60% at 0% 0%, #c6f2df 0%, transparent 72%),
+    radial-gradient(55% 50% at 100% 0%, #fff9df 0%, transparent 72%),
+    radial-gradient(65% 60% at 70% 100%, #c2e9fc 0%, transparent 72%),
+    radial-gradient(50% 55% at 0% 100%, #c9f4eb 0%, transparent 72%);
+  background-attachment: fixed;
 }
 
-/* 다크: 바탕을 카드(#2a2a2e)보다 확실히 어둡게 하고 색 번짐을 조금 진하게 — 라이트처럼 카드가 떠 보이게 */
-:root.dark .dashboard-bg {
-  background-color: #0f0f12;
+/* 다크: 바탕을 카드(#2a2a2e)보다 확실히 어둡게 하고 청록·하늘 번짐을 살짝 — 라이트처럼 카드가 떠 보이게 */
+:root.dark .dashboard-bg,
+:root.dark body {
+  background-color: #0f1113;
   background-image:
-    radial-gradient(55% 50% at 0% 0%, rgb(59 130 246 / 0.22) 0%, transparent 70%),
-    radial-gradient(50% 55% at 100% 20%, rgb(139 92 246 / 0.18) 0%, transparent 70%),
-    radial-gradient(60% 50% at 10% 100%, rgb(20 184 166 / 0.16) 0%, transparent 70%),
-    radial-gradient(50% 45% at 100% 100%, rgb(59 130 246 / 0.12) 0%, transparent 70%);
+    radial-gradient(60% 55% at 0% 0%, rgb(20 184 166 / 0.16) 0%, transparent 70%),
+    radial-gradient(55% 50% at 100% 0%, rgb(56 189 248 / 0.10) 0%, transparent 70%),
+    radial-gradient(60% 55% at 70% 100%, rgb(14 165 233 / 0.14) 0%, transparent 70%),
+    radial-gradient(50% 50% at 0% 100%, rgb(45 212 191 / 0.10) 0%, transparent 70%);
 }
 
 body {
   color: var(--foreground);
-  background: var(--background);
   font-family: Arial, Helvetica, sans-serif;
 }
 

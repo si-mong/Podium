@@ -834,7 +834,7 @@ function PresentationAnalysisDashboard() {
         onClick={() => !isDisabled && goTo(menu.id === 'sessions' ? { view: 'sessions', folder: null } : { view: menu.id })}
         disabled={isDisabled}
         title={menu.label}
-        className={`h-10 flex items-center gap-1.5 px-3 sm:px-4 rounded-full whitespace-nowrap text-sm font-semibold transition-colors shrink-0
+        className={`h-9 flex items-center gap-1.5 px-3 sm:px-4 rounded-full whitespace-nowrap text-sm font-semibold transition-colors shrink-0
           ${isActive
             ? 'bg-stone-900 text-white'
             : isDisabled
@@ -848,7 +848,7 @@ function PresentationAnalysisDashboard() {
   };
 
   // 상단 바 오른쪽 버튼 (홈 화면 상단 바와 같은 모양) — 좁은 화면에서는 아이콘만
-  const headerButton = 'h-10 flex items-center gap-1.5 px-3 rounded-full whitespace-nowrap text-sm font-semibold text-stone-600 hover:bg-stone-100 hover:text-stone-900 transition-colors shrink-0';
+  const headerButton = 'h-9 flex items-center gap-1.5 px-3 rounded-full whitespace-nowrap text-sm font-semibold text-stone-600 hover:bg-stone-100 hover:text-stone-900 transition-colors shrink-0';
 
   return (
     // 글꼴은 홈 화면과 같은 Pretendard (layout.tsx 에서 불러옴)
@@ -856,10 +856,10 @@ function PresentationAnalysisDashboard() {
 
       {/* 상단 바 — 홈 화면처럼 가운데 떠 있는 알약 모양 (로고 · 메뉴 · 휴지통 · 내 정보 · 로그아웃). 왼쪽 사이드바는 없앴다. */}
       <div className="shrink-0 z-20 px-4 pt-4">
-        <header className="max-w-[1200px] mx-auto h-14 rounded-full bg-white/80 backdrop-blur shadow-sm flex items-center gap-2 sm:gap-4 pl-5 sm:pl-6 pr-2">
+        <header className="max-w-[1200px] mx-auto h-12 rounded-full border border-stone-200/80 bg-white/80 backdrop-blur shadow-sm flex items-center gap-2 sm:gap-4 pl-5 sm:pl-6 pr-1.5">
           {/* 로고 — 누르면 홈 화면으로 */}
           <button onClick={() => router.push('/home')} className="flex items-center shrink-0 hover:opacity-70 transition-opacity">
-            <PodiumLogo className="h-5 sm:h-6 w-auto" />
+            <PodiumLogo className="h-[18px] sm:h-5 w-auto" />
           </button>
           <nav className="flex items-center gap-1 min-w-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {MENUS.map(menu => renderMenuButton(menu))}
@@ -896,7 +896,7 @@ function PresentationAnalysisDashboard() {
 
         {/* Scrollable Container for Content */}
         {/* 본문 양옆 여백: 화면이 넓을수록 넉넉하게, 모바일은 좁게. 내용 폭은 최대 1100px */}
-        <div className="flex-1 overflow-y-auto pt-10 pb-8 md:pt-14 px-5 sm:px-10 lg:px-32 xl:px-48 min-[1700px]:px-72 custom-scrollbar">
+        <div className="flex-1 overflow-y-auto pt-10 pb-8 md:pt-14 px-6 sm:px-12 lg:px-40 xl:px-60 min-[1700px]:px-80 custom-scrollbar">
           {/* VIEW 0: Session Management — 폴더 목록(아이콘) ↔ 폴더 안(세션 목록 + 종합추이) */}
           {activeMenu === 'sessions' && (() => {
             const openFolder = topics.find(t => t.id === openFolderId);

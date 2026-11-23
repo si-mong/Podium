@@ -28,13 +28,13 @@ export default function LandingPage() {
         <>
           <Link
             href="/login"
-            className="h-10 px-4 rounded-full text-sm font-semibold text-stone-700 hover:bg-white flex items-center transition-colors"
+            className="h-9 px-4 rounded-full text-sm font-semibold text-stone-700 hover:bg-white flex items-center transition-colors"
           >
             로그인
           </Link>
           <Link
             href="/login"
-            className="h-10 px-4 rounded-full text-sm font-semibold text-white bg-stone-900 hover:bg-stone-700 flex items-center transition-colors"
+            className="h-9 px-4 rounded-full text-sm font-semibold text-white bg-stone-900 hover:bg-stone-700 flex items-center transition-colors"
           >
             시작하기
           </Link>

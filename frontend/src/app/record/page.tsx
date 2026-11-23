@@ -603,7 +603,7 @@ function RecordPage() {
   const ss = String(elapsedSec % 60).padStart(2, "0");
 
   return (
-    <div className="min-h-screen bg-stone-50 flex flex-col items-center py-6 px-4 font-['Pretendard_Variable',Pretendard,sans-serif]">
+    <div className="min-h-screen dashboard-bg flex flex-col items-center py-6 px-4 font-['Pretendard_Variable',Pretendard,sans-serif]">
       {/* 화면 너비의 80%를 쓴다 (좁은 화면에서는 전체 너비).
           flex-1 로 화면 높이만큼 늘려서, 아래 촬영+로그 묶음이 세로 가운데에 오게 한다 */}
       <div className="w-full lg:w-[80vw] flex-1 flex flex-col">

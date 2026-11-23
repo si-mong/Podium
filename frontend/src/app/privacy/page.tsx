@@ -36,7 +36,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 
 export default function PrivacyPage() {
   return (
-    <div className="min-h-screen bg-stone-50 text-stone-900 font-['Pretendard_Variable',Pretendard,sans-serif]">
+    <div className="min-h-screen dashboard-bg text-stone-900 font-['Pretendard_Variable',Pretendard,sans-serif]">
       <header className="bg-white border-b border-stone-200">
         <div className="max-w-3xl mx-auto px-6 py-4">
           <Link href="/" className="inline-flex">

@@ -77,6 +77,13 @@ const config: Config = {
           "70%": { opacity: "1" },
           "100%": { transform: "translateY(12px)", opacity: "0" },
         },
+        // 돋보기 안내: 커서 아이콘이 좌우로 살랑살랑
+        "cursor-wiggle": {
+          "0%, 100%": { transform: "translate(0, 0)" },
+          "25%": { transform: "translate(6px, -3px)" },
+          "50%": { transform: "translate(0, 2px)" },
+          "75%": { transform: "translate(-6px, -3px)" },
+        },
         "fill-x": {
           from: { transform: "scaleX(0)" },
           to: { transform: "scaleX(1)" },
@@ -86,6 +93,7 @@ const config: Config = {
         "fade-up": "fade-up 0.3s ease-out both",
         "fill-x": "fill-x var(--fill-duration, 2.4s) linear both",
         "scroll-dot": "scroll-dot 1.8s ease-in-out infinite",
+        "cursor-wiggle": "cursor-wiggle 1.6s ease-in-out infinite",
       },
     },
   },

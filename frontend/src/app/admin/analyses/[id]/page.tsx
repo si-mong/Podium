@@ -141,7 +141,7 @@ export default function AdminAnalysisDetailPage() {
   );
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans">
+    <div className="min-h-screen dashboard-bg font-sans">
       <AdminHeader />
 
       <main className="max-w-6xl mx-auto px-6 py-10 space-y-6">
