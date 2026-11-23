@@ -69,6 +69,8 @@ export default function LoupeHero({ primaryAction, secondaryAction }: Props) {
   const pos = useRef({ x: 0, y: 0 });
   const target = useRef({ x: 0, y: 0 });
   const following = useRef(false); // 커서를 따라가는 중인지
+  const travel = useRef(0); // 돋보기 위에서 커서가 움직인 거리 합 (안내 문구 숨김 기준)
+  const last = useRef<{ x: number; y: number } | null>(null);
 
   // 돋보기를 지금 위치에 그린다
   const draw = useCallback(() => {
@@ -145,7 +147,10 @@ export default function LoupeHero({ primaryAction, secondaryAction }: Props) {
       const rect = box.getBoundingClientRect();
       target.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
       following.current = true;
-      setMoved(true);
+      // 안내 문구는 커서를 어느 정도(240px) 움직여 본 다음에 사라진다 — 지나가다 스치기만 해서는 안 없어진다
+      if (last.current) travel.current += Math.hypot(e.clientX - last.current.x, e.clientY - last.current.y);
+      last.current = { x: e.clientX, y: e.clientY };
+      if (travel.current > 240) setMoved(true);
       if (reduce) {
         pos.current = { ...target.current }; // 움직임을 줄인 사용자에겐 따라오는 동작 없이 바로 그 자리로
         draw();
@@ -153,6 +158,7 @@ export default function LoupeHero({ primaryAction, secondaryAction }: Props) {
     };
     const leave = () => {
       following.current = false;
+      last.current = null;
       // 커서를 치운 자리에서 다음 볼거리로 이어서 미끄러진다
       trip.from = { ...pos.current };
       trip.to = toPx(spots()[trip.i]);
@@ -195,7 +201,7 @@ export default function LoupeHero({ primaryAction, secondaryAction }: Props) {
 
   return (
     <section className="pt-10 pb-14 md:pt-16 md:pb-20">
-      <div className="max-w-7xl mx-auto px-5 sm:px-6 lg:px-8 grid items-center gap-10 lg:grid-cols-[minmax(0,420px)_minmax(0,1fr)] lg:gap-16">
+      <div className="max-w-7xl mx-auto px-6 sm:px-10 lg:px-14 grid items-center gap-10 lg:grid-cols-[minmax(0,420px)_minmax(0,1fr)] lg:gap-6">
         {/* 왼쪽 — 제목과 시작 버튼 */}
         <div className="text-center lg:text-left motion-safe:animate-fade-up">
           <h1 className="text-4xl sm:text-5xl font-extrabold tracking-[-0.04em] leading-[1.12] text-stone-900">
@@ -237,9 +243,14 @@ export default function LoupeHero({ primaryAction, secondaryAction }: Props) {
             군말)가 보이는 그림입니다. 아래 「분석 레이어 전체 보기」 버튼으로 전체를 펼쳐 볼 수 있습니다.
           </p>
 
+          {/* 노트북 — 화면 덮개(베젤) + 아래 본체. 돋보기 박스는 화면 안에 들어간다 */}
+          <div className="relative">
+          <div className="relative mx-[4%] sm:mx-[5%] rounded-t-[14px] sm:rounded-t-[20px] rounded-b-[4px] bg-stone-900 p-[2%] pt-[3%] pb-[2.4%] shadow-2xl shadow-slate-400/40 ring-1 ring-black/40">
+            {/* 카메라 */}
+            <span aria-hidden="true" className="absolute left-1/2 top-[1.1%] -translate-x-1/2 h-1.5 w-1.5 rounded-full bg-stone-700 ring-1 ring-stone-600/60" />
           <div
             ref={boxRef}
-            className="relative overflow-hidden -mx-5 sm:mx-0 rounded-none sm:rounded-2xl border-y sm:border border-slate-200 bg-white shadow-xl shadow-slate-300/30 select-none"
+            className="relative overflow-hidden rounded-[4px] sm:rounded-[6px] bg-white select-none"
             style={{ aspectRatio: narrow ? "580 / 570" : "1000 / 620", cursor: showAll ? "default" : "crosshair" }}
           >
             {/* 아래 칸 — 사람 눈에 보이는 그대로의 발표 영상 */}
@@ -285,14 +296,35 @@ export default function LoupeHero({ primaryAction, secondaryAction }: Props) {
             </div>
 
             {/* 처음 한 번만 보이는 안내 */}
-            {!moved && !showAll && (
-              <div className="absolute left-3 top-3 sm:left-4 sm:top-4 rounded-full bg-stone-900/80 px-3 py-1.5 text-xs font-semibold text-white pointer-events-none motion-safe:animate-fade-up">
-                {touch ? "그림 위를 문질러 보세요" : "커서를 올려 AI가 보는 것을 확인해 보세요"}
+            {!showAll && (
+              <div
+                aria-hidden={moved}
+                className={`absolute inset-x-0 bottom-[9%] flex justify-center pointer-events-none transition-opacity duration-500 ${moved ? "opacity-0" : "opacity-100"}`}
+              >
+                <div className="flex items-center gap-2.5 rounded-full bg-stone-900/85 pl-3 pr-4 py-2 sm:py-2.5 text-xs sm:text-sm font-semibold text-white shadow-lg shadow-black/20 ring-1 ring-white/10 backdrop-blur-sm">
+                  <span className="relative flex h-6 w-6 items-center justify-center rounded-full bg-teal-400/20">
+                    <span className="absolute inset-0 rounded-full bg-teal-400/30 motion-safe:animate-ping" />
+                    <svg viewBox="0 0 24 24" className="relative h-4 w-4 motion-safe:animate-cursor-wiggle" aria-hidden="true">
+                      {touch ? (
+                        <path d="M9 11V5.5a1.5 1.5 0 0 1 3 0V10m0-.5V4a1.5 1.5 0 0 1 3 0v6m0-1a1.5 1.5 0 0 1 3 0v4.5a6.5 6.5 0 0 1-6.5 6.5h-.6a6 6 0 0 1-4.6-2.2L4 16a1.6 1.6 0 0 1 2.4-2.1L9 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                      ) : (
+                        <path d="M5 3l14 7.2-6.1 1.7L10.2 18z" fill="white" stroke="white" strokeWidth="1.5" strokeLinejoin="round" />
+                      )}
+                    </svg>
+                  </span>
+                  {touch ? "화면을 문질러 AI가 보는 것을 확인해 보세요" : "커서를 움직여 AI가 보는 것을 확인해 보세요"}
+                </div>
               </div>
             )}
           </div>
+          </div>
+            {/* 본체 — 화면보다 넓은 알루미늄 판과 가운데 손잡이 홈 */}
+            <div aria-hidden="true" className="relative h-3 sm:h-4 rounded-t-[3px] rounded-b-[12px] sm:rounded-b-[18px] bg-gradient-to-b from-stone-200 via-stone-300 to-stone-400 shadow-[0_12px_24px_-8px_rgba(71,85,105,0.45)]">
+              <span className="absolute left-1/2 top-0 h-[45%] w-[16%] -translate-x-1/2 rounded-b-md bg-gradient-to-b from-stone-400 to-stone-300" />
+            </div>
+          </div>
 
-          <div className="mt-3 flex items-center justify-center gap-3 text-xs text-stone-400">
+          <div className="mt-5 flex items-center justify-center gap-3 text-xs text-stone-400">
             <span>AI가 읽어내는 것들 · 예시 화면</span>
             <button
               type="button"

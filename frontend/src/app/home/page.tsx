@@ -48,7 +48,7 @@ export default function HomePage() {
           {isAdmin && (
             <button
               onClick={() => router.push("/admin")}
-              className="h-10 flex items-center gap-1.5 px-3 sm:px-4 rounded-full whitespace-nowrap text-sm font-semibold text-stone-700 hover:bg-white transition-colors"
+              className="h-9 flex items-center gap-1.5 px-3 sm:px-4 rounded-full whitespace-nowrap text-sm font-semibold text-stone-700 hover:bg-white transition-colors"
             >
               <ShieldCheck className="w-4 h-4" />
               <span className="hidden sm:inline">관리자</span>
@@ -56,14 +56,14 @@ export default function HomePage() {
           )}
           <button
             onClick={() => router.push("/profile")}
-            className="h-10 flex items-center gap-1.5 px-3 sm:px-4 rounded-full whitespace-nowrap text-sm font-semibold text-stone-700 hover:bg-white transition-colors"
+            className="h-9 flex items-center gap-1.5 px-3 sm:px-4 rounded-full whitespace-nowrap text-sm font-semibold text-stone-700 hover:bg-white transition-colors"
           >
             <UserRound className="w-4 h-4" />
             <span className="hidden sm:inline">내 정보</span>
           </button>
           <button
             onClick={() => router.push("/dashboard")}
-            className="h-10 flex items-center gap-1.5 px-3 sm:px-4 rounded-full whitespace-nowrap text-sm font-semibold text-stone-700 hover:bg-white transition-colors"
+            className="h-9 flex items-center gap-1.5 px-3 sm:px-4 rounded-full whitespace-nowrap text-sm font-semibold text-stone-700 hover:bg-white transition-colors"
           >
             <FolderOpen className="w-4 h-4 sm:hidden" />
             <span className="hidden sm:inline">내 기록</span>
@@ -71,7 +71,7 @@ export default function HomePage() {
           </button>
           <button
             onClick={logout}
-            className="h-10 flex items-center gap-1.5 px-3 sm:px-4 rounded-full whitespace-nowrap text-sm font-semibold text-stone-500 hover:bg-white hover:text-stone-700 transition-colors"
+            className="h-9 flex items-center gap-1.5 px-3 sm:px-4 rounded-full whitespace-nowrap text-sm font-semibold text-stone-500 hover:bg-white hover:text-stone-700 transition-colors"
           >
             <LogOut className="w-4 h-4" />
             <span className="hidden sm:inline">로그아웃</span>

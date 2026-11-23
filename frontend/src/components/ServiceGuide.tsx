@@ -35,8 +35,8 @@ export default function ServiceGuide({ headerActions, primaryAction, secondaryAc
     <div className="dashboard-bg min-h-screen text-stone-900 font-['Pretendard_Variable',Pretendard,sans-serif]">
       {/* 1) 상단 바 — 화면 가운데 떠 있는 알약 모양 */}
       <div className="sticky top-4 z-20 px-4">
-        <header className="max-w-3xl mx-auto h-14 rounded-full bg-white/80 backdrop-blur flex items-center justify-between gap-2 pl-5 sm:pl-6 pr-2">
-          <PodiumLogo className="h-5 sm:h-6 w-auto shrink-0" />
+        <header className="max-w-3xl mx-auto h-12 rounded-full border border-stone-200/80 bg-white/80 backdrop-blur flex items-center justify-between gap-2 pl-5 sm:pl-6 pr-1.5">
+          <PodiumLogo className="h-[18px] sm:h-5 w-auto shrink-0" />
           <div className="flex items-center gap-1">{headerActions}</div>
         </header>
       </div>
@@ -45,7 +45,7 @@ export default function ServiceGuide({ headerActions, primaryAction, secondaryAc
              제목·소개문·시작 버튼도 무대 위에 얹혀 있어서 LoupeHero 가 같이 그린다. */}
       <LoupeHero primaryAction={primaryAction} secondaryAction={secondaryAction} />
 
-      <main className="max-w-7xl mx-auto px-5 sm:px-6 lg:px-8">
+      <main className="max-w-7xl mx-auto px-6 sm:px-10 lg:px-14">
         {/* 3) 분석하는 항목 — 실제 분석 화면의 「구간별 지표」를 줄여 놓은 카드 (SegmentMetrics.tsx).
                탭을 고르면 숫자와 꺾은선이 같이 바뀌고, 스크롤하면 누워 있던 카드가 똑바로 선다 */}
         <section className="pt-12 pb-20">
@@ -53,9 +53,14 @@ export default function ServiceGuide({ headerActions, primaryAction, secondaryAc
         </section>
 
         {/* 4) 이렇게 사용해요 — 스크롤하면 단계가 하나씩 켜지고 오른쪽 그림이 바뀐다 (UsageSteps.tsx) */}
-        <section id="how-to" className="scroll-mt-24 pt-16 border-t border-stone-200 motion-safe:animate-fade-up [animation-delay:80ms]">
-          <h2 className="text-3xl font-extrabold tracking-[-0.03em]">이렇게 사용해요.</h2>
-          <div className="mt-10">
+        <section id="how-to" className="scroll-mt-24 pt-20 pb-8 md:pt-28 lg:px-10 border-t border-stone-200 motion-safe:animate-fade-up [animation-delay:80ms]">
+          <p className="text-[15px] font-extrabold text-stone-900">이렇게 사용해요</p>
+          <h2 className="mt-4 text-4xl font-extrabold tracking-[-0.045em] leading-[1.12] text-stone-900">
+            찍고, 기다리고,
+            <br />
+            고쳐서 다시.
+          </h2>
+          <div className="mt-12">
             <UsageSteps />
           </div>
         </section>
