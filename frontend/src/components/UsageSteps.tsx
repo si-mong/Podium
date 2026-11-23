@@ -55,7 +55,7 @@ export default function UsageSteps() {
   }, []);
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-12">
+    <div className="grid grid-cols-1 lg:grid-cols-[1fr_440px] gap-12 xl:gap-16">
       {/* 왼쪽: 단계 목록.
           lg:pb-[35vh]: 마지막 단계도 화면 가운데까지 스크롤해 올릴 수 있게 아래 여백을 둔다 (없으면 마지막 단계가 안 켜짐) */}
       <ol className="lg:pb-[35vh]">
@@ -92,7 +92,7 @@ export default function UsageSteps() {
                 <p className={`font-extrabold text-lg motion-safe:transition-colors ${i === active ? "text-slate-900" : "text-slate-500"}`}>
                   {step.title}
                 </p>
-                <p className={`mt-1.5 text-[15px] leading-relaxed max-w-xl motion-safe:transition-colors ${i === active ? "text-slate-600" : "text-slate-400"}`}>
+                <p className={`mt-1.5 text-[15px] leading-relaxed max-w-2xl motion-safe:transition-colors ${i === active ? "text-slate-600" : "text-slate-400"}`}>
                   {step.desc}
                 </p>
               </div>

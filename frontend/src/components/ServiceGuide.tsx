@@ -2,11 +2,11 @@
 
 // 서비스 안내 화면 — 로그인 전 첫 화면(/)과 로그인 후 홈(/home)이 똑같이 쓴다.
 //   1) 가운데 떠 있는 알약 모양 상단 바 (Podium 워드마크 + 오른쪽 버튼)
-//   2) 히어로: 꽉 찬 무대 + 제목·시작 버튼 → 스크롤하면 박스로 줄어들며 분석 장면이 되고,
-//      그 위에서 커서를 움직이면 돋보기 안에만 분석 레이어가 보인다 — LoupeHero.tsx
+//   2) 히어로: 왼쪽에 제목·시작 버튼, 오른쪽에 발표 장면 그림.
+//      그림 위에서 커서를 움직이면 돋보기 안에만 분석 레이어가 보인다 — LoupeHero.tsx
 //   3) 분석하는 항목: 항목이 하나씩 돌아가며 켜지고 아래에 설명이 바뀐다 (마우스를 올리면 그 항목에서 멈춤)
 //   4) 이렇게 사용해요: 스크롤 따라 진행 — UsageSteps.tsx
-// 디자인: 파란색 없이 검정·흰색·따뜻한 회색(stone)만 쓰고, 글꼴은 Pretendard (layout.tsx 에서 불러옴).
+// 디자인: 바탕은 대시보드와 같은 파스텔(.dashboard-bg), 글자는 검정·따뜻한 회색(stone), 글꼴은 Pretendard.
 // 두 화면의 차이는 상단 오른쪽 버튼(headerActions)과 시작 버튼(primaryAction)뿐이다.
 
 import { useEffect, useState, type ReactNode } from "react";
@@ -18,7 +18,7 @@ import UsageSteps from "./UsageSteps";
 
 interface Props {
   headerActions: ReactNode; // 상단 오른쪽 버튼들 (로그인/시작하기 또는 내 기록/로그아웃)
-  primaryAction: { label: string; onClick: () => void }; // 소개 아래 검은 버튼
+  primaryAction: { label: string; onClick: () => void; google?: boolean }; // google: 구글 로고가 붙은 흰 버튼으로 // 소개 아래 검은 버튼
   secondaryAction?: { label: string; onClick: () => void };
 }
 
@@ -67,7 +67,7 @@ function AnalysisItems() {
                 onFocus={() => { setActive(i); setPaused(true); }}
                 onClick={() => { setActive(i); setPaused(true); }}
                 className={`relative overflow-hidden h-11 px-5 rounded-full text-[17px] font-bold tracking-tight transition-all duration-300 ${
-                  on ? "bg-stone-900 text-white scale-105 shadow-md" : "bg-stone-100 text-stone-400 hover:text-stone-600"
+                  on ? "bg-stone-900 text-white scale-105 shadow-md" : "bg-white/70 text-stone-400 hover:text-stone-600"
                 }`}
               >
                 {it.name}
@@ -88,7 +88,7 @@ function AnalysisItems() {
       {/* 선택된 항목 설명 — 바뀔 때마다 살짝 올라오며 나타난다 */}
       <div
         key={active}
-        className="mt-6 mx-auto max-w-md flex items-center gap-4 text-left rounded-2xl bg-stone-50 border border-stone-200 px-5 py-4 motion-safe:animate-fade-up"
+        className="mt-6 mx-auto max-w-md flex items-center gap-4 text-left rounded-2xl bg-white/80 border border-slate-200 px-5 py-4 motion-safe:animate-fade-up"
       >
         <div className="w-11 h-11 rounded-xl bg-white border border-stone-200 flex items-center justify-center shrink-0">
           <item.Icon className="w-5 h-5 text-stone-800" />
@@ -104,10 +104,10 @@ function AnalysisItems() {
 
 export default function ServiceGuide({ headerActions, primaryAction, secondaryAction }: Props) {
   return (
-    <div className="min-h-screen bg-white text-stone-900 font-['Pretendard_Variable',Pretendard,sans-serif]">
+    <div className="dashboard-bg min-h-screen text-stone-900 font-['Pretendard_Variable',Pretendard,sans-serif]">
       {/* 1) 상단 바 — 화면 가운데 떠 있는 알약 모양 */}
       <div className="sticky top-4 z-20 px-4">
-        <header className="max-w-2xl mx-auto h-14 rounded-full bg-stone-100/90 backdrop-blur flex items-center justify-between gap-2 pl-5 sm:pl-6 pr-2">
+        <header className="max-w-3xl mx-auto h-14 rounded-full bg-white/80 backdrop-blur flex items-center justify-between gap-2 pl-5 sm:pl-6 pr-2">
           <PodiumLogo className="h-5 sm:h-6 w-auto shrink-0" />
           <div className="flex items-center gap-1">{headerActions}</div>
         </header>
@@ -117,8 +117,8 @@ export default function ServiceGuide({ headerActions, primaryAction, secondaryAc
              제목·소개문·시작 버튼도 무대 위에 얹혀 있어서 LoupeHero 가 같이 그린다. */}
       <LoupeHero primaryAction={primaryAction} secondaryAction={secondaryAction} />
 
-      <main className="max-w-5xl mx-auto px-6">
-        <section className="pt-4 pb-10 text-center">
+      <main className="max-w-7xl mx-auto px-5 sm:px-6 lg:px-8">
+        <section className="pt-6 pb-10 text-center">
           {/* 3) 분석하는 항목 — 하나씩 돌아가며 켜진다 */}
           <div className="mt-6">
             <AnalysisItems />

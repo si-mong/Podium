@@ -1,42 +1,30 @@
 "use client";
 
-// 첫 화면 히어로 — 무대(전체 화면) → 박스로 줄어듦 → 분석 장면 → "AI의 눈" 돋보기.
-// ServiceGuide 가 쓰며, 제목·소개문·시작 버튼도 여기서 그린다 (무대 위에 얹혀 같이 움직이기 때문).
-//
-// 스크롤 흐름 (화면에 붙어 있는 sticky 구간 동안 진행된다):
-//   1) 무대 (public/stage.webp) 가 화면을 꽉 채운다. 그 위에 제목·소개문·시작 버튼.
-//   2) 스크롤하면 글자가 먼저 걷히고, 꽉 찬 무대가 둥근 박스로 줄어든다.
-//   3) 박스 안에서 무대가 밝게 날아가고(두 그림의 사람 위치가 달라서 겹쳐 보이지 않도록
-//      중간에 밝은 화면을 한 번 끼운다) 분석 장면이 들어온다.
-//   4) 분석 장면 (public/presenter.webp — 사람 + 발표 자료 화면)
-//      - 아래 칸: 그냥 발표 영상처럼 보인다
-//      - 위 칸: 같은 그림을 어둡게 깔고 그 위에 시선·자세·제스처·목소리 파형·자막을 그린다.
-//        커서 둘레만 동그랗게 뚫려서, 돋보기 안에서만 보인다
-//   즉 "사람 눈엔 그냥 영상, AI 눈엔 데이터" 를 보여준다.
+// 첫 화면 히어로 — 왼쪽에 제목, 오른쪽에 "AI의 눈" 돋보기 (ServiceGuide 가 쓴다).
+//   아래 칸: 발표하는 장면 그림 (public/presenter.webp — 사람 + 발표 자료 화면). 그냥 발표 영상처럼 보인다.
+//   위 칸: 같은 그림을 어둡게 깔고 그 위에 시선·자세·제스처·목소리 파형·자막을 그린다.
+//          커서 둘레만 동그랗게 뚫려서, 돋보기 안에서만 보인다.
+// 즉 "사람 눈엔 그냥 영상, AI 눈엔 데이터" 를 한 그림으로 보여준다.
 //
 // 돋보기 움직임:
 //   - 커서(손가락)를 올리면 돋보기가 따라온다. 부드럽게 따라가도록 매 프레임 조금씩 다가간다.
 //   - 커서가 없으면 볼거리(얼굴 → 목소리 → 자막 → 제스처)를 2.4초마다 혼자 돌아다닌다.
+//   - "애니메이션 줄이기"를 켠 사용자: 혼자 돌아다니지 않고, 커서를 따라갈 때도 바로 그 자리로 간다.
 //   - 「분석 레이어 전체 보기」를 누르면 돋보기 없이 전부 보인다 (키보드 사용자·터치 사용자용).
-//
-// "애니메이션 줄이기"를 켠 사용자에게는 스크롤 전환을 쓰지 않고, 무대 → 분석 장면을 위아래로
-// 그냥 쌓아서 보여준다 (아래 StaticHero).
 //
 // 그림 안의 숫자·문장은 전부 보여주기용 예시다 (서버를 부르지 않음).
 // 분석 레이어 색은 라이트/다크에서 똑같이 보이도록 Tailwind 색 이름 대신 색값을 직접 적었다.
 // (tailwind.config.ts 가 색 이름을 다크 모드에서 뒤집기 때문)
 //
-// 좌표 메모: 그림판은 1000×620. 발표 장면 그림(public/presenter.webp, 원본 1400×857)은 x 30, y 24 에 940×575 로 놓았고,
+// 좌표 메모: 그림판은 1000×620. 발표 장면 그림(원본 1400×857)은 x 30, y 24 에 940×575 로 놓았고,
 // 아래 분석 레이어의 숫자는 그 그림 위에서 직접 잰 눈·어깨·손 위치다. 그림을 바꾸면 이 숫자도 전부 다시 재야 한다.
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import Image from "next/image";
+import { useCallback, useEffect, useRef, useState } from "react";
+import GoogleLogo from "./GoogleLogo";
 
 // 그림판 전체는 1000×620. 좁은 화면에서는 글씨가 너무 작아져서 사람 쪽(430,40 부터 570×570)만 잘라 크게 보여준다.
 const VIEW_WIDE = "0 0 1000 620";
 const VIEW_NARROW = "430 50 570 570";
-const RATIO_WIDE = 1000 / 620;
-const RATIO_NARROW = 580 / 570;
 
 // 돋보기가 혼자 돌아다닐 때 들르는 볼거리 (보이는 범위의 가로·세로를 1 로 봤을 때의 위치)
 const SPOTS_WIDE = [
@@ -56,46 +44,59 @@ const SPOT_MS = 2400;
 // 발표 장면 그림을 놓는 자리 (그림판 좌표). 원본 1400×857.
 const FIG = { x: 30, y: 24, w: 940, h: 575 };
 
-const HEADER_SAFE = 92; // 떠 있는 상단 바에 가리지 않도록 박스 위에 비워 두는 높이
-const CAPTION_H = 44; // 박스 아래 설명 줄 높이
-
 interface Props {
-  primaryAction: { label: string; onClick: () => void };
+  primaryAction: { label: string; onClick: () => void; google?: boolean }; // google: 구글 로고가 붙은 흰 버튼으로
   secondaryAction?: { label: string; onClick: () => void };
 }
 
-const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
-const ease = (t: number) => t * t * (3 - 2 * t); // 시작·끝을 부드럽게
-const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
-
-// 돋보기 — 분석 레이어를 커서 둘레만 동그랗게 보여 준다. 두 히어로(스크롤용·정지용)가 같이 쓴다.
-function useLoupe(narrow: boolean, reduce: boolean, showAll: boolean, active = true) {
+export default function LoupeHero({ primaryAction, secondaryAction }: Props) {
   const boxRef = useRef<HTMLDivElement>(null);
   const layerRef = useRef<HTMLDivElement>(null);
+  const lensRef = useRef<HTMLDivElement>(null); // 돋보기 안쪽 — 살짝 확대해서 유리처럼 보이게 한다
   const ringRef = useRef<HTMLDivElement>(null);
-  const [moved, setMoved] = useState(false);
+  const [showAll, setShowAll] = useState(false);
+  const [moved, setMoved] = useState(false); // 한 번이라도 커서를 올렸는지 (안내 문구 숨김용)
+  const [narrow, setNarrow] = useState(false); // 좁은 화면이면 그림을 잘라 크게 보여준다
+  const [touch, setTouch] = useState(false); // 커서가 없는 기기면 안내 문구를 바꾼다
+  const [reduce, setReduce] = useState(false);
   const showAllRef = useRef(showAll);
   showAllRef.current = showAll;
   const narrowRef = useRef(narrow);
   narrowRef.current = narrow;
-  const activeRef = useRef(active);
-  activeRef.current = active;
 
+  // 지금 위치(pos)가 목표(target)로 조금씩 따라간다
   const pos = useRef({ x: 0, y: 0 });
   const target = useRef({ x: 0, y: 0 });
-  const following = useRef(false);
+  const following = useRef(false); // 커서를 따라가는 중인지
 
+  // 돋보기를 지금 위치에 그린다
   const draw = useCallback(() => {
     const box = boxRef.current;
     const layer = layerRef.current;
+    const lens = lensRef.current;
     const ring = ringRef.current;
-    if (!box || !layer || !ring) return;
-    const r = Math.min(155, Math.max(68, box.clientWidth * 0.19)); // 돋보기 반지름 — 틀 크기를 따라간다
+    if (!box || !layer || !lens || !ring) return;
+    const all = showAllRef.current;
+    const r = Math.min(104, Math.max(50, box.clientWidth * 0.135)); // 돋보기 반지름 — 틀 크기를 따라간다
     const { x, y } = pos.current;
-    layer.style.clipPath = showAllRef.current ? "none" : `circle(${r}px at ${x}px ${y}px)`;
+    // 바깥: 동그랗게 뚫린 창 / 안쪽: 그 자리를 중심으로 조금 확대 → 진짜 렌즈처럼 보인다
+    layer.style.clipPath = all ? "none" : `circle(${r}px at ${x}px ${y}px)`;
+    lens.style.transformOrigin = `${x}px ${y}px`;
+    lens.style.transform = all ? "none" : "scale(1.14)";
     ring.style.width = ring.style.height = `${r * 2}px`;
     ring.style.transform = `translate(${x - r}px, ${y - r}px)`;
-    ring.style.opacity = showAllRef.current ? "0" : "1";
+    ring.style.opacity = all ? "0" : "1";
+  }, []);
+
+  // 좁은 화면인지 / 커서가 없는 기기인지 / 애니메이션을 줄였는지
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 639px)");
+    const sync = () => setNarrow(mq.matches);
+    sync();
+    setTouch(window.matchMedia("(hover: none)").matches);
+    setReduce(window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
   }, []);
 
   useEffect(() => {
@@ -109,7 +110,7 @@ function useLoupe(narrow: boolean, reduce: boolean, showAll: boolean, active = t
     pos.current = { ...target.current };
     draw();
 
-    // 커서가 없으면 볼거리를 하나씩 혼자 돌아다닌다
+    // 혼자 돌아다니기 — 커서를 따라가는 중이면 쉰다
     const timer = reduce
       ? null
       : setInterval(() => {
@@ -118,6 +119,7 @@ function useLoupe(narrow: boolean, reduce: boolean, showAll: boolean, active = t
           target.current = toPx(spots()[spot]);
         }, SPOT_MS);
 
+    // 매 프레임 목표 쪽으로 조금씩 (0.12 만큼) 다가간다
     let raf = 0;
     const tick = () => {
       pos.current.x += (target.current.x - pos.current.x) * 0.12;
@@ -131,9 +133,9 @@ function useLoupe(narrow: boolean, reduce: boolean, showAll: boolean, active = t
       const rect = box.getBoundingClientRect();
       target.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
       following.current = true;
-      if (activeRef.current) setMoved(true);
+      setMoved(true);
       if (reduce) {
-        pos.current = { ...target.current };
+        pos.current = { ...target.current }; // 움직임을 줄인 사용자에겐 따라오는 동작 없이 바로 그 자리로
         draw();
       }
     };
@@ -162,396 +164,131 @@ function useLoupe(narrow: boolean, reduce: boolean, showAll: boolean, active = t
     };
   }, [draw, reduce]);
 
-  useEffect(() => { draw(); }, [showAll, narrow, draw]);
-
-  return { boxRef, layerRef, ringRef, moved, draw };
-}
-
-// 틀 안에 들어가는 분석 장면 (아래 칸 + 돋보기로 보는 위 칸 + 테두리)
-function Scene({
-  view,
-  layerRef,
-  ringRef,
-}: {
-  view: string;
-  layerRef: React.RefObject<HTMLDivElement>;
-  ringRef: React.RefObject<HTMLDivElement>;
-}) {
-  return (
-    <>
-      <BaseScene view={view} />
-      <div ref={layerRef} className="absolute inset-0">
-        <AnalysisScene view={view} />
-      </div>
-      <div
-        ref={ringRef}
-        aria-hidden="true"
-        className="absolute left-0 top-0 rounded-full pointer-events-none"
-        style={{ boxShadow: "0 0 0 1.5px rgba(45,212,191,0.55), 0 0 0 7px rgba(45,212,191,0.10)" }}
-      />
-    </>
-  );
-}
-
-// 박스 아래 설명 줄
-function CaptionRow({ showAll, onToggle, enabled }: { showAll: boolean; onToggle: () => void; enabled: boolean }) {
-  return (
-    <>
-      <span>AI가 읽어내는 것들 · 예시 화면</span>
-      <button
-        type="button"
-        onClick={onToggle}
-        tabIndex={enabled ? 0 : -1}
-        className="rounded-full border border-stone-300 px-3 py-1 font-semibold text-stone-500 hover:bg-stone-50 hover:text-stone-700 transition-colors"
-      >
-        {showAll ? "돋보기로 보기" : "분석 레이어 전체 보기"}
-      </button>
-    </>
-  );
-}
-
-const HERO_TITLE = (
-  <>
-    발표 연습,
-    <br />
-    혼자서도 쉽게!
-  </>
-);
-const HERO_LEAD = "목소리와 제스처, 시선을 분석하고 발표를 내용 흐름에 따라 구간으로 나눠 구간별 피드백과 전체 총평을 보여줍니다.";
-
-export default function LoupeHero({ primaryAction, secondaryAction }: Props) {
-  const [narrow, setNarrow] = useState(false);
-  const [touch, setTouch] = useState(false);
-  const [reduce, setReduce] = useState(false);
-
-  useEffect(() => {
-    const mq = window.matchMedia("(max-width: 639px)");
-    const sync = () => setNarrow(mq.matches);
-    sync();
-    setTouch(window.matchMedia("(hover: none)").matches);
-    setReduce(window.matchMedia("(prefers-reduced-motion: reduce)").matches);
-    mq.addEventListener("change", sync);
-    return () => mq.removeEventListener("change", sync);
-  }, []);
-
-  const common = { narrow, touch, reduce, primaryAction, secondaryAction };
-  return reduce ? <StaticHero {...common} /> : <ScrollHero {...common} />;
-}
-
-type HeroProps = Props & { narrow: boolean; touch: boolean; reduce: boolean };
-
-// ── 스크롤 전환 히어로 ────────────────────────────────────────────────────────
-function ScrollHero({ narrow, touch, reduce, primaryAction, secondaryAction }: HeroProps) {
-  const runwayRef = useRef<HTMLDivElement>(null);
-  const stickyRef = useRef<HTMLDivElement>(null);
-  const copyRef = useRef<HTMLDivElement>(null);
-  const scrimRef = useRef<HTMLDivElement>(null);
-  const stageRef = useRef<HTMLDivElement>(null);
-  const washRef = useRef<HTMLDivElement>(null);
-  const lightRef = useRef<HTMLDivElement>(null);
-  const glowRef = useRef<HTMLDivElement>(null);
-  const sceneRef = useRef<HTMLDivElement>(null);
-  const capRef = useRef<HTMLDivElement>(null);
-  const [showAll, setShowAll] = useState(false);
-  const [entered, setEntered] = useState(false);
-  const enteredRef = useRef(entered);
-  enteredRef.current = entered;
-  const narrowRef = useRef(narrow);
-  narrowRef.current = narrow;
-
-  const { boxRef, layerRef, ringRef, moved, draw } = useLoupe(narrow, reduce, showAll, entered);
-
-  useEffect(() => {
-    const runway = runwayRef.current;
-    const sticky = stickyRef.current;
-    if (!runway || !sticky) return;
-    let raf = 0;
-
-    const apply = () => {
-      raf = 0;
-      const vw = sticky.clientWidth;
-      const vh = sticky.clientHeight;
-      const span = Math.max(1, runway.offsetHeight - vh);
-      const p = clamp01(-runway.getBoundingClientRect().top / span);
-
-      // 줄어든 뒤의 박스 자리
-      const ratio = narrowRef.current ? RATIO_NARROW : RATIO_WIDE;
-      const pad = narrowRef.current ? 0 : 24;
-      let W = Math.min(976, vw - pad * 2);
-      let H = W / ratio;
-      const maxH = vh - HEADER_SAFE - CAPTION_H - 16;
-      if (H > maxH) {
-        H = maxH;
-        W = H * ratio;
-      }
-      const L = (vw - W) / 2;
-      const T = HEADER_SAFE + Math.max(0, (vh - HEADER_SAFE - CAPTION_H - H) / 2);
-
-      // 1) 글자가 먼저 걷힌다
-      const co = 1 - clamp01(p / 0.14);
-      if (copyRef.current) {
-        copyRef.current.style.opacity = String(co);
-        copyRef.current.style.transform = `translateY(${-30 * (1 - co)}px)`;
-        copyRef.current.style.visibility = co < 0.05 ? "hidden" : "visible";
-      }
-      if (scrimRef.current) scrimRef.current.style.opacity = String(co);
-
-      // 2) 꽉 찬 화면이 박스로 줄어든다
-      const s = ease(clamp01((p - 0.1) / 0.28));
-      const startH = narrowRef.current ? vh * 0.54 : vh; // 좁은 화면에서는 무대가 위쪽만 차지한다
-      const bx = { l: lerp(0, L, s), t: lerp(0, T, s), w: lerp(vw, W, s), h: lerp(startH, H, s) };
-      const box = boxRef.current;
-      if (box) {
-        box.style.left = `${bx.l}px`;
-        box.style.top = `${bx.t}px`;
-        box.style.width = `${bx.w}px`;
-        box.style.height = `${bx.h}px`;
-        box.style.borderRadius = `${s * (narrowRef.current ? 0 : 20)}px`;
-      }
-
-      // 3) 무대가 다가가며 사라지고, 한 번 밝아졌다가, 분석 장면이 들어온다
-      const out = clamp01((p - 0.34) / 0.16);
-      if (lightRef.current) lightRef.current.style.opacity = String(1 - out);
-      if (glowRef.current) glowRef.current.style.opacity = String(1 - out);
-      if (stageRef.current) {
-        stageRef.current.style.opacity = String(1 - out);
-        stageRef.current.style.transform = `scale(${1 + 0.07 * ease(clamp01((p - 0.08) / 0.42))})`;
-      }
-      if (washRef.current) {
-        washRef.current.style.opacity = String(p < 0.5 ? clamp01((p - 0.38) / 0.12) : 1 - clamp01((p - 0.5) / 0.2));
-      }
-      const into = clamp01((p - 0.5) / 0.22);
-      if (sceneRef.current) {
-        sceneRef.current.style.opacity = String(into);
-        sceneRef.current.style.transform = `scale(${lerp(1.04, 1, into)})`;
-      }
-
-      // 4) 박스 아래 설명 줄은 박스를 따라다닌다
-      if (capRef.current) {
-        capRef.current.style.left = `${bx.l}px`;
-        capRef.current.style.width = `${bx.w}px`;
-        capRef.current.style.top = `${bx.t + bx.h + 12}px`;
-        capRef.current.style.opacity = String(into > 0.8 ? 1 : 0);
-      }
-
-      const on = into > 0.6;
-      if (on !== enteredRef.current) setEntered(on);
-      draw();
-    };
-    const onScroll = () => {
-      if (!raf) raf = requestAnimationFrame(apply);
-    };
-
-    apply();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    window.addEventListener("resize", onScroll);
-    return () => {
-      if (raf) cancelAnimationFrame(raf);
-      window.removeEventListener("scroll", onScroll);
-      window.removeEventListener("resize", onScroll);
-    };
-  }, [boxRef, draw]);
-
-  // 무대 조명 — 커서를 따라 천천히 옮겨 다니고, 커서가 없으면 발표자 자리로 돌아간다.
-  // 조명 밖은 어둡게 깔려서, 첫 화면에서 스크롤하기 전부터 화면이 손에 반응한다.
+  // 보이는 범위가 바뀌면 돋보기도 그 범위의 볼거리로 옮긴다
   useEffect(() => {
     const box = boxRef.current;
-    const light = lightRef.current;
-    const glow = glowRef.current;
-    if (!box || !light || !glow) return;
-    const REST = { x: 0.5, y: 0.62 }; // 발표자가 서 있는 자리
-    const at = { x: 0, y: 0 };
-    const to = { x: 0, y: 0 };
-    const rest = () => ({ x: box.clientWidth * REST.x, y: box.clientHeight * REST.y });
-    at.x = rest().x;
-    at.y = rest().y;
-    to.x = at.x;
-    to.y = at.y;
-
-    let raf = 0;
-    const tick = () => {
-      at.x += (to.x - at.x) * 0.08;
-      at.y += (to.y - at.y) * 0.08;
-      const r = Math.min(460, Math.max(220, box.clientWidth * 0.26));
-      light.style.background = `radial-gradient(circle ${r}px at ${at.x}px ${at.y}px, rgba(22,14,4,0) 0%, rgba(22,14,4,0.16) 45%, rgba(22,14,4,0.52) 100%)`;
-      glow.style.background = `radial-gradient(circle ${r * 0.72}px at ${at.x}px ${at.y}px, rgba(255,208,140,0.3) 0%, rgba(255,208,140,0) 72%)`;
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-
-    const move = (e: PointerEvent) => {
-      const rect = box.getBoundingClientRect();
-      to.x = e.clientX - rect.left;
-      to.y = e.clientY - rect.top;
-    };
-    const leave = () => {
-      const r = rest();
-      to.x = r.x;
-      to.y = r.y;
-    };
-    box.addEventListener("pointermove", move);
-    box.addEventListener("pointerleave", leave);
-    return () => {
-      cancelAnimationFrame(raf);
-      box.removeEventListener("pointermove", move);
-      box.removeEventListener("pointerleave", leave);
-    };
-  }, [boxRef]);
+    if (box && !following.current) {
+      const spot = (narrow ? SPOTS_NARROW : SPOTS_WIDE)[0];
+      target.current = { x: box.clientWidth * spot.x, y: box.clientHeight * spot.y };
+      if (reduce) pos.current = { ...target.current };
+    }
+    draw();
+  }, [showAll, narrow, reduce, draw]);
 
   const view = narrow ? VIEW_NARROW : VIEW_WIDE;
 
   return (
-    <section ref={runwayRef} className="relative -mt-14">
-      <HeroSrOnly />
-      <div ref={stickyRef} className="sticky top-0 h-screen overflow-hidden">
-        {/* 무대 → 분석 장면이 담긴 틀. 꽉 찬 화면에서 시작해 박스로 줄어든다 */}
-        <div
-          ref={boxRef}
-          className="absolute overflow-hidden border border-stone-200 bg-stone-100 select-none"
-          style={{
-            left: 0,
-            top: 0,
-            width: "100%",
-            height: narrow ? "54%" : "100%",
-            cursor: entered && !showAll ? "crosshair" : "default",
-          }}
-        >
-          <div ref={stageRef} className="absolute inset-0 will-change-transform" aria-hidden="true">
-            <Image src="/stage.webp" alt="" fill priority sizes="100vw" className="object-cover dark:brightness-[0.78]" />
-          </div>
-          {/* 무대 조명 — 커서가 비추는 곳만 밝고 나머지는 어둡다 */}
-          <div ref={lightRef} className="absolute inset-0 pointer-events-none" aria-hidden="true" />
-          <div ref={glowRef} className="absolute inset-0 pointer-events-none mix-blend-screen" aria-hidden="true" />
-
-          {/* 글자가 읽히도록 위쪽을 밝게 (글자와 같이 걷힌다) */}
-          <div
-            ref={scrimRef}
-            aria-hidden="true"
-            className="absolute inset-0 hidden sm:block bg-gradient-to-b from-[rgba(253,246,235,0.92)] via-[rgba(253,246,235,0.45)] to-transparent"
-          />
-          {/* 무대와 분석 장면 사이에서 한 번 밝아지는 화면 */}
-          <div ref={washRef} className="absolute inset-0 bg-stone-100" style={{ opacity: 0 }} aria-hidden="true" />
-          <div
-            ref={sceneRef}
-            className="absolute inset-0 will-change-transform"
-            style={{ opacity: 0, transform: "scale(1.04)" }}
-          >
-            <Scene view={view} layerRef={layerRef} ringRef={ringRef} />
-          </div>
-
-          {entered && !moved && !showAll && (
-            <div className="absolute left-3 top-3 sm:left-4 sm:top-4 rounded-full bg-stone-900/80 px-3 py-1.5 text-xs font-semibold text-white pointer-events-none motion-safe:animate-fade-up">
-              {touch ? "그림 위를 문질러 보세요" : "커서를 올려 AI가 보는 것을 확인해 보세요"}
-            </div>
-          )}
-        </div>
-
-        {/* 제목 — 꽉 찬 무대 위에 얹혀 있다가 먼저 걷힌다 */}
-        <div
-          ref={copyRef}
-          className="absolute inset-x-0 bottom-[4%] px-6 text-center will-change-transform pointer-events-none sm:inset-0 sm:bottom-0 sm:flex sm:flex-col sm:pt-[max(84px,8vh)] sm:pb-[16vh]"
-        >
-          <h1 className="text-4xl sm:text-5xl font-extrabold tracking-[-0.04em] leading-[1.1] text-stone-900 sm:text-[#241c13]">{HERO_TITLE}</h1>
-          <p className="mt-4 sm:mt-5 mx-auto max-w-xl text-base md:text-lg leading-relaxed text-stone-500 sm:text-[rgba(36,28,19,0.72)]">{HERO_LEAD}</p>
-          <div className="mt-5 sm:mt-7 flex items-center justify-center gap-2 pointer-events-auto">
+    <section className="pt-10 pb-14 md:pt-16 md:pb-20">
+      <div className="max-w-7xl mx-auto px-5 sm:px-6 lg:px-8 grid items-center gap-10 lg:grid-cols-[minmax(0,420px)_minmax(0,1fr)] lg:gap-16">
+        {/* 왼쪽 — 제목과 시작 버튼 */}
+        <div className="text-center lg:text-left motion-safe:animate-fade-up">
+          <h1 className="text-4xl sm:text-5xl font-extrabold tracking-[-0.04em] leading-[1.12] text-stone-900">
+            발표 연습,
+            <br />
+            혼자서도 쉽게!
+          </h1>
+          <p className="mt-5 mx-auto lg:mx-0 max-w-md text-base md:text-lg leading-relaxed text-stone-500">
+            목소리와 제스처, 시선을 분석하고 발표를 내용 흐름에 따라 구간으로 나눠 구간별 피드백과 전체 총평을
+            보여줍니다.
+          </p>
+          <div className="mt-7 flex flex-wrap items-center justify-center lg:justify-start gap-2">
             <button
               onClick={primaryAction.onClick}
-              className="h-12 px-6 rounded-full bg-stone-900 text-white sm:bg-[#241c13] sm:hover:bg-[#3b2f20] sm:text-[#fdf6eb] text-[15px] font-semibold transition-colors"
+              className={
+                primaryAction.google
+                  ? "h-12 pl-5 pr-6 rounded-full bg-white border border-stone-300 hover:bg-stone-50 text-stone-700 text-[15px] font-semibold flex items-center gap-3 shadow-sm transition-colors"
+                  : "h-12 px-6 rounded-full bg-stone-900 hover:bg-stone-700 text-white text-[15px] font-semibold transition-colors"
+              }
             >
+              {primaryAction.google && <GoogleLogo />}
               {primaryAction.label}
             </button>
             {secondaryAction && (
               <button
                 onClick={secondaryAction.onClick}
-                className="h-12 px-6 rounded-full border border-stone-300 text-stone-700 sm:border-[rgba(36,28,19,0.35)] sm:text-[#241c13] text-[15px] font-semibold sm:hover:bg-[rgba(36,28,19,0.07)] transition-colors"
+                className="h-12 px-6 rounded-full border border-stone-300 bg-white/60 hover:bg-white text-stone-700 text-[15px] font-semibold transition-colors"
               >
                 {secondaryAction.label}
               </button>
             )}
           </div>
-          <div className="mt-6 sm:mt-auto text-xs font-semibold tracking-wide text-stone-400 sm:text-[rgba(36,28,19,0.6)]">
-            스크롤하면 AI가 보기 시작해요
+        </div>
+
+        {/* 오른쪽 — 돋보기 박스 */}
+        <div className="motion-safe:animate-fade-up [animation-delay:80ms]">
+          <p className="sr-only">
+            발표하는 장면 위에 돋보기를 올리면 돋보기 안에서만 AI 분석 결과(시선, 자세, 제스처, 목소리 파형, 자막의
+            군말)가 보이는 그림입니다. 아래 「분석 레이어 전체 보기」 버튼으로 전체를 펼쳐 볼 수 있습니다.
+          </p>
+
+          <div
+            ref={boxRef}
+            className="relative overflow-hidden -mx-5 sm:mx-0 rounded-none sm:rounded-2xl border-y sm:border border-slate-200 bg-white shadow-xl shadow-slate-300/30 select-none"
+            style={{ aspectRatio: narrow ? "580 / 570" : "1000 / 620", cursor: showAll ? "default" : "crosshair" }}
+          >
+            {/* 아래 칸 — 사람 눈에 보이는 그대로의 발표 영상 */}
+            <BaseScene view={view} />
+
+            {/* 위 칸 — AI 분석 레이어. 돋보기 안에서만 보인다 */}
+            <div ref={layerRef} className="absolute inset-0">
+              <div ref={lensRef} className="absolute inset-0 will-change-transform">
+                <AnalysisScene view={view} />
+              </div>
+            </div>
+
+            {/* 돋보기 유리 — 가장자리 그림자와 위쪽 하이라이트로 볼록한 느낌을 낸다 */}
+            <div
+              ref={ringRef}
+              aria-hidden="true"
+              className="absolute left-0 top-0 rounded-full pointer-events-none overflow-hidden"
+              style={{
+                background:
+                  "radial-gradient(circle at 34% 26%, rgba(255,255,255,0.3) 0%, rgba(255,255,255,0.1) 20%, rgba(255,255,255,0) 44%), radial-gradient(circle at 72% 80%, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0) 38%)",
+                boxShadow: [
+                  "inset 0 0 0 1px rgba(255,255,255,0.4)", // 유리 안쪽 테
+                  "inset 3px 4px 10px rgba(255,255,255,0.22)", // 왼쪽 위에서 들어오는 빛
+                  "inset -5px -6px 16px rgba(8,20,18,0.45)", // 오른쪽 아래 두께감
+                  "0 0 0 2px rgba(45,212,191,0.55)", // 테 (민트)
+                  "0 0 0 7px rgba(45,212,191,0.1)",
+                  "0 14px 30px rgba(10,28,26,0.35)", // 떠 있는 그림자
+                ].join(", "),
+              }}
+            >
+              {/* 유리에 비치는 빛 한 점 */}
+              <span
+                className="absolute rounded-full"
+                style={{
+                  left: "17%",
+                  top: "13%",
+                  width: "32%",
+                  height: "19%",
+                  transform: "rotate(-28deg)",
+                  background: "radial-gradient(ellipse at center, rgba(255,255,255,0.6) 0%, rgba(255,255,255,0) 70%)",
+                }}
+              />
+            </div>
+
+            {/* 처음 한 번만 보이는 안내 */}
+            {!moved && !showAll && (
+              <div className="absolute left-3 top-3 sm:left-4 sm:top-4 rounded-full bg-stone-900/80 px-3 py-1.5 text-xs font-semibold text-white pointer-events-none motion-safe:animate-fade-up">
+                {touch ? "그림 위를 문질러 보세요" : "커서를 올려 AI가 보는 것을 확인해 보세요"}
+              </div>
+            )}
+          </div>
+
+          <div className="mt-3 flex items-center justify-center gap-3 text-xs text-stone-400">
+            <span>AI가 읽어내는 것들 · 예시 화면</span>
+            <button
+              type="button"
+              onClick={() => setShowAll((v) => !v)}
+              className="rounded-full border border-stone-300 bg-white/60 px-3 py-1 font-semibold text-stone-500 hover:bg-white hover:text-stone-700 transition-colors"
+            >
+              {showAll ? "돋보기로 보기" : "분석 레이어 전체 보기"}
+            </button>
           </div>
         </div>
-
-        {/* 박스 아래 설명 줄 */}
-        <div
-          ref={capRef}
-          className="absolute flex items-center justify-center gap-3 text-xs text-stone-400 motion-safe:transition-opacity motion-safe:duration-300"
-          style={{ opacity: 0, left: 0, top: 0, width: "100%" }}
-        >
-          <CaptionRow showAll={showAll} onToggle={() => setShowAll((v) => !v)} enabled={entered} />
-        </div>
-      </div>
-
-      {/* 활주로 — 이 길이만큼 스크롤하는 동안 위 장면이 진행된다 */}
-      <div className="h-[110vh] sm:h-[130vh]" aria-hidden="true" />
-    </section>
-  );
-}
-
-// ── "애니메이션 줄이기"를 켠 사용자용: 전환 없이 위아래로 쌓아서 보여준다 ──────────
-function StaticHero({ narrow, touch, reduce, primaryAction, secondaryAction }: HeroProps) {
-  const [showAll, setShowAll] = useState(false);
-  const { boxRef, layerRef, ringRef, moved } = useLoupe(narrow, reduce, showAll);
-  const view = narrow ? VIEW_NARROW : VIEW_WIDE;
-
-  return (
-    <section className="relative -mt-14">
-      <HeroSrOnly />
-      {/* 무대 — 글자는 그림 위에 얹지 않고 아래에 둔다 (전환이 없으니 단순한 쪽이 읽기 좋다) */}
-      <div className="relative h-[46vh] sm:h-[56vh] min-h-[300px] overflow-hidden">
-        <Image src="/stage.webp" alt="" fill priority sizes="100vw" className="object-cover dark:brightness-[0.78]" />
-      </div>
-      <div className="px-6 pt-10 text-center">
-        <h1 className="text-4xl md:text-5xl font-extrabold tracking-[-0.04em] leading-[1.1] text-stone-900">{HERO_TITLE}</h1>
-        <p className="mt-5 mx-auto max-w-xl text-base md:text-lg leading-relaxed text-stone-500">{HERO_LEAD}</p>
-        <div className="mt-7 flex items-center justify-center gap-2">
-          <button
-            onClick={primaryAction.onClick}
-            className="h-12 px-6 rounded-full bg-stone-900 hover:bg-stone-700 text-white text-[15px] font-semibold transition-colors"
-          >
-            {primaryAction.label}
-          </button>
-          {secondaryAction && (
-            <button
-              onClick={secondaryAction.onClick}
-              className="h-12 px-6 rounded-full border border-stone-300 hover:bg-stone-50 text-stone-700 text-[15px] font-semibold transition-colors"
-            >
-              {secondaryAction.label}
-            </button>
-          )}
-        </div>
-      </div>
-
-      <div className="max-w-5xl mx-auto px-0 sm:px-6 mt-10">
-        <div
-          ref={boxRef}
-          className="relative overflow-hidden rounded-none sm:rounded-[20px] border-y sm:border border-stone-200 bg-stone-100 select-none"
-          style={{ aspectRatio: narrow ? "580 / 570" : "1000 / 620", cursor: showAll ? "default" : "crosshair" }}
-        >
-          <Scene view={view} layerRef={layerRef} ringRef={ringRef} />
-          {!moved && !showAll && (
-            <div className="absolute left-3 top-3 sm:left-4 sm:top-4 rounded-full bg-stone-900/80 px-3 py-1.5 text-xs font-semibold text-white pointer-events-none">
-              {touch ? "그림 위를 문질러 보세요" : "커서를 올려 AI가 보는 것을 확인해 보세요"}
-            </div>
-          )}
-        </div>
-        <div className="mt-3 flex items-center justify-center gap-3 text-xs text-stone-400">
-          <CaptionRow showAll={showAll} onToggle={() => setShowAll((v) => !v)} enabled />
-        </div>
       </div>
     </section>
-  );
-}
-
-function HeroSrOnly(): ReactNode {
-  return (
-    <p className="sr-only">
-      무대에서 발표하는 장면으로 시작해, 스크롤하면 분석 화면으로 바뀝니다. 그 위에 돋보기를 올리면 돋보기 안에서만 AI
-      분석 결과(시선, 자세, 제스처, 목소리 파형, 자막의 군말)가 보입니다. 「분석 레이어 전체 보기」 버튼으로 전체를 펼쳐
-      볼 수 있습니다.
-    </p>
   );
 }
 
@@ -581,7 +318,7 @@ function BaseScene({ view }: { view: string }) {
 // 라이트/다크 어느 쪽이든 똑같이 보이도록 색을 직접 적는다 (민트=분석, 보라=시선, 주황=군말).
 const MINT = "#5eead4";
 const MINT_DOT = "#99f6e4";
-const VIOLET = "#ddd6fe";
+const PINK = "#fbcfe8"; // 시선
 
 // 목소리 파형 막대 높이 (보여주기용)
 const WAVE = [8, 14, 22, 30, 24, 16, 26, 34, 40, 30, 20, 12, 6, 4, 5, 7, 18, 28, 36, 30, 22, 14, 24, 32, 38, 28, 18, 10];
@@ -620,13 +357,13 @@ function AnalysisScene({ view }: { view: string }) {
       <text x="158" y="322" fill="#fdba74" fontSize="13" fontWeight="700">무음 1.8초</text>
 
       {/* 시선 — 두 눈에 조준 표시 */}
-      <g stroke={VIOLET} strokeWidth="2" fill="none">
+      <g stroke={PINK} strokeWidth="2" fill="none">
         <rect x="665" y="147" width="22" height="18" rx="3" />
         <rect x="715" y="147" width="22" height="18" rx="3" />
         <path d="M790 128 L742 152" />
       </g>
-      <rect x="790" y="110" width="186" height="34" rx="9" fill="#2e1065" stroke="#6d28d9" />
-      <text x="804" y="133" fill={VIOLET} fontSize="16" fontWeight="700">시선 — 카메라 응시 중</text>
+      <rect x="790" y="110" width="186" height="34" rx="9" fill="#500724" stroke="#9d174d" />
+      <text x="804" y="133" fill={PINK} fontSize="16" fontWeight="700">시선 — 카메라 응시 중</text>
 
       {/* 자세 — 어깨선과 척추 */}
       <g stroke={MINT} strokeWidth="3" strokeLinecap="round" fill="none">
@@ -652,16 +389,24 @@ function AnalysisScene({ view }: { view: string }) {
       <text x="444" y="275" fill={MINT} fontSize="16" fontWeight="700">제스처 — 자료 가리킴</text>
       <path d="M536 252 L537 240" stroke={MINT} strokeWidth="2" fill="none" />
 
-      {/* 자막 — 군말에 표시 */}
-      <text x="956" y="462" textAnchor="end" fill={MINT} fontSize="15" fontWeight="700" opacity="0.75">구간 3 / 7 · 문제 정의</text>
-      <rect x="40" y="472" width="920" height="74" rx="12" fill="#111b1a" stroke="#134e4a" />
-      <text x="64" y="518" fill="#d6d3d1" fontSize="22" fontWeight="600">그러니까</text>
-      <rect x="162" y="492" width="74" height="36" rx="7" fill="#7c2d12" />
-      <text x="174" y="518" fill="#fdba74" fontSize="22" fontWeight="700">음…</text>
-      <text x="250" y="518" fill="#d6d3d1" fontSize="22" fontWeight="600">저희가 제안하는 구조는</text>
-      <rect x="502" y="492" width="46" height="36" rx="7" fill="#7c2d12" />
-      <text x="514" y="518" fill="#fdba74" fontSize="22" fontWeight="700">어</text>
-      <text x="560" y="518" fill="#d6d3d1" fontSize="22" fontWeight="600">이렇게 세 단계입니다</text>
+      {/* 목소리 → 말한 내용 — 둘 다 음성에서 나온 것이라 왼쪽을 세로선으로 묶는다 */}
+      <path d="M90 338 L90 486" stroke={MINT} strokeWidth="2" strokeDasharray="4 7" fill="none" opacity="0.5" />
+      <g fill={MINT} opacity="0.6">
+        <circle cx="90" cy="336" r="3.5" />
+        <circle cx="90" cy="488" r="3.5" />
+      </g>
+
+      {/* 말한 내용(자막) — 군말에 표시. 목소리 패널과 왼쪽 끝을 맞춘다 */}
+      <text x="96" y="492" fill={MINT} fontSize="15" fontWeight="700" opacity="0.8">말한 내용</text>
+      <text x="956" y="492" textAnchor="end" fill={MINT} fontSize="15" fontWeight="700" opacity="0.75">구간 3 / 7 · 문제 정의</text>
+      <rect x="76" y="500" width="884" height="74" rx="12" fill="#111b1a" stroke="#134e4a" />
+      <text x="100" y="546" fill="#d6d3d1" fontSize="22" fontWeight="600">그러니까</text>
+      <rect x="198" y="520" width="74" height="36" rx="7" fill="#7c2d12" />
+      <text x="210" y="546" fill="#fdba74" fontSize="22" fontWeight="700">음…</text>
+      <text x="286" y="546" fill="#d6d3d1" fontSize="22" fontWeight="600">저희가 제안하는 구조는</text>
+      <rect x="538" y="520" width="46" height="36" rx="7" fill="#7c2d12" />
+      <text x="550" y="546" fill="#fdba74" fontSize="22" fontWeight="700">어</text>
+      <text x="596" y="546" fill="#d6d3d1" fontSize="22" fontWeight="600">이렇게 세 단계입니다</text>
     </svg>
   );
 }
