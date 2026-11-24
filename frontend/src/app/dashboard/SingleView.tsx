@@ -65,12 +65,12 @@ const splitSentences = (text: string) => text.split(/(?<=[.!?])\s+/).map((s) => 
 
 // 지표 탭. tone: 적을수록 좋은 지표는 빨강 계열, 좋고 나쁨을 따지지 않는 지표는 회색 계열.
 const METRICS = [
-  { id: 'filler', tab: '필러 단어 빈도', unit: '회', peak: '최다 구간', tone: 'rgb(var(--c-rose-600))' },
-  { id: 'rate', tab: '평균 말하기 속도', unit: '음절/분', peak: '가장 빠른 구간', tone: 'rgb(var(--c-stone-600))' },
-  { id: 'silence', tab: '전체 무음 시간', unit: '초', peak: '최다 구간', tone: 'rgb(var(--c-rose-600))' },
-  { id: 'repetition', tab: '말 더듬기', unit: '회', peak: '최다 구간', tone: 'rgb(var(--c-rose-600))' },
-  { id: 'general', tab: '일반 제스처', unit: '회', peak: '최다 구간', tone: 'rgb(var(--c-stone-600))' },
-  { id: 'negative', tab: '부정적 제스처', unit: '회', peak: '최다 구간', tone: 'rgb(var(--c-rose-600))' },
+  { id: 'filler', tab: '필러 단어 빈도', unit: '회', peak: '최다 구간', desc: '“음”, “이제”, “그”처럼 뜻 없이 끼워 넣은 말이 나온 횟수예요. 적을수록 깔끔하게 들려요.', tone: 'rgb(var(--c-rose-600))' },
+  { id: 'rate', tab: '평균 말하기 속도', unit: '음절/분', peak: '가장 빠른 구간', desc: '1분에 말한 음절 수예요. 너무 빠르거나 느리지 않고 일정할수록 알아듣기 쉬워요.', tone: 'rgb(var(--c-stone-600))' },
+  { id: 'silence', tab: '전체 무음 시간', unit: '초', peak: '최다 구간', desc: '말이 끊긴 채 조용했던 시간을 모두 더한 값이에요. 짧은 쉼은 괜찮지만 길게 멈추면 흐름이 끊겨 보여요.', tone: 'rgb(var(--c-rose-600))' },
+  { id: 'repetition', tab: '말 더듬기', unit: '회', peak: '최다 구간', desc: '같은 말을 되풀이하거나 말이 걸려 끊긴 횟수예요. 적을수록 자연스럽게 들려요.', tone: 'rgb(var(--c-rose-600))' },
+  { id: 'general', tab: '일반 제스처', unit: '회', peak: '최다 구간', desc: '손으로 가리키거나 크기를 보여주는 것처럼 설명을 돕는 동작이 나온 횟수예요. 적당히 쓰면 전달력이 좋아져요.', tone: 'rgb(var(--c-stone-600))' },
+  { id: 'negative', tab: '부정적 제스처', unit: '회', peak: '최다 구간', desc: '얼굴·머리 만지기, 물건 만지작거리기, 팔짱처럼 긴장해 보이는 동작이 나온 횟수예요. 적을수록 좋아요.', tone: 'rgb(var(--c-rose-600))' },
 ] as const;
 type MetricId = typeof METRICS[number]['id'];
 
@@ -144,6 +144,7 @@ function SegmentMetrics({ segments, trend, chunks, script, voice, activeIndex, o
           <button key={m.id} onClick={() => setMetricId(m.id)} className={tabClass(m.id === metricId)}>{m.tab}</button>
         ))}
       </div>
+      <p className="text-[14px] text-stone-500 leading-relaxed break-keep mb-3">{metric.desc}</p>
       <div className="rounded-2xl border border-stone-200 p-5 grid grid-cols-1 sm:grid-cols-[170px_minmax(0,1fr)] gap-4 items-center">
         <div className="min-w-0">
           <p className="text-[14px] text-stone-500">{metric.tab} · 전체</p>
