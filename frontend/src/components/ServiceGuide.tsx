@@ -9,7 +9,7 @@
 // 디자인: 바탕은 대시보드와 같은 파스텔(.dashboard-bg), 글자는 검정·따뜻한 회색(stone), 글꼴은 Pretendard.
 // 두 화면의 차이는 상단 오른쪽 버튼(headerActions)과 시작 버튼(primaryAction)뿐이다.
 
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import LoupeHero from "./LoupeHero";
@@ -81,6 +81,8 @@ export default function ServiceGuide({ headerActions, primaryAction, secondaryAc
 
 
 // 오른쪽 가운데 세로 점 3개 — 누르면 그 단으로 스크롤. 지금 보고 있는 단의 점은 길게 늘어난다.
+// 아무 조작(마우스·휠·터치·키보드)이 IDLE_ADVANCE_MS 동안 없으면 다음 단으로 넘긴다. 조작하면 다시 처음부터 잰다.
+// 마지막 단에서는 멈추고, "애니메이션 줄이기"를 켠 사용자에게는 넘기지 않는다.
 // 점에 마우스를 올리면 단 이름이 왼쪽에 나온다 (늘 띄워 두면 히어로 그림과 겹쳐서). 좁은 화면(md 미만)에서는 숨긴다.
 const SECTIONS = [
   { id: "hero", label: "AI 돋보기" },
@@ -88,8 +90,41 @@ const SECTIONS = [
   { id: "how-to", label: "이렇게 사용해요" },
 ];
 
+const IDLE_ADVANCE_MS = 20_000;
+
+const goTo = (id: string) => {
+  const smooth = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (id === "hero") window.scrollTo({ top: 0, behavior: smooth ? "smooth" : "auto" });
+  else document.getElementById(id)?.scrollIntoView({ behavior: smooth ? "smooth" : "auto" });
+};
+
 function SectionNav() {
   const [active, setActive] = useState("hero");
+  const activeRef = useRef(active);
+  activeRef.current = active;
+
+  // 가만히 있을 때만 다음 단으로. 자동 스크롤이 내는 scroll 이벤트는 조작으로 치지 않으려고 scroll 은 듣지 않는다.
+  useEffect(() => {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    let timer: number;
+    const arm = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        const idx = SECTIONS.findIndex((x) => x.id === activeRef.current);
+        const next = SECTIONS[idx + 1];
+        if (!next) return; // 마지막 단이면 멈춤
+        goTo(next.id);
+        arm();
+      }, IDLE_ADVANCE_MS);
+    };
+    const events = ["mousemove", "wheel", "touchstart", "pointerdown", "keydown"] as const;
+    events.forEach((ev) => window.addEventListener(ev, arm, { passive: true }));
+    arm();
+    return () => {
+      window.clearTimeout(timer);
+      events.forEach((ev) => window.removeEventListener(ev, arm));
+    };
+  }, []);
 
   useEffect(() => {
     // 화면 세로 가운데 선에 걸친 단을 "지금 보는 단"으로 친다
@@ -104,12 +139,6 @@ function SectionNav() {
     return () => observer.disconnect();
   }, []);
 
-  const go = (id: string) => {
-    const smooth = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (id === "hero") window.scrollTo({ top: 0, behavior: smooth ? "smooth" : "auto" });
-    else document.getElementById(id)?.scrollIntoView({ behavior: smooth ? "smooth" : "auto" });
-  };
-
   return (
     <nav aria-label="화면 단 이동" className="hidden md:flex fixed right-5 lg:right-7 top-1/2 -translate-y-1/2 z-30 flex-col items-end gap-1">
       {SECTIONS.map(({ id, label }) => {
@@ -117,7 +146,7 @@ function SectionNav() {
         return (
           <button
             key={id}
-            onClick={() => go(id)}
+            onClick={() => goTo(id)}
             aria-label={label}
             aria-current={on ? "true" : undefined}
             className="group flex items-center gap-3 py-2 pl-3"
