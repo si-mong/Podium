@@ -82,7 +82,7 @@ export default function ServiceGuide({ headerActions, primaryAction, secondaryAc
 
 // 오른쪽 가운데 세로 점 3개 — 누르면 그 단으로 스크롤. 지금 보고 있는 단의 점은 길게 늘어난다.
 // 아무 조작(마우스·휠·터치·키보드)이 IDLE_ADVANCE_MS 동안 없으면 다음 단으로 넘긴다. 조작하면 다시 처음부터 잰다.
-// 마지막 단에서는 멈추고, "애니메이션 줄이기"를 켠 사용자에게는 넘기지 않는다.
+// 마지막 단 다음은 첫 단으로 돌아간다. 좁은 화면(md 미만, 점 버튼도 숨김)과 "애니메이션 줄이기"를 켠 사용자에게는 넘기지 않는다.
 // 점에 마우스를 올리면 단 이름이 왼쪽에 나온다 (늘 띄워 두면 히어로 그림과 겹쳐서). 좁은 화면(md 미만)에서는 숨긴다.
 const SECTIONS = [
   { id: "hero", label: "AI 돋보기" },
@@ -110,10 +110,11 @@ function SectionNav() {
     const arm = () => {
       window.clearTimeout(timer);
       timer = window.setTimeout(() => {
-        const idx = SECTIONS.findIndex((x) => x.id === activeRef.current);
-        const next = SECTIONS[idx + 1];
-        if (!next) return; // 마지막 단이면 멈춤
-        goTo(next.id);
+        // 창 크기는 바뀔 수 있어서 넘길 때마다 확인한다
+        if (window.matchMedia("(min-width: 768px)").matches) {
+          const idx = SECTIONS.findIndex((x) => x.id === activeRef.current);
+          goTo(SECTIONS[(idx + 1) % SECTIONS.length].id);
+        }
         arm();
       }, IDLE_ADVANCE_MS);
     };
