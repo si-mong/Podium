@@ -9,7 +9,7 @@
 // 디자인: 바탕은 대시보드와 같은 파스텔(.dashboard-bg), 글자는 검정·따뜻한 회색(stone), 글꼴은 Pretendard.
 // 두 화면의 차이는 상단 오른쪽 버튼(headerActions)과 시작 버튼(primaryAction)뿐이다.
 
-import { type ReactNode } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import LoupeHero from "./LoupeHero";
@@ -43,12 +43,14 @@ export default function ServiceGuide({ headerActions, primaryAction, secondaryAc
 
       {/* 2) 히어로 — 꽉 찬 무대로 시작해 스크롤하면 박스로 줄어들며 분석 장면이 된다 (LoupeHero.tsx).
              제목·소개문·시작 버튼도 무대 위에 얹혀 있어서 LoupeHero 가 같이 그린다. */}
-      <LoupeHero primaryAction={primaryAction} secondaryAction={secondaryAction} />
+      <div id="hero">
+        <LoupeHero primaryAction={primaryAction} secondaryAction={secondaryAction} />
+      </div>
 
       <main className="max-w-7xl mx-auto px-6 sm:px-10 lg:px-14">
         {/* 3) 분석하는 항목 — 실제 분석 화면의 「구간별 지표」를 줄여 놓은 카드 (SegmentMetrics.tsx).
                탭을 고르면 숫자와 꺾은선이 같이 바뀌고, 스크롤하면 누워 있던 카드가 똑바로 선다 */}
-        <section className="pt-12 pb-20">
+        <section id="metrics" className="scroll-mt-24 pt-12 pb-20">
           <SegmentMetrics />
         </section>
 
@@ -66,11 +68,67 @@ export default function ServiceGuide({ headerActions, primaryAction, secondaryAc
         </section>
       </main>
 
+      <SectionNav />
+
       <footer className="mt-16 border-t border-stone-200 py-8 text-center text-xs text-stone-400">
         © {new Date().getFullYear()} Podium ·{" "}
         <Link href="/terms" className="hover:text-stone-600 hover:underline">이용약관</Link> ·{" "}
         <Link href="/privacy" className="hover:text-stone-600 hover:underline">개인정보 처리방침</Link>
       </footer>
     </div>
+  );
+}
+
+
+// 오른쪽 가운데 세로 점 3개 — 누르면 그 단으로 스크롤. 지금 보고 있는 단의 점은 길게 늘어난다.
+// 점에 마우스를 올리면 단 이름이 왼쪽에 나온다 (늘 띄워 두면 히어로 그림과 겹쳐서). 좁은 화면(md 미만)에서는 숨긴다.
+const SECTIONS = [
+  { id: "hero", label: "AI 돋보기" },
+  { id: "metrics", label: "분석하는 항목" },
+  { id: "how-to", label: "이렇게 사용해요" },
+];
+
+function SectionNav() {
+  const [active, setActive] = useState("hero");
+
+  useEffect(() => {
+    // 화면 세로 가운데 선에 걸친 단을 "지금 보는 단"으로 친다
+    const observer = new IntersectionObserver(
+      (entries) => entries.forEach((e) => e.isIntersecting && setActive(e.target.id)),
+      { rootMargin: "-50% 0px -50% 0px" },
+    );
+    SECTIONS.forEach(({ id }) => {
+      const el = document.getElementById(id);
+      if (el) observer.observe(el);
+    });
+    return () => observer.disconnect();
+  }, []);
+
+  const go = (id: string) => {
+    const smooth = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (id === "hero") window.scrollTo({ top: 0, behavior: smooth ? "smooth" : "auto" });
+    else document.getElementById(id)?.scrollIntoView({ behavior: smooth ? "smooth" : "auto" });
+  };
+
+  return (
+    <nav aria-label="화면 단 이동" className="hidden md:flex fixed right-5 lg:right-7 top-1/2 -translate-y-1/2 z-30 flex-col items-end gap-1">
+      {SECTIONS.map(({ id, label }) => {
+        const on = active === id;
+        return (
+          <button
+            key={id}
+            onClick={() => go(id)}
+            aria-label={label}
+            aria-current={on ? "true" : undefined}
+            className="group flex items-center gap-3 py-2 pl-3"
+          >
+            <span className={`rounded-full border border-stone-200/80 bg-white/90 backdrop-blur px-3 py-1 text-[13px] font-bold text-stone-700 shadow-sm opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100`}>
+              {label}
+            </span>
+            <span className={`block w-2.5 rounded-full transition-all duration-300 ${on ? "h-7 bg-stone-900" : "h-2.5 bg-stone-300 group-hover:bg-stone-500"}`} />
+          </button>
+        );
+      })}
+    </nav>
   );
 }
