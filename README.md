@@ -9,6 +9,13 @@
 
 <img src="./docs/images/banner.webp" alt="Podium — 혼자 하는 발표 연습, AI 코치와 함께. AI 발표 코칭 서비스 (소프트웨어학부 03-06 · 최은재, 홍진수 · 지도교수 홍신)" width="100%"/>
 
+|  | 주소 |
+|---|---|
+| 🌐 서비스 | **[podium-it.co.kr](https://podium-it.co.kr)** |
+| 📄 API 명세 | [docs/Dev-API명세.md](./docs/Dev-API명세.md) |
+| 🗄️ DB 설계 (ERD) | [docs/DB-erd.md](./docs/DB-erd.md) |
+| 🛠️ 개발 가이드 | [docs/개발가이드.md](./docs/개발가이드.md) |
+
 </div>
 
 ---
