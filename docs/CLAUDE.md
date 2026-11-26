@@ -221,51 +221,91 @@ Podium/
 
 ## 자주 쓰는 명령어
 
+### 처음 한 번 (로컬 세팅)
+```bash
+# 시스템 의존성: Docker, Python 3.11, Node 18+, ffmpeg
+
+# Backend (cwd = backend/)
+python3.11 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt -r requirements-pipeline.txt   # 배포 이미지와 같은 조합 (PyTorch 포함, 무거움)
+cp .env.example .env      # DEBUG=true. 분석까지 돌리려면 GEMINI_API_KEY·OPENAI_API_KEY 채우기
+alembic upgrade head      # Postgres 가 떠 있어야 함 (아래 "환경 시작" 1번)
+
+# Frontend (cwd = frontend/)
+npm install
+cp .env.local.example .env.local   # NEXT_PUBLIC_API_URL=http://localhost:8000
+```
+
+- **로그인**: 구글 로그인을 쓰려면 `.env` 에 `GOOGLE_CLIENT_ID/SECRET` (승인된 리디렉션 URI `http://localhost:8000/auth/google/callback`).
+  비워 두면 `DEBUG=true` 에서만 이메일+비밀번호 로그인이 열린다 — 단, 이메일 가입은 없앴으므로 비밀번호가 있는 예전·개발용 계정만 된다.
+- **STT 위치**: `WHISPER_MODEL=hf:...` 면 이 컴퓨터에서(맥은 MPS), `modal:...` 이면 Modal GPU 에서 돈다 (아래 Modal 참고).
+
 ### 환경 시작 (3개 터미널)
 ```bash
-# 1. Postgres
+# 1. Postgres (cwd = 저장소 루트)
 docker compose up -d postgres
 
 # 2. Backend (cwd = backend/)
 source .venv/bin/activate
-uvicorn app.main:app --reload --port 8000
+uvicorn app.main:app --reload --port 8000      # API 문서: http://localhost:8000/docs
 
 # 3. Frontend (cwd = frontend/)
-npm run dev
+npm run dev                                     # http://localhost:3000
 ```
 
-### 전처리 동작 검증 (지금까지 만든 것)
+### 동작 확인
+- 본 흐름은 프론트에서: 로그인 → 내 기록에서 폴더 만들기 → 발표 추가(촬영 또는 영상 업로드) → 분석 → 대시보드.
+- 단계별로 API 만 확인할 땐 `/docs`(Swagger)에서 Authorize 에 access 토큰을 넣고 호출. 순서와 선행 조건은 `docs/Dev-API명세.md` 1절.
+- 단계별 소요 시간·실패 원인은 관리자 화면(`/admin`)에서 본다. 관리자 지정:
 ```bash
-# 0. uvicorn 떠있어야 하고 .env에 DEBUG=true 필요. ffmpeg 시스템에 설치 필요.
-
-# 1. 프로젝트 생성 (Swagger 또는 curl)
-curl -X POST http://localhost:8000/projects \
-  -H 'Content-Type: application/json' -d '{"title":"테스트"}'
-# → 응답에서 project_id 받기 (예: 1)
-
-# 2. 브라우저로 촬영 (시스템 내 촬영이 본 흐름이라 진짜 촬영으로 검증)
-open "http://localhost:8000/dev/?project=1"
-# Start recording → 30초+ 촬영 → Stop & finalize
-
-# 3. 결과 확인
-ls -la backend/uploads/1/    # chunks/, audio/, full_video.webm, full_audio.wav
-docker compose exec postgres psql -U podium -d podium -c "
-SELECT s.session_id, s.project_id, s.status, count(c.chunk_id) AS chunks
-FROM sessions s LEFT JOIN chunks c USING(session_id)
-GROUP BY s.session_id;
-"
+# cwd = backend/, venv 활성화
+python -m app.scripts.set_admin user@example.com            # 지정
+python -m app.scripts.set_admin user@example.com --revoke   # 해제
 ```
+
+### 결과를 DB 에서 직접 보기
+```bash
+docker compose exec postgres psql -U podium -d podium -c "
+SELECT s.session_id, s.project_id, s.session_no, s.status, count(g.segment_id) AS segments
+FROM sessions s LEFT JOIN segments g USING (session_id)
+GROUP BY s.session_id ORDER BY s.session_id DESC LIMIT 10;"
+```
+psql·DBeaver 사용법 → `docs/Dev-DB-Postgres사용법.md`. 업로드 파일은 `backend/uploads/<session_id>/`.
 
 ### Alembic
 ```bash
 # cwd = backend/, venv 활성화 필요
-alembic revision --autogenerate -m "<설명>"   # 모델 변경 → 마이그레이션 파일 생성
+alembic revision --autogenerate -m "<설명>"   # 모델 변경 → 마이그레이션 파일 생성 (꼭 열어서 검토)
 alembic upgrade head                          # DB에 적용
 alembic downgrade -1                          # 한 단계 롤백
 alembic current                               # 현재 적용된 버전
+alembic heads                                 # head 가 둘 이상이면 브랜치 머지 후 merge 리비전 필요
 ```
+배포 서버는 api 컨테이너가 시작할 때 `alembic upgrade head` 를 자동 실행한다 (`backend/Dockerfile`).
 
-### DB 직접 접속 → `_refs/Postgres사용법.md`
+### Modal (STEP 3 STT 서버리스 GPU)
+```bash
+# cwd = backend/, modal 토큰 필요 (modal token new)
+modal deploy modal_stt.py
+```
+`.env` 에서 `WHISPER_MODEL=modal:<모델 id>` 로 두면 이 앱을 호출한다. 관리자 화면의 `step3_modal` 점검으로 배포 여부를 확인.
+
+### 배포 (EC2, main 기준)
+```bash
+# EC2 에서 (자세한 절차는 deploy/README.md — 로컬 전용 파일)
+cd Podium && git pull
+cd deploy && docker compose -f docker-compose.prod.yml up -d --build
+docker compose -f docker-compose.prod.yml logs -f api      # 로그
+docker compose -f docker-compose.prod.yml exec api python -m app.scripts.set_admin user@example.com
+docker compose -f docker-compose.prod.yml exec -T postgres pg_dump -U podium podium > podium_$(date +%F).sql   # DB 백업
+```
+프론트는 Vercel 이 main push 마다 자동 배포한다.
+
+### 개발 테스트 서버 (선택)
+```bash
+# cwd = backend/ — STEP 2 VLM(/vlm)·STEP 3 음성(/voice) 실험용, DB 안 씀
+uvicorn devtools.server:app --reload --port 8001
+```
 
 ---
 
