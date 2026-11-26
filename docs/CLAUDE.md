@@ -14,54 +14,60 @@
 
 ## 팀 / 일정 / 분담
 
-- 인원: 2명
-- 일정: 약 2~3개월
-- 분담:
-    - **사용자(주)**: 파이프라인 + 백엔드 전체
-    - **팀원**: 파이프라인 + 프론트엔드 전체
+- 인원: 2명 — 사용자(git `EunJae`), 팀원(git `jinsoo27`)
+- 일정: 2026-05 시작 → 2026-11 현재 서비스 운영 + 발표 준비 단계
+- 분담 (처음 계획 → 실제):
+    - **사용자(주)**: 파이프라인(STEP 1·3·4) + 백엔드 전체 + 배포. 프론트도 상당 부분 맡음 (`frontend/src` 커밋 사용자 73 · 팀원 25)
+    - **팀원**: STEP 2 VLM, STEP 5 피드백(프롬프트·판정 규칙) 위주 + 프론트 일부
 
-### 개발 방식 — 하이브리드
+### 개발 방식 — 하이브리드 (지나온 단계)
 
-1. **(현재 단계) 파이프라인 PoC 병렬** — 사용자=전처리/STT, 팀원=VLM. 함수 단위로 동작 검증
-2. **수직 슬라이스** — 매주 한 기능을 (DB→API→파이프라인→프론트) 끝까지 구현해 데모 가능한 상태 유지
-3. **인증** — ~~후반부에 `_dev_auth.py`를 JWT로 교체~~ **완료 (2026-09-18)**. `_dev_auth.py` 제거, JWT + refresh 회전
+1. ~~파이프라인 PoC 병렬~~ — 사용자=전처리/STT, 팀원=VLM. 함수 단위로 동작 검증
+2. ~~수직 슬라이스~~ — 한 기능을 (DB→API→파이프라인→프론트) 끝까지 구현해 데모 가능한 상태 유지
+3. ~~인증~~ — `_dev_auth.py` → JWT + refresh 회전 (2026-09-18), 구글 로그인 (2026-10)
 
-이유: 사용자가 백엔드+파이프라인 병목. 통합을 마지막에 미루면 폭발 → 슬라이스로 분산.
+지금은 **운영 중 개선 + 발표 준비** 단계. 기능 단위 브랜치 → PR → main 머지 → EC2 배포 순으로 돈다.
 
 ### 협업 패턴 — "API 계약 먼저"
 
-각 슬라이스 시작 시 사용자가 **빈 라우터 스텁 + 응답 스키마**부터 박아두면, 팀원이 그 사이 프론트 시작 가능. FastAPI `/docs`가 자동 OpenAPI라 더미 응답만으로 프론트 작업 가능.
+새 기능은 사용자가 **라우터 스텁 + 응답 스키마**부터 박아두면, 그 사이 프론트를 시작할 수 있다.
+FastAPI `/docs`가 자동 OpenAPI라 더미 응답만으로 프론트 작업 가능. 사람이 읽는 계약서는 `docs/Dev-API명세.md`.
 
 ---
 
-## 파이프라인 STEP 번호 매핑 (★ 변경됨)
+## 파이프라인 STEP 번호 매핑
+
+번호는 2026-05 기획 때 매긴 것이라 **실행 순서와 다르다.** (예전 번호: STEP 2↔4↔3 이 한 번 바뀜)
 
 ```
-STEP 1  전처리 (청크 분할 → 오디오 추출 + full_audio.wav)   사용자
-STEP 2  VLM 동작 분석                                       팀원   ← (예전 STEP 4)
-STEP 3  Whisper STT + 음성 수치화                           사용자  ← (예전 STEP 2)
-STEP 4  LLM 구간 분리                                       사용자  ← (예전 STEP 3)
-STEP 5  LLM 종합 피드백                                     팀원   ← (2026-09-18 변경)
+STEP 1  전처리 (ffmpeg 오디오 추출 + full_audio.wav)             ffmpeg
+STEP 2  VLM 동작 분석 (구간 기준 청킹, 최대 1분)                 Gemini (step2_video_analysis.MODEL)
+STEP 3  STT + 음성 수치화 (무음·필러·반복·말 속도)               SeloWhisper (로컬 또는 Modal GPU)
+STEP 4  LLM 구간 분리 + 구간별 집계                              gpt-4.1 (2026-10-23 Gemini 에서 변경)
+STEP 5  LLM 구간별 + 종합 피드백 (판정은 코드, 문장은 LLM)        gpt-4.1
 ```
 
-의존성 그래프(번호와 무관):
+실행 순서 (2026-10-22 부터, 프론트 `utils/analysis.ts`):
 ```
-STEP 1 (청크) ─┬─> STEP 2 VLM (청크별)
-               └─> STEP 3 STT (full_audio)
-                       └─> STEP 4 구간분리
-                              └─> STEP 5 종합 (STEP 2+3 결과 다 사용)
+STEP 1 → STEP 3 음성 → STEP 4 구간 분리 → STEP 2 동작(구간 기준) → STEP 5 구간별 → STEP 5 종합
 ```
 
-→ STEP 1만 끝나면 사용자(STEP 3·4)와 팀원(STEP 2)이 진짜 병렬 가능. STEP 5는 팀원 담당이며 STEP 2~4 결과가 모두 필요하므로 마지막.
+→ 처음엔 STEP 2(청크별)와 STEP 3 을 병렬로 돌렸지만, 동작 분석을 **STEP 4 구간에 맞춰 자르도록** 바꾸면서
+STEP 2 가 STEP 4 뒤로 갔다. 구간과 영상 조각 경계가 맞아야 구간별 피드백의 동작 근거가 정확해진다.
+예전 스마트 청킹 흐름(`/analyze/motion`)은 코드에 남아 있지만 프론트는 쓰지 않는다.
 
 ---
 
 ## 기술 스택
 
-- **Backend**: FastAPI + SQLAlchemy 2.0 + Alembic + PostgreSQL 16 (Docker)
-- **Frontend**: Next.js 14 (App Router, TS, Tailwind) — 페이지 미작성
-- **AI/파이프라인 (`requirements-pipeline.txt`)**: Whisper, librosa, OpenCV, pdfplumber, OpenAI GPT-4o — 미설치
-- **인증**: JWT (python-jose) + bcrypt. access 60분 / refresh 14일 회전. `app/core/security.py`, `app/api/auth.py`
+- **Backend**: Python 3.11, FastAPI + SQLAlchemy 2.0 + Alembic + PostgreSQL 16 (psycopg 3)
+- **Frontend**: Next.js 14 (App Router, TS, Tailwind), Pretendard, lucide-react, MediaPipe(배경 블러)
+- **AI/파이프라인** (`requirements-pipeline.txt`):
+    - STT: transformers 로 SeloWhisper(`rearleg/SeloWhisper-ko-disfluency`, 비유창성 태그 모델), faster-whisper 백엔드도 있음. Modal 서버리스 GPU 로 원격 실행 (`modal_stt.py`)
+    - 음향: librosa (무음·필러 검출), OpenCV (스마트 청킹 motion 시계열)
+    - LLM/VLM: `google-genai`(Gemini, STEP 2), `openai`(gpt-4.1, STEP 4·5·비교)
+- **인증**: JWT (python-jose) + bcrypt + 구글 OAuth(PKCE). access 60분 / refresh 14일 회전. `app/core/security.py`, `app/api/auth.py`, `app/api/auth_google.py`
+- **배포**: Vercel(프론트) + AWS EC2 Docker Compose(Caddy 자동 HTTPS + api + postgres) + Modal(STT GPU)
 
 ---
 
@@ -382,11 +388,14 @@ uvicorn devtools.server:app --reload --port 8001
 **파일 저장 구조**: `uploads/<session_id>/...` 평탄형 (project_id 안 끼움). 이유: session_id가 전역 unique → 경로 도출 O(1). 코드 단순.
 
 ### STEP 2 (VLM) 관련 결정 (2026-05-21)
+
+> 아래 4개 절(STEP 2 결정 ~ 임계값 실측)은 **결정 당시 기록**이다. 현재 흐름과 다른 점은 각 절 첫 줄에 적었다.
+
 - **`segment_analyses`** motion 필드 변경: posture/eye_contact/gesture (text) → `*_counts` JSONB 3개. **segment 단위 집계용** (STEP 4 후 채워짐).
 - **호출 시점**: 옵션 B 채택 — `/sessions/{id}/analyze/motion` **별도 라우터** (`/end`는 전처리만). 이유: VLM이 수십초~분 단위라 `/end`에 묶으면 timeout 위험.
-- **lazy import**: `from app.pipeline import step2_chunking, step2_video_analysis`를 라우터 함수 안에서 호출 → google-genai / opencv 미설치인 API 서버도 정상 기동.
-- **VLM = Gemini 2.5-flash** (OpenAI GPT-4o 아님). `GEMINI_API_KEY` 필요.
-- **카테고리 enum**: posture/eye_contact/gesture는 semi-enum 자유 텍스트 (프롬프트에서 4종/3종/4종 옵션 강제).
+- **lazy import**: 파이프라인 모듈(`step2_*`, `step3_*`, `step5_*` 등)을 라우터 함수 안에서 import → google-genai / opencv / torch 미설치인 API 서버도 정상 기동. 지금도 모든 분석 라우터가 이 방식.
+- **VLM = Gemini** (당시 2.5-flash → 현재 `step2_video_analysis.MODEL`, 2026-11 기준 `gemini-3.8-flash`). `GEMINI_API_KEY` 필요.
+- **카테고리 enum**: posture/eye_contact/gesture는 semi-enum 자유 텍스트 (프롬프트에서 posture 4종 / eye_contact 3종 / gesture 3종 강제, 판단 못 하면 "분석 불가").
 - 자세한 비교/결정 근거 → `docs/Dev-DB-카테고리 enum 저장 방침.md`
 
 ### ★ "청크"의 세 가지 의미 — 층 분리 (2026-08-18)
@@ -397,13 +406,14 @@ uvicorn devtools.server:app --reload --port 8001
 | 층 | 뜻 | 단위 | 어디 |
 |---|---|---|---|
 | 전송 | 녹화 중 스트리밍 업로드 | 30초 **고정** | `chunks` 테이블, `chunks/chunk_NNN.webm` |
-| 영상분석 | 동작 구간 | **동적** 20초 (intro/motion/outro) | `step2_chunking.py`, `video_analyses` 테이블 |
-| 음성분석 | (미래) 정적 윈도우 | 미정 | 아직 없음 |
+| 영상분석 (현재) | STEP 4 구간 | 구간 단위, **최대 60초** (`kind="segment"`) | `step2_segment_chunking.py`, `video_analyses` 테이블 |
+| 영상분석 (구) | 동작 구간 | **동적** 20초 (intro/motion/outro) | `step2_chunking.py`, `video_analyses` 테이블 |
+| 음성분석 | 자르지 않음 | `full_audio.wav` 통째로 (STT 내부 윈도우만) | `stt_sentences`, `voice_raws` |
 
 **규칙: 분석 결과 테이블은 "무엇을 분석했나"로 이름 짓고, 자른 단위는
 `t_start`/`t_end` 컬럼이 표현한다.** 그래야 영상/음성이 각자 청킹 정책을 골라도
 서로 안 부딪힌다. `chunks` 는 전송 단위라는 원래 뜻으로 두고, 분석 테이블은
-`chunk` 라는 단어를 쓰지 않는다.
+`chunk` 라는 단어를 쓰지 않는다. (이 규칙 덕에 2026-10 구간 기준 청킹으로 바꿀 때 스키마 변경이 없었다)
 
 - **`chunk_analyses` → `video_analyses`** (리비전 `c1a7d3e9f204`): `chunk_id` FK 제거,
   `analysis_id` PK + `session_id` FK + `t_start`/`t_end`/`kind` 추가. `stt_sentences`
@@ -413,6 +423,8 @@ uvicorn devtools.server:app --reload --port 8001
 - `Chunk.analysis` relationship 제거, `Session.video_analyses` 추가.
 
 ### 스마트 청킹 통합 (2026-08-18)
+> **현재**: 이 흐름은 구 `/analyze/motion` 에서만 쓴다. 2026-10-22 부터 프론트는 `/analyze/motion-by-segment`(구간 기준 청킹)를 부른다. gesture 7종·재인코딩 결정은 그대로 유효.
+
 - `/analyze/motion` 입력이 **업로드 청크 → `full_video.webm`** 으로 바뀜. 스마트 청킹은
   동작 시작 임의 시점부터 자르므로 30초 격자에 갇히면 안 된다. full_video 없으면 400.
 - 흐름: `step2_chunking.plan_and_extract()` (motion 시계열 → 청크 계획 → ffmpeg 추출,
@@ -468,14 +480,20 @@ uvicorn devtools.server:app --reload --port 8001
 
 **아직 3.5 그대로 두었다.** 표본이 3개뿐이고, 임계값을 올리면 진짜 동작을 놓칠
 위험도 같이 오르므로 실제 영상 확인 후 결정하기로 함. 값은
-`step2_chunking.py:29 MOTION_THRESH` 한 곳만 고치면 전체 반영된다
+`step2_chunking.py` 의 `MOTION_THRESH` 한 곳만 고치면 전체 반영된다
 (`/analyze/motion` 은 이 인자를 넘기지 않는다). vlm_test 에는 별도 사본이 있다.
+
+> **현재**: 임계값은 `motion_config.py` 가 읽는다 — 코드 기본값(`step2_chunking.py` `MOTION_THRESH`) 위에
+> `motion_thresholds.json`(devtools `/vlm/smart-preview/history` 에서 저장, 지금은 없음)이 있으면 덮어쓴다.
+> 현재 흐름(구간 기준 청킹)은 이 임계값을 쓰지 않으므로 결정은 사실상 보류.
 
 ---
 
-## VLM 정적 테스트 도구 (`backend/vlm_test/`) ★ test/vlm 브랜치
+## VLM 정적 테스트 도구 (`backend/vlm_test/`)
 
-본 흐름(시스템 촬영 → sessions API)과 **완전히 분리된** 검증용 도구. DB 연결 없음. 2026-09-16 부터 STEP 3 음성 테스트 도구와 **한 서버로 통합**되어 `http://localhost:8001/vlm/` 에서 접속. 이미 촬영된 영상 파일을 업로드해 VLM(Gemini) 동작 분석과 **청킹 정책 실험**을 빠르게 반복하기 위한 도구. STEP 2 본격 통합 전 PoC 단계.
+본 흐름(시스템 촬영 → sessions API)과 **완전히 분리된** 검증용 도구. DB 연결 없음. 2026-09-16 부터 STEP 3 음성 테스트 도구와 **한 서버로 통합**되어 `http://localhost:8001/vlm/` 에서 접속. 이미 촬영된 영상 파일을 업로드해 VLM(Gemini) 동작 분석과 **청킹 정책 실험**을 빠르게 반복하기 위한 도구. main 에 들어가 있다. STEP 3 쪽 같은 도구는 `backend/stt_test/` (`/voice`).
+
+> vlm_test 의 Gemini 모델은 여전히 `gemini-2.5-flash` 고정(`analyzer.py`)이라 본 파이프라인 모델과 다르다. 결과를 비교할 때 주의.
 
 ### 실행
 ```bash
@@ -577,14 +595,19 @@ uvicorn devtools.server:app --reload --port 8001
 - **인증/소유권**: 라우트에 `user_id: int = Depends(get_current_user_id)` 를 받아 `get_owned_project/session(db, id, user_id)` 에 넘긴다. 둘 다 `app/api/_deps.py`
 - **DB 세션**: `Depends(get_db)`로 주입
 - **환경변수**: `app.core.config.settings`로 접근. `os.getenv` 직접 호출 X
+- **분석 라우터**: `@tracked("<step>", model=...)` 데코레이터를 붙이면 `analysis_events` 에 실행 기록이 남는다 (`services/analysis_log.py`). 무거운 파이프라인 모듈은 함수 안에서 lazy import
+- **관리자 라우터**: `Depends(require_admin)` (`_deps.py`)
+- **휴지통**: 폴더 삭제는 `deleted_at` soft delete. 세션 조회는 `get_owned_session` 이 부모 폴더의 휴지통 여부까지 본다
+- **LLM 판정은 코드로**: STEP 5 는 등급·습관 필러·몸짓 문제 등을 코드가 판정해 넘기고, LLM 은 문장만 쓴다 (프롬프트만으로는 기준이 흔들림)
 - **임시 코드** (`/dev` mount 등): 파일명/경로에 `_` prefix나 명시 주석으로 임시성 표시
 
 ### git
-- 커밋 메시지: 영문, 명령형 ("Add X", "Fix Y")
+- 커밋 메시지: `type(scope): 한국어 설명` — 예) `feat(dashboard): …`, `fix(step5): …`, `docs(readme): …`. type 은 feat / fix / perf / style / docs / chore
 - 본문 있을 땐 "Why" 중심
 - 관련 변경은 묶고, 무관한 건 분리
-- 슬라이스 끝나면 PR → 짧은 리뷰 → main 머지 (1~2일 안에)
-- gitignored: `_refs/`, `_legacy/`, `backend/uploads/*` (단 `.gitkeep`은 유지), `backend/.venv/`, `node_modules/`, `.next/`, `.env`
+- 기능은 `feat/…`·`fix/…` 브랜치 → PR → main 머지. 문구·여백 같은 작은 수정과 문서는 main 에 바로
+- 배포(EC2)는 main 기준. 미머지 브랜치 목록은 위 "진행 상황"
+- gitignored: `_refs/`, `_legacy/`, `_plans&docs/`, `Claude outputs/`, `backend/uploads/*` (단 `.gitkeep`은 유지), `backend/uploads_outline_test/`, `backend/.venv/`, `node_modules/`, `.next/`, `.env`, `deploy/README.md`
 
 ---
 
