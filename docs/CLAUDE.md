@@ -132,7 +132,7 @@ Podium/
 ## API 엔드포인트 (현재)
 
 2026-11-27 기준 `backend/app/api/` 전체. 인증 표시 없는 건 전부 Bearer 토큰 필요 + 소유권 검사(`_deps.py`).
-요청·응답 스키마는 서버의 `/docs`(OpenAPI)가 정답이다. `docs/Dev-API명세.md` 는 2026-09-23 이후 갱신되지 않았다.
+요청·응답 예시·에러·상태 머신은 **`docs/Dev-API명세.md`**, 필드 타입의 최종 진실은 서버의 `/docs`(OpenAPI).
 
 **인증** (`auth.py`, `auth_google.py`)
 
@@ -472,7 +472,6 @@ uvicorn devtools.server:app --reload --port 8001
 - 비교 화면의 "두 회차의 분석 방식이 달라요" 경고: 화면에서만 숨김 상태 (API `warnings` 는 그대로)
 - 정리: `podium_outline` 테스트 DB·`backend/uploads_outline_test/`, sslip.io 제거, 업로드 속도 개선
 - `/dev` mount 와 `backend/dev_static/` 제거 (본 촬영 페이지가 대체함)
-- `docs/Dev-API명세.md` 를 현재 라우터 기준으로 갱신
 - 폴리싱 + 발표 준비
 
 ### ⚠️ 알려진 이슈 · 미확인
