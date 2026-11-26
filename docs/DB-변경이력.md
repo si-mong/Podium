@@ -131,7 +131,7 @@ a9aef3 → d4f1a8 → e7b2c5 → e7b3c1 → b5d2e8 → f2a8d4 → a6c3e9 → b8d
 |---|---|---|
 | `event_id` | `BIGINT` PK | |
 | `session_id`, `user_id` | `BIGINT` FK, **SET NULL** | 세션·회원이 지워져도 실패 통계는 남긴다 |
-| `step` | `VARCHAR(32)` | `preprocess` / `motion` / `voice` / `segments` / `segment_feedback` / `overall_feedback` |
+| `step` | `VARCHAR(32)` | `preprocess` / `motion` / `voice` / `segments` / `segment_feedback` / `overall_feedback` / `comparison`(AI 비교 피드백) |
 | `status` | `VARCHAR(16)` | `running` / `succeeded` / `partial` / `failed` |
 | `model` | `VARCHAR(128)` | 그 실행에 쓴 모델 |
 | `error`, `duration_ms` | `TEXT`, `INTEGER` | |

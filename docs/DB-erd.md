@@ -195,7 +195,7 @@ erDiagram
         bigint event_id PK
         bigint session_id FK
         bigint user_id FK
-        varchar step "preprocess, motion, voice, segments, segment_feedback, overall_feedback"
+        varchar step "preprocess, motion, voice, segments, segment_feedback, overall_feedback, comparison"
         varchar status "running, succeeded, partial, failed"
         varchar model
         text error

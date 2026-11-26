@@ -74,7 +74,7 @@ FastAPI 기본 형식. 본문은 `{"detail": "..."}`. 사용자에게 보여줄 
 - 앞의 세 단계가 실패하면 멈춘다. 뒤의 세 단계는 실패해도 경고만 남기고 다음으로 간다 (해당 칸만 빈다).
 - 대시보드의 "다시 분석하기"는 결과가 빠진 단계만 골라 다시 부른다 (분석 비용 절약).
 - **전부 동기 호출이다.** 요청이 끝날 때까지 HTTP 가 열려 있다. 음성 분석은 수 분이 걸릴 수 있으니 fetch 타임아웃을 넉넉히.
-- 단계마다 `analysis_events` 에 실행 기록(소요 시간·성공/실패·모델)이 남는다 → [11. 관리자](#11-관리자).
+- 단계마다 `analysis_events` 에 실행 기록(소요 시간·성공/실패·모델)이 남는다 → [11. 관리자](#11-관리자). AI 비교 피드백도 `step="comparison"` 으로 남는다 (대상 회차 기준).
 
 ---
 
@@ -107,10 +107,13 @@ payload 의 `type` 으로 구분된다. **access 자리에 refresh 나 티켓을
 ### `GET /auth/providers` — 켜진 소셜 로그인 (토큰 불필요)
 
 ```json
-{ "google": true }
+{ "google": true, "password": false }
 ```
 
-서버에 구글 키가 설정돼 있는지. 로그인 화면이 버튼을 그릴지 정할 때 쓴다.
+- `google`: 서버에 구글 키가 설정돼 있는지
+- `password`: 이메일+비밀번호 로그인이 열려 있는지 (= `DEBUG`)
+
+로그인 화면이 어떤 버튼을 그릴지 정할 때 쓴다.
 
 ---
 
@@ -129,8 +132,8 @@ OAuth 2.0 Authorization Code + **PKCE**. 브라우저 이동으로 진행되므�
 
 | 엔드포인트 | 설명 |
 |---|---|
-| `GET /auth/google/login?next=` | `next` 는 로그인 뒤 돌아갈 프론트 경로 (외부 주소는 무시) |
-| `GET /auth/google/callback` | 구글이 부르는 곳. 직접 호출하지 않는다. 취소·실패 시 프론트로 에러 문구와 함께 돌려보낸다 |
+| `GET /auth/google/login?next=` | `next` 는 로그인 뒤 돌아갈 프론트 경로. `/` 로 시작하는 경로만 받고(오픈 리다이렉트 방지) 없으면 `/dashboard`. 구글 키가 없으면 `503` |
+| `GET /auth/google/callback` | 구글이 부르는 곳. 직접 호출하지 않는다. 취소·실패 시 프론트 `/login#error=<문구>` 로 돌려보낸다 |
 | `POST /auth/oauth/exchange` | 본문 `{ "code": "..." }` → [토큰 쌍](#토큰-쌍-응답). 만료·재사용 코드는 `401` |
 
 **회원 연결 규칙**
@@ -458,7 +461,7 @@ access 토큰을 쿼리에 실으면 서버 로그·브라우저 기록에 **모
 | `Range: bytes=0-1023` | `206` + `Content-Range: bytes 0-1023/<크기>` |
 | `Range: bytes=-500` | `206` + 마지막 500바이트 |
 | 파일 크기 초과 | `416` |
-| `?download=1` | `Content-Disposition: attachment` 로 통째로 (영상 다운로드 버튼) |
+| `?download=1` | `Content-Disposition: attachment` 로 통째로 (영상 다운로드 버튼). 파일 이름은 `<폴더 이름>_<N>회차.<확장자>` |
 
 **인증은 둘 중 하나**: `Authorization: Bearer <access>` (fetch) 또는 `?ticket=<video_ticket>` (`<video src>`)
 
@@ -501,6 +504,7 @@ access 토큰을 쿼리에 실으면 서버 로그·브라우저 기록에 **모
 ```
 
 - `total_duration_sec` 은 `null` 일 수 있다 (ffprobe 실패).
+- 파일 업로드 세션(청크 없음)은 `chunk_count: 0`.
 - **에러** `400` — 청크도 전체 영상도 없음 / 영상에서 소리를 추출하지 못함
 
 ---
@@ -769,7 +773,7 @@ LLM 을 한 번 불러 발표 전체 총평(핵심 한 줄 `headline` + 3~4문�
 
 ### `GET /projects/{project_id}/compare?base=&target=` — 비교 화면
 
-- `base`·`target` 을 **둘 다 안 주면** 회차 목록(`sessions`)만 채워서 돌려준다 (회차 고르는 화면).
+- `base`·`target` 중 **하나라도 없으면** 회차 목록(`sessions`)만 채워서 돌려준다 (회차 고르는 화면). `metrics`·`labels` 는 빈 배열.
 - 고른 회차가 이 폴더에 없거나 아직 구간 분리 전이면 `400`. 같은 회차 두 번도 `400`.
 
 **응답** `200` (요약)
@@ -872,10 +876,10 @@ LLM 호출 (보통 10~20초). 같은 두 회차로 다시 부르면 덮어쓴다
 
 | Method | Path | 설명 |
 |---|---|---|
-| GET | `/admin/health` | 외부 API 키 설정 여부 + 단계별 사용 모델 (호출 안 함) |
-| POST | `/admin/health/{target}` | 실제로 짧은 요청 1건을 보내 연결 점검 |
-| GET | `/admin/analyses/stats` | 단계별 소요 시간·실패율 통계 (`analysis_events` 집계) |
-| GET | `/admin/analyses` | 전체 회원의 세션 최신순 (휴지통 폴더 포함) + 최근 분석 1회분 요약 |
+| GET | `/admin/health` | 외부 API 키 설정 여부 + 단계별 사용 모델 (호출 안 함). `{targets: [{target, label, provider, model, key_configured}], whisper_model}` |
+| POST | `/admin/health/{target}` | 실제로 짧은 요청 1건을 보내 연결 점검. `{target, model, ok, latency_ms, reply, error}` |
+| GET | `/admin/analyses/stats?days=7` | 최근 `days`일(1~365) 단계별 실행 수·성공/부분/실패·평균 소요 시간 |
+| GET | `/admin/analyses?only_failed=&email=&limit=30&offset=0` | 전체 회원의 세션 최신순 (휴지통 폴더 포함) + 최근 분석 1회분 요약. `limit` 최대 100 |
 | GET | `/admin/analyses/{session_id}` | 세션 하나의 실행 기록 전체 + 분석 결과 (사용자 대시보드와 같은 조회 함수 사용) |
 
 **`target`**: `step2_gemini` · `step3_modal` · `step4_openai` · `step5_openai`
@@ -884,6 +888,7 @@ LLM 호출 (보통 10~20초). 같은 두 회차로 다시 부르면 덮어쓴다
 - `step3_modal` 은 배포된 Modal 앱을 **찾기만** 한다. GPU 를 켜지 않아 비용·대기 없음.
 - "분석 1회"는 마지막 전처리(`/end`) 이후의 단계 기록이다. 총 소요는 첫 단계 시작 ~ 마지막 단계 종료
   (동시에 도는 단계가 있어 단계 시간을 더하지 않는다). 단계 이름: `preprocess` · `motion` · `voice` · `segments` · `segment_feedback` · `overall_feedback`.
+  `comparison`(AI 비교 피드백) 기록은 "분석 1회" 계산에서 뺀다.
 
 ---
 
