@@ -157,7 +157,7 @@ Podium/
 ├── deploy/                            EC2 배포 — docker-compose.prod.yml (Caddy + api + postgres), Caddyfile, .env.example
 │                                      (deploy/README.md 배포 가이드는 로컬 전용)
 ├── docs/                              개발 문서 — CLAUDE.md, Dev-API명세, Dev-DB-erd, DB변경사항, Dev-STEP3/4,
-│                                      Dev-비교분석, Design-시스템흐름, 개발가이드, _CD(배포), images/(README 이미지)
+│                                      Dev-비교분석, Design-시스템흐름, 개발가이드, _CD(2026-08 세션 스냅샷), images/(README 이미지)
 ├── docker-compose.yml                 로컬 Postgres 16 (:5432, podium/podium/podium)
 ├── README.md
 └── .gitignore
@@ -551,7 +551,7 @@ uvicorn devtools.server:app --reload --port 8001
 > 2026-11-27 기준. 세부 결정 근거는 위 섹션들과 `docs/Dev-*.md`, 이력은 git log / PR 참고.
 
 ### ✅ 완료 — 전체 흐름이 운영 중
-- **배포**: https://podium-it.co.kr — 프론트 Vercel(Next.js 14), 백엔드 AWS EC2 Docker(Caddy + FastAPI + PostgreSQL). 배포는 main 기준 (`deploy/`, `docs/_CD.md`)
+- **배포**: https://podium-it.co.kr — 프론트 Vercel(Next.js 14), 백엔드 AWS EC2 Docker(Caddy + FastAPI + PostgreSQL). 배포는 main 기준 (`deploy/`, 절차는 로컬 전용 `deploy/README.md`)
 - **파이프라인 STEP 1~5 전부 연결** (프론트가 단계를 순서대로 호출, 위 API 표 참고)
     - STEP 1 전처리: ffmpeg 청크 wav 추출 + concat
     - STEP 2 동작: 구간 기준 청킹(`step2_segment_chunking.py`, 최대 1분) + Gemini VLM(`gemini-3.8-flash`). 스마트 청킹 v2(`/analyze/motion`)는 남아 있지만 프론트는 안 씀
