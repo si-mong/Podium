@@ -45,7 +45,7 @@ TAG_RE = re.compile(r"<[a-z]+>")
 # Whisper 인코더가 한 번에 보는 길이(초). 이 단위로 잘라 돌리고 시각을 보정한다.
 WINDOW_SEC = 30.0
 
-# 같은 문장을 되풀이하는 환각 판정 기준 (자세한 내용은 docs/Dev-STEP3.md 5장).
+# 같은 문장을 되풀이하는 환각 판정 기준 (자세한 내용은 _refs/Dev-STEP3.md 5장).
 LOOP_COMPRESSION_RATIO = 2.4   # 같은 말이 많을수록 압축이 잘 된다
 LOOP_TAIL_WORDS = 15           # 윈도우 마지막 1초에 이만큼 몰리면 사람이 말한 게 아니다
 LOOP_MAX_SPLITS = 2            # 30초 → 15초 → 7.5초까지만 나눈다

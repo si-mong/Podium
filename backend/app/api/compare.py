@@ -1,4 +1,4 @@
-"""비교 분석 라우터 (설계: docs/Dev-비교분석.md).
+"""비교 분석 라우터 (설계: _refs/Dev-비교분석.md).
 
   GET  /projects/{id}/compare?base=&target=           -> ① 전체 지표 + ② 같은 구간끼리 비교 (그때그때 계산)
   POST /projects/{id}/compare/feedback?base=&target=  -> ③ AI 비교 피드백 생성 (GPT, 저장)

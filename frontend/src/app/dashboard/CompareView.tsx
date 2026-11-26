@@ -1,6 +1,6 @@
 "use client";
 
-// 비교 분석 화면 — 같은 폴더의 두 회차를 비교한다 (설계: docs/Dev-비교분석.md).
+// 비교 분석 화면 — 같은 폴더의 두 회차를 비교한다 (설계: _refs/Dev-비교분석.md).
 // 먼저 프로젝트와 회차 2개를 고르고(SessionPicker) "비교하기"를 누르면 아래 결과를 보여 준다.
 //   ① 총 지표 비교   : GET /projects/{id}/compare 의 metrics (레이더 차트. 분당 횟수로 맞춰 비교, 판정은 백엔드가 함)
 //   ② AI 비교 피드백 : POST /projects/{id}/compare/feedback — 지난 회차 개선점이 고쳐졌는지 GPT 가 판정 (저장됨)

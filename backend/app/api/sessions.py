@@ -858,7 +858,7 @@ def analyze_segments(
     없으면 동작 관련 컬럼만 비워둔다.
 
     LLM 에는 **문장 번호만** 넘기고 시각은 stt_sentences 에서 가져온다.
-    (근거는 docs/Dev-STEP4.md)
+    (근거는 _refs/Dev-STEP4.md)
 
     재호출 시 이 세션의 기존 segments 는 통째로 교체된다 — segment_analyses 와
     feedbacks 는 FK CASCADE 로 함께 지워진다.

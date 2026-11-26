@@ -17,7 +17,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # 한글 음절 블록 — 발화 속도는 어절(WPM)이 아니라 음절(SPM) 기준.
-# 띄어쓰기 정책에 따라 어절 수가 흔들리기 때문. (docs/Dev-STEP3.md 참고)
+# 띄어쓰기 정책에 따라 어절 수가 흔들리기 때문. (_refs/Dev-STEP3.md 참고)
 _HANGUL_START, _HANGUL_END = 0xAC00, 0xD7A3
 
 

@@ -92,7 +92,7 @@ Podium/
 │   │   │   ├── sessions.py            촬영·업로드·영상 + 분석 단계(STEP 1~5) + 결과 조회
 │   │   │   ├── compare.py             회차 비교 + AI 비교 피드백
 │   │   │   └── admin.py               외부 API 연결 점검 + 분석 실행 기록
-│   │   ├── models/                    SQLAlchemy 15 테이블 (6파일) — ERD: docs/Dev-DB-erd.md
+│   │   ├── models/                    SQLAlchemy 15 테이블 (6파일) — ERD: docs/DB-erd.md
 │   │   │   └── user.py, project.py, session.py, analysis.py, comparison.py, analysis_event.py
 │   │   ├── schemas/                   요청·응답 스키마 — auth.py, project.py, session.py, compare.py
 │   │   ├── services/
@@ -114,7 +114,7 @@ Podium/
 │   │   │   └── compare_feedback.py    AI 비교 피드백 (gpt-4.1)
 │   │   └── scripts/
 │   │       └── set_admin.py           관리자 지정/해제 (python -m app.scripts.set_admin)
-│   ├── alembic/versions/              마이그레이션 (리비전 목록은 docs/DB변경사항.md)
+│   ├── alembic/versions/              마이그레이션 (리비전 목록은 docs/DB-변경이력.md)
 │   ├── alembic.ini                    sqlalchemy.url 비움 (env.py 에서 settings 로 로드)
 │   ├── modal_stt.py                   STEP 3 STT 를 Modal 서버리스 GPU 앱으로 배포 (modal deploy)
 │   ├── Dockerfile                     배포 이미지 — 시작 시 alembic upgrade head 후 uvicorn
@@ -156,8 +156,8 @@ Podium/
 │
 ├── deploy/                            EC2 배포 — docker-compose.prod.yml (Caddy + api + postgres), Caddyfile, .env.example
 │                                      (deploy/README.md 배포 가이드는 로컬 전용)
-├── docs/                              개발 문서 — CLAUDE.md, Dev-API명세, Dev-DB-erd, DB변경사항, Dev-STEP3/4,
-│                                      Dev-비교분석, Design-시스템흐름, 개발가이드, _CD(2026-08 세션 스냅샷), images/(README 이미지)
+├── docs/                              개발 문서 — CLAUDE.md, Dev-API명세, DB-erd, DB-변경이력, DB-Postgres사용법,
+│                                      DB-카테고리 enum 저장 방침, Design-시스템흐름, 개발가이드, images/(README 이미지)
 ├── docker-compose.yml                 로컬 Postgres 16 (:5432, podium/podium/podium)
 ├── README.md
 └── .gitignore
@@ -167,7 +167,7 @@ Podium/
 
 | 경로 | 내용 |
 |---|---|
-| `_refs/` | 기획·회의·블로그 문서. 주요: `PJ-프로젝트 설명.md`, `PJ-프레임워크.md`, `Dev-환경세팅.md` |
+| `_refs/` | 기획·회의·블로그 문서. 주요: `PJ-프로젝트 설명.md`, `PJ-프레임워크.md`, `Dev-환경세팅.md`, `Dev-STEP3.md`·`Dev-STEP4.md`(파이프라인 상세), `Dev-비교분석.md`(회차 비교 설계), `_CD.md`(2026-08 세션 스냅샷) |
 | `_legacy/` | 중간발표 데모 (참고용) |
 | `_plans&docs/` | 제출 문서(hwp·docx), WBS, 포스터 |
 | `Claude outputs/` | 발표 구성안 등 산출물 |
@@ -317,7 +317,7 @@ SELECT s.session_id, s.project_id, s.session_no, s.status, count(g.segment_id) A
 FROM sessions s LEFT JOIN segments g USING (session_id)
 GROUP BY s.session_id ORDER BY s.session_id DESC LIMIT 10;"
 ```
-psql·DBeaver 사용법 → `docs/Dev-DB-Postgres사용법.md`. 업로드 파일은 `backend/uploads/<session_id>/`.
+psql·DBeaver 사용법 → `docs/DB-Postgres사용법.md`. 업로드 파일은 `backend/uploads/<session_id>/`.
 
 ### Alembic
 ```bash
@@ -358,7 +358,7 @@ uvicorn devtools.server:app --reload --port 8001
 
 ## DB 스키마 핵심 결정
 
-**15개 테이블** (2026-11-27 기준). 전체 ERD(Mermaid)·컬럼·삭제 정책 → **`docs/Dev-DB-erd.md`**. 변경 이력 → `docs/DB변경사항.md`.
+**15개 테이블** (2026-11-27 기준). 전체 ERD(Mermaid)·컬럼·삭제 정책 → **`docs/DB-erd.md`**. 변경 이력 → `docs/DB-변경이력.md`.
 
 | 영역 | 테이블 | 모델 파일 |
 |---|---|---|
@@ -396,7 +396,7 @@ uvicorn devtools.server:app --reload --port 8001
 - **lazy import**: 파이프라인 모듈(`step2_*`, `step3_*`, `step5_*` 등)을 라우터 함수 안에서 import → google-genai / opencv / torch 미설치인 API 서버도 정상 기동. 지금도 모든 분석 라우터가 이 방식.
 - **VLM = Gemini** (당시 2.5-flash → 현재 `step2_video_analysis.MODEL`, 2026-11 기준 `gemini-3.8-flash`). `GEMINI_API_KEY` 필요.
 - **카테고리 enum**: posture/eye_contact/gesture는 semi-enum 자유 텍스트 (프롬프트에서 posture 4종 / eye_contact 3종 / gesture 3종 강제, 판단 못 하면 "분석 불가").
-- 자세한 비교/결정 근거 → `docs/Dev-DB-카테고리 enum 저장 방침.md`
+- 자세한 비교/결정 근거 → `docs/DB-카테고리 enum 저장 방침.md`
 
 ### ★ "청크"의 세 가지 의미 — 층 분리 (2026-08-18)
 
@@ -548,7 +548,7 @@ uvicorn devtools.server:app --reload --port 8001
 
 ## 진행 상황
 
-> 2026-11-27 기준. 세부 결정 근거는 위 섹션들과 `docs/Dev-*.md`, 이력은 git log / PR 참고.
+> 2026-11-27 기준. 세부 결정 근거는 위 섹션들과 `docs/`, `_refs/Dev-STEP3·4.md`·`_refs/Dev-비교분석.md`(로컬 전용), 이력은 git log / PR 참고.
 
 ### ✅ 완료 — 전체 흐름이 운영 중
 - **배포**: https://podium-it.co.kr — 프론트 Vercel(Next.js 14), 백엔드 AWS EC2 Docker(Caddy + FastAPI + PostgreSQL). 배포는 main 기준 (`deploy/`, 절차는 로컬 전용 `deploy/README.md`)
@@ -561,11 +561,11 @@ uvicorn devtools.server:app --reload --port 8001
       구간 등급(문제 개수), 습관 필러(같은 단어 반복, 2026-11-06), headline 잘한 점/고칠 점 비중(구간 등급 기반),
       부정 제스처 판정(긍정 제스처가 더 많으면 가벼운 고칠 점으로)
 - **인증**: JWT(access 60분 / refresh 14일 회전) + 구글 로그인, 이메일 가입 폐지. 첫 로그인 후 프로필(선택 입력)
-- **회차 비교**: 지표 레이더 차트 · 구간 정렬 비교 · AI 비교 피드백(저장, 재분석 감지) · 지난 비교 기록 (`docs/Dev-비교분석.md`)
+- **회차 비교**: 지표 레이더 차트 · 구간 정렬 비교 · AI 비교 피드백(저장, 재분석 감지) · 지난 비교 기록 (`_refs/Dev-비교분석.md`)
 - **화면**: 랜딩(돋보기 데모·단 이동·자동 이동), 내 기록(폴더·세션·종합추이), 단일 분석 대시보드(종합 피드백·구간별 지표·영상 타임라인·스크립트·구간별 AI 피드백), 회차 비교, 휴지통, 내 정보, 다크모드
 - **촬영**: 배경 블러(MediaPipe), 전면·후면 카메라 전환, 촬영 후 방향 선택·서버 회전, 영상 파일 업로드(mp4·mov·webm), 영상 다운로드, 녹화 앞뒤 15초 무음 무시(`vad.py` `EDGE_IGNORE_SEC`)
 - **관리자**: 외부 API 연결 점검, 단계별 소요 시간·실패 통계, 세션별 실행 기록 (`analysis_events`)
-- **DB**: 15개 테이블 — `docs/Dev-DB-erd.md`
+- **DB**: 15개 테이블 — `docs/DB-erd.md`
 
 ### ⏭️ 남은 작업 후보
 - **동작 분석 속도**: ffmpeg 청크 추출(`-ss` 위치·해상도 축소)과 Gemini 동시 요청 수 개선은 머지·배포됨(2026-11-06~08).
@@ -616,8 +616,8 @@ uvicorn devtools.server:app --reload --port 8001
 | 알고 싶은 것 | 어디 |
 |---|---|
 | 환경 세팅 / 트러블슈팅 | `_refs/Dev-환경세팅.md` (위 "자주 쓰는 명령어"도 참고) |
-| Postgres / psql / DBeaver 사용 | `docs/Dev-DB-Postgres사용법.md` |
-| ERD (Mermaid) / DB 설계 원칙 | `docs/Dev-DB-erd.md` |
+| Postgres / psql / DBeaver 사용 | `docs/DB-Postgres사용법.md` |
+| ERD (Mermaid) / DB 설계 원칙 | `docs/DB-erd.md` |
 | 프로젝트 전체 기획 + 파이프라인 | `_refs/PJ-프로젝트 설명.md` |
 | 기술스택 / 데이터 모델 사양 | `_refs/PJ-프레임워크.md` |
 | 중간발표 데모 코드 (참고용) | `_legacy/backend/main.py` (`_legacy/frontend/` 는 비어 있음) |

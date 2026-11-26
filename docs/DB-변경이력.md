@@ -321,4 +321,4 @@ docker compose exec -T postgres psql -U podium -d podium -c "\d video_analyses"
 
 - `docs/CLAUDE.md` — "청크의 세 가지 의미" 섹션에 설계 근거
 - `backend/alembic/versions/c1a7d3e9f204_replace_chunk_analyses_with_video_.py` — 마이그레이션 본체
-- `_refs/Dev-DB-erd.md` — ERD (갱신 필요)
+- `docs/DB-erd.md` — ERD (갱신 필요)

@@ -1,8 +1,8 @@
 # Dev - API 명세
 
 > 2026-11-27 기준 `backend/app/api/` 에 **실제로 있는** 엔드포인트 전체를 기록한다.
-> 전체 흐름은 [Design-시스템흐름](Design-시스템흐름.md), DB 는 [Dev-DB-erd](Dev-DB-erd.md),
-> 파이프라인 내부는 [Dev-STEP3](Dev-STEP3.md) · [Dev-STEP4](Dev-STEP4.md), 회차 비교는 [Dev-비교분석](Dev-비교분석.md).
+> 전체 흐름은 [Design-시스템흐름](Design-시스템흐름.md), DB 는 [DB-erd](DB-erd.md),
+> 파이프라인 내부는 [Dev-STEP3](../_refs/Dev-STEP3.md) · [Dev-STEP4](../_refs/Dev-STEP4.md), 회차 비교는 [Dev-비교분석](../_refs/Dev-비교분석.md).
 >
 > 이 문서는 사람이 읽는 계약서다. 필드 타입의 최종 진실은 서버를 띄우고 `http://localhost:8000/docs` (자동 OpenAPI).
 > 응답 스키마는 `backend/app/schemas/` 에 있다.
@@ -544,7 +544,7 @@ access 토큰을 쿼리에 실으면 서버 로그·브라우저 기록에 **모
 STT 문장을 의미 단위 구간으로 나누고, 구간마다 음성 지표를 집계한다. `status` 를 `segmented` 로.
 
 - **선행 조건**: STEP 3 필수 (`stt_sentences` 없으면 `400`)
-- LLM 에는 **문장 번호만** 넘기고 시각은 `stt_sentences` 에서 가져온다 (근거는 [Dev-STEP4](Dev-STEP4.md))
+- LLM 에는 **문장 번호만** 넘기고 시각은 `stt_sentences` 에서 가져온다 (근거는 [Dev-STEP4](../_refs/Dev-STEP4.md))
 - **재호출 시** 기존 `segments` 를 통째로 교체 — `segment_analyses`, `feedbacks` 도 CASCADE 로 함께 삭제. 동작 분석·피드백도 다시 돌려야 한다
 
 **응답** `200`
@@ -759,7 +759,7 @@ LLM 을 한 번 불러 발표 전체 총평(핵심 한 줄 `headline` + 3~4문�
 
 ## 9. 회차 비교
 
-같은 폴더의 두 회차를 비교한다. 세 층으로 나뉜다 — 자세한 설계는 [Dev-비교분석](Dev-비교분석.md).
+같은 폴더의 두 회차를 비교한다. 세 층으로 나뉜다 — 자세한 설계는 [Dev-비교분석](../_refs/Dev-비교분석.md).
 
 | 층 | 내용 | 저장 |
 |---|---|---|

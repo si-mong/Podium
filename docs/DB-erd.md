@@ -3,7 +3,7 @@
 > 기준: `backend/app/models/` (SQLAlchemy 2.0) — 2026-11-27 시점, 테이블 15개.
 > DB: PostgreSQL / 마이그레이션: Alembic (`backend/alembic/versions/`).
 > 아래 Mermaid `erDiagram` 은 GitHub·VSCode·Notion·Obsidian 에서 바로 렌더링된다.
-> 스키마가 바뀌면 모델 파일과 이 문서를 같이 고친다. 변경 이력은 [DB변경사항.md](DB변경사항.md).
+> 스키마가 바뀌면 모델 파일과 이 문서를 같이 고친다. 변경 이력은 [DB-변경이력.md](DB-변경이력.md).
 
 ---
 
@@ -264,7 +264,7 @@ erDiagram
 1. **1:1 결과 테이블은 부모 키를 그대로 PK 로 쓴다.** `voice_raws`, `session_summaries` 는 `session_id`, `segment_analyses`, `feedbacks` 는 `segment_id` 가 PK 겸 FK. 별도 id 가 없어 조인과 upsert 가 단순하다.
 2. **시간축 데이터는 `chunks` 에 매달지 않는다.** `video_analyses`, `stt_sentences` 는 원본 영상 기준 `t_start/t_end` 를 직접 가진다. 영상분석은 동작 시작 시점부터 자르는 동적 청킹이라 30초 업로드 경계와 맞지 않기 때문이다. 구간 집계는 `segments` 의 시간 범위로 겹치는 행을 모아서 한다.
 3. **비싼 LLM/VLM 결과는 영구 저장한다.** 재분석은 세션 단위로 전부 지우고 다시 넣는다.
-4. **카테고리는 DB enum 이 아니라 `varchar` semi-enum.** 허용 값은 코드(파이프라인 상수·프롬프트)에서 관리해 값이 바뀌어도 마이그레이션이 필요 없다. → [Dev-DB-카테고리 enum 저장 방침.md](Dev-DB-카테고리%20enum%20저장%20방침.md)
+4. **카테고리는 DB enum 이 아니라 `varchar` semi-enum.** 허용 값은 코드(파이프라인 상수·프롬프트)에서 관리해 값이 바뀌어도 마이그레이션이 필요 없다. → [DB-카테고리 enum 저장 방침.md](DB-카테고리%20enum%20저장%20방침.md)
 5. **구조가 유동적인 데이터는 JSONB, 정렬·집계에 쓰는 값만 컬럼으로.** 이벤트 배열·카운트 dict·LLM 출력은 JSONB 이고, 그래프·비교에 바로 쓰는 값(`positive_gesture_count`, `total_filler_count`, `avg_speaking_rate_spm` 등)은 미리 계산해 컬럼에 둔다.
 6. **말 속도는 음절(SPM) 기준.** 한국어는 띄어쓰기에 따라 어절 수가 크게 흔들려서 WPM 대신 음절을 센다. 무음 포함(`speaking_rate`)과 제외(`articulation_rate`)를 같이 저장해 "말은 빠른데 자주 멈춘다" 같은 진단이 가능하다.
 7. **회차 번호는 저장한다.** 목록 순서로 매기면 앞 회차를 지울 때 뒤 회차 번호가 당겨진다. 새 세션은 그 프로젝트의 최대 번호 + 1.

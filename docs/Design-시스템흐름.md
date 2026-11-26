@@ -1,7 +1,7 @@
 # Design - 시스템 흐름
 
 > 촬영부터 피드백까지, **데이터가 어디서 만들어져 어느 테이블에 쌓이는지** 한눈에.
-> 모듈별 상세는 [Dev-STEP3](Dev-STEP3.md) · [Dev-STEP4](Dev-STEP4.md) · `_refs/Step1-smart chuncking.md`.
+> 모듈별 상세는 [Dev-STEP3](../_refs/Dev-STEP3.md) · [Dev-STEP4](../_refs/Dev-STEP4.md) · `_refs/Step1-smart chuncking.md`.
 
 ---
 
