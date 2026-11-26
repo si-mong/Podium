@@ -157,8 +157,9 @@ alembic upgrade head
 | `feedbacks` | `rating` | `VARCHAR(16)` nullable |
 
 ```
-rating   "잘함" / "보통" / "개선필요" 중 하나 — GPT 가 판정, 다른 값이 오면 코드가 "보통"으로 바꿈
-         (step5_feedback._ensure_rating). 이 컬럼 전에 분석한 구간은 NULL → 화면에서 스티커 안 그림
+rating   "잘함" / "보통" / "개선필요" 중 하나. 이 컬럼 전에 분석한 구간은 NULL → 화면에서 스티커 안 그림
+         처음엔 GPT 가 판정했지만, 지금은 코드가 정한다 — 문제 개수 0 = 잘함, 1~2 = 보통, 3+ = 개선필요
+         (step5_feedback._segment_rating)
 ```
 
 `GET /sessions/{id}/segment-feedback` 응답의 `feedback` 에 `rating` 키가 추가됨.

@@ -1,10 +1,99 @@
 # 카테고리 enum 저장 방침
 
-VLM이 보내는 동작 카테고리(gesture / posture / eye_contact) enum을 어디에 저장할지 + 어떻게 사용할지 정리.
-회의 의제 중 일부 — 사전 합의 자료.
+정해진 값 중 하나만 들어가는 칸(카테고리)을 **DB 에 어떻게 저장하고, 허용 값을 어디서 관리하는지** 정리한 문서.
+처음엔 VLM 동작 카테고리(gesture / posture / eye_contact)를 정하려고 만든 2026-05 회의 자료였고,
+같은 원칙이 지금은 구간 라벨·피드백 등급·상태값까지 적용된다.
 
-> 이 문서는 점차 "STEP 2 통합 결정" 전반으로 확장됨 (호출 시점, 결과 저장 위치 등).
-> 분량 커지면 별도 파일로 분리 예정.
+- 2026-11-27 기준 현재 상태는 **1~3절**. 4절부터는 2026-05 결정 당시 기록(원문)이다.
+- 테이블·컬럼 전체는 [DB-erd](DB-erd.md).
+
+---
+
+## 1. 결론 — DB enum 을 쓰지 않는다
+
+| 원칙 | 내용 |
+|---|---|
+| 저장 | 한 값짜리 칸은 `VARCHAR` (semi-enum), 카테고리별 횟수는 `JSONB` `{카테고리: 횟수}`. **Postgres `ENUM` 타입·CHECK 제약·별도 카테고리 테이블은 쓰지 않는다** |
+| 허용 값 관리 | **코드 한 곳**(파이프라인 상수·프롬프트)에서만 정의한다. 아래 2절 표의 "정의 위치" |
+| 값 추가·변경 | 코드만 고치면 된다 — **마이그레이션 없음** |
+| 검증 | DB 는 아무 값이나 받는다. 강제는 앱(코드)에서 하고, 못 맞추면 기본값으로 채우거나 경고만 남긴다 |
+
+이유:
+- 카테고리가 개발 중 계속 바뀌었다 (제스처 10종 → 9종 → 7종, 구간 라벨 6종 → 9종). DB enum 이었으면 바뀔 때마다 마이그레이션이 필요했다.
+- LLM/VLM 응답은 가끔 목록 밖 값을 낸다. DB 가 거부하면 분석 전체가 실패하지만, semi-enum 이면 저장하고 코드에서 처리할 수 있다.
+- 회차 비교·집계는 `GROUP BY label`, `(gesture_counts->>'pointing')::int` 로 충분하다.
+
+대가: **오타·변형 값이 그대로 들어올 수 있다.** 예) VLM 이 시선을 `드묾` 대신 `드묽` 으로 낸 적이 있어서,
+STEP 5 는 둘 다 "시선 드묾"으로 본다 (`step5_feedback._BAD_EYE_CONTACT`). 값으로 분기하는 코드는 이런 변형을 감안할 것.
+
+---
+
+## 2. 현재 카테고리 전체
+
+### VLM 동작 분석 (STEP 2) — `video_analyses`, `segment_analyses`
+
+| 칸 | 저장 형태 | 허용 값 | 정의 위치 | 목록 밖 값이면 |
+|---|---|---|---|---|
+| `video_analyses.posture` | `VARCHAR(32)` | 안정적 · 구부정 · 과도한 움직임 · 기댐 | `step2_video_analysis.py` 프롬프트 | 그대로 저장. 응답에 없으면 `분석 불가` |
+| `video_analyses.eye_contact` | `VARCHAR(32)` | 빈번 · 보통 · 드묾 | 〃 | 〃 |
+| `video_analyses.gesture` | `VARCHAR(32)` | 적극적 · 보통 · 소극적 (제스처 총평) | 〃 | 〃 |
+| `video_analyses.gesture_counts` | `JSONB` | 7종 키 고정 (아래) | `step2_video_analysis._GESTURE_KEYS` | **7종 키만 남기고 없는 키는 0** — 목록 밖 키는 버림 |
+| `video_analyses.gesture_timelines` | `JSONB` | 같은 7종 키, 값은 시각 배열 | 〃 | 없는 키는 빈 배열 |
+| `segment_analyses.gesture_counts` | `JSONB` | 7종 키 (구간에 겹친 조각들의 합) | `step4_aggregate.py` | — |
+| `segment_analyses.posture_counts` / `eye_contact_counts` | `JSONB` | `{값: 등장 조각 수}` — 위 posture·eye_contact 값이 키 | 〃 | 들어온 값 그대로 키가 됨 |
+| `segment_analyses.positive_/negative_gesture_count` | `INTEGER` | 7종을 긍정·부정으로 미리 합산 | `step4_aggregate._POSITIVE/_NEGATIVE_GESTURE_KEYS` | — |
+| `video_analyses.kind` | `VARCHAR(16)` | `segment`(현재) · `intro` · `motion` · `outro`(구 스마트 청킹) | 코드에서 직접 지정 | — |
+
+**제스처 7종** (`_GESTURE_KEYS`)
+
+| 키 | 뜻 | 분류 |
+|---|---|---|
+| `explanatory_gesture` | 설명을 돕는 손·몸짓 | 긍정 |
+| `pointing` | 가리키기 | 긍정 |
+| `body_movement` | 몸 이동 | 긍정 |
+| `distracting_gesture` | 의미 없이 산만한 동작 | 부정 |
+| `touching_face_or_hair` | 얼굴·머리 만지기 | 부정 |
+| `fidgeting_with_objects` | 물건 만지작 | 부정 |
+| `closed_posture` | 팔짱 등 닫힌 자세 | 부정 |
+
+> 2026-05 회의 때의 10종(`hand_movement`, `head_nodding`, `leaning_forward`, `arms_crossed`, `swaying_body`, `scratching` …)에서
+> 2026-08 vlm_test 실험을 거쳐 7종으로 확정됐다 (`hand_movement`→`explanatory_gesture`, `arms_crossed`→`closed_posture`, 고개 끄덕임·앞으로 기울기 등은 제거).
+
+### 그 밖의 semi-enum
+
+| 칸 | 허용 값 | 정의 위치 | 목록 밖 값이면 |
+|---|---|---|---|
+| `segments.label` | 도입 · 배경 · 핵심개념 · 문제제시 · 해결방안 · 사례 · 시연 · 결과 · 마무리 | `step4_segmentation.LABELS` | 그대로 저장 + 응답 `warnings` 에 기록. 비어 있으면 `미분류` |
+| `feedbacks.rating` | 잘함 · 보통 · 개선필요 | `step5_feedback.RATINGS` | **LLM 이 아니라 코드가 정한다** (문제 개수 0 / 1~2 / 3+) |
+| `sessions.status` | recording · preprocessed · analyzed · segmented | `api/sessions.py` | — (코드에서만 씀) |
+| `analysis_events.step` | preprocess · motion · voice · segments · segment_feedback · overall_feedback · comparison | `@tracked(...)` 인자 | — |
+| `analysis_events.status` | running · succeeded · partial · failed | `services/analysis_log.py` | — |
+| `session_comparisons.status` | done · error | `api/compare.py` | — |
+| `users.purpose` | class · interview · conference · work · other | `schemas/auth.Purpose` (Pydantic `Literal`) | **API 가 422 로 거부** — 사용자 입력이라 앱에서 막는다 |
+| `oauth_accounts.provider` | google | `api/auth_google.py` | — |
+| `voice_raws.filler_words[].source` | lexical · acoustic | `pipeline/voice/filler.py` | — |
+| `voice_raws.repetitions[].kind` | exact · stem | `pipeline/voice/stutter.py` | — |
+
+---
+
+## 3. 새 카테고리를 추가하거나 바꿀 때
+
+1. **정의 위치 한 곳**만 고친다 (위 표). 프롬프트에 옵션을 나열하는 칸은 프롬프트도 같이.
+2. 그 값을 읽는 곳을 찾아 같이 고친다 — 예) 제스처 키는 `step4_aggregate` 긍정/부정 묶음, `step5_feedback._NEGATIVE_GESTURE_NAMES`, 프론트 표시 이름.
+3. **마이그레이션은 필요 없다.** 단, 예전 행에는 옛 값이 남아 있다 — 화면·비교 코드가 모르는 값을 만나도 깨지지 않게 폴백을 둔다.
+4. 키 이름을 바꾸는 경우(JSONB 키)는 예전 세션과 섞여 비교될 수 있으니 [DB-변경이력](DB-변경이력.md)에 남긴다.
+
+---
+
+# 결정 당시 기록 (2026-05, 원문)
+
+> 아래는 STEP 2 통합 전 회의 자료 원문이다. 실제로는 이렇게 됐다:
+> - 호출 시점: **옵션 B(별도 라우터)** 채택 → 지금은 `/analyze/motion-by-segment` (구간 분리 뒤에 호출)
+> - 결과 저장: **옵션 b(`chunk_analyses`)** 채택(2026-05-22) → 2026-08-18 `video_analyses` 로 교체 (청크 FK 대신 `t_start`/`t_end`)
+> - `segment_analyses` 의 posture/eye_contact/gesture TEXT → `*_counts` JSONB 변경 적용됨 (`b856588e40a8`)
+> - 원문의 `step2_motion.py`·`normalize_*` 함수·`frozenset` 상수는 **그대로 만들어지지 않았다.** 대신 `step2_video_analysis._GESTURE_KEYS` 튜플과 응답 파싱 때의 0 채우기로 같은 일을 한다
+> - 제스처 카테고리 10종 → 7종 (2절)
+> - 원문의 ERD 경로(`_refs/erd.*`)는 지금 [DB-erd](DB-erd.md)
 
 ---
 
