@@ -131,21 +131,91 @@ Podium/
 
 ## API 엔드포인트 (현재)
 
+2026-11-27 기준 `backend/app/api/` 전체. 인증 표시 없는 건 전부 Bearer 토큰 필요 + 소유권 검사(`_deps.py`).
+요청·응답 스키마는 서버의 `/docs`(OpenAPI)가 정답이다. `docs/Dev-API명세.md` 는 2026-09-23 이후 갱신되지 않았다.
+
+**인증** (`auth.py`, `auth_google.py`)
+
 | Method | Path | 설명 |
 |---|---|---|
-| GET | `/health` | 헬스체크 |
-| GET | `/projects` | dev 사용자의 프로젝트 목록 |
-| POST | `/projects` | 프로젝트 생성 (`{"title": "..."}`) |
-| POST | `/projects/{project_id}/sessions/start` | 세션 시작 (DB 행 + uploads/ 폴더 생성) |
-| POST | `/sessions/{session_id}/chunks?chunk_index=N` | 30초 webm 청크 업로드 (multipart) |
-| POST | `/sessions/{session_id}/video` | 전체 연속 webm 업로드 (Stop 시 1회) |
-| POST | `/sessions/{session_id}/end` | ffmpeg 전처리 → `full_audio.wav` 생성, status='preprocessed' |
-| POST | `/sessions/{session_id}/analyze/motion` | STEP 2 스마트 청킹 + VLM 동작 분석 → `video_analyses` 행 생성, status='analyzed'. **full_video 필요** |
-| GET | `/sessions/{session_id}/analysis` | 영상분석 결과 시간순 조회 |
-| GET | `/sessions/{session_id}` | 세션 + chunks 배열 |
-| DELETE | `/sessions/{session_id}` | DB 행 cascade 삭제 + uploads/ 폴더 삭제 |
+| GET | `/auth/providers` | 켜진 소셜 로그인 목록 (토큰 불필요) |
+| GET | `/auth/google/login` → `/auth/google/callback` | 구글 로그인 리다이렉트 흐름 (토큰 불필요) |
+| POST | `/auth/oauth/exchange` | 콜백이 넘긴 일회용 코드 → 토큰 쌍 |
+| POST | `/auth/login` | 이메일+비밀번호 로그인 — **DEBUG 에서만** (이메일 가입은 없앰) |
+| POST | `/auth/refresh` | refresh 회전 (1회 사용 후 폐기) |
+| POST | `/auth/logout` | refresh 토큰 취소 |
+| GET / PATCH | `/auth/me` | 내 정보 조회 / 프로필 저장 |
 
-DEBUG 모드일 때 `/dev/?project=<id>` mount — `backend/dev_static/index.html` 임시 서빙 (촬영 + STEP 1/2 검증용). 슬라이스 1에서 Next.js 촬영 페이지 만들면 mount + `dev_static/` 디렉터리 제거.
+**폴더·추이** (`projects.py`)
+
+| Method | Path | 설명 |
+|---|---|---|
+| GET | `/projects` | 내 폴더 목록 + 각 폴더의 세션 |
+| POST | `/projects` | 폴더 생성 |
+| PATCH | `/projects/{id}` | 이름 변경 |
+| DELETE | `/projects/{id}` | 휴지통으로 (`deleted_at`) |
+| GET | `/projects/trash` | 휴지통 목록 |
+| POST | `/projects/{id}/restore` | 휴지통에서 복원 |
+| DELETE | `/projects/{id}/purge` | 영구 삭제 (DB cascade + 파일) |
+| GET | `/projects/{id}/trend` | 회차별 종합 추이 (성장 추이 그래프) |
+
+**회차 비교** (`compare.py`)
+
+| Method | Path | 설명 |
+|---|---|---|
+| GET | `/projects/{id}/compare?base=&target=` | 지표 비교(①) + 구간 정렬 비교(②) + 스크립트 — 저장 없이 그때그때 계산 |
+| POST | `/projects/{id}/compare/feedback` | AI 비교 피드백(③) 생성 → `session_comparisons` 저장 |
+| GET | `/projects/{id}/comparisons` | 지난 AI 비교 기록 목록 |
+| DELETE | `/projects/{id}/comparisons/{comparison_id}` | 비교 기록 삭제 |
+
+**세션 — 촬영·업로드** (`sessions.py`)
+
+| Method | Path | 설명 |
+|---|---|---|
+| POST | `/projects/{id}/sessions/start` | 세션 시작 (회차 번호 부여 + uploads/ 폴더) |
+| GET | `/projects/{id}/sessions` | 폴더의 세션 목록 |
+| POST | `/sessions/{id}/chunks?chunk_index=N` | 30초 webm 청크 업로드 |
+| POST | `/sessions/{id}/video` | 전체 연속 webm 업로드 (Stop 시 1회) |
+| POST | `/sessions/{id}/video/rotate` | 촬영 후 방향 선택 → 서버에서 영상 회전 |
+| POST | `/sessions/{id}/video/ticket` | `<video>` 태그용 단기 재생 티켓 발급 |
+| GET | `/sessions/{id}/video` | 영상 스트리밍 (Range 지원, `?download=1` 이면 다운로드) |
+| POST | `/sessions/{id}/end` | STEP 1 전처리 (ffmpeg → `full_audio.wav`), status=`preprocessed` |
+| GET | `/sessions/{id}` | 세션 상세 + chunks |
+| DELETE | `/sessions/{id}` | DB cascade 삭제 + uploads/ 폴더 삭제 |
+
+**세션 — 분석 단계** (프론트 `frontend/src/utils/analysis.ts` 가 아래 순서로 호출. 단계마다 `analysis_events` 기록)
+
+| 순서 | Method | Path | 설명 |
+|---|---|---|---|
+| 1 | POST | `/sessions/{id}/analyze/voice` | STEP 3 STT(SeloWhisper, Modal GPU) + 무음·필러·반복 → `stt_sentences`, `voice_raws` |
+| 2 | POST | `/sessions/{id}/analyze/segments` | STEP 4 구간 분리(gpt-4.1) → `segments` + `segment_analyses` 음성 지표 |
+| 3 | POST | `/sessions/{id}/analyze/motion-by-segment` | STEP 2 구간 기준 청킹(최대 1분) + VLM 동작 분석 → `video_analyses` 후 구간 집계 |
+| 4 | POST | `/sessions/{id}/analyze/segment-feedback` | STEP 5 구간별 피드백(gpt-4.1) → `feedbacks` |
+| 5 | POST | `/sessions/{id}/analyze/overall-feedback` | STEP 5 종합 피드백 → `session_summaries.llm_feedback` |
+| – | POST | `/sessions/{id}/analyze/motion` | (구) 스마트 청킹 v2 기반 동작 분석. 프론트는 더 이상 안 씀 |
+
+**세션 — 결과 조회**
+
+| Method | Path | 설명 |
+|---|---|---|
+| GET | `/sessions/{id}/analysis` | 영상분석 결과 시간순 |
+| GET | `/sessions/{id}/voice-summary` | 음성 지표 요약 |
+| GET | `/sessions/{id}/script` | 인터랙티브 스크립트 (문장 + 무음·필러·반복) |
+| GET | `/sessions/{id}/segment-feedback` | 구간별 AI 피드백 |
+| GET | `/sessions/{id}/overall-feedback` | 종합 피드백 |
+| GET | `/sessions/{id}/segments/trend` | 구간별 지표 그래프 데이터 |
+
+**관리자** (`admin.py`, 전부 `is_admin` 필요)
+
+| Method | Path | 설명 |
+|---|---|---|
+| GET | `/admin/health` | API 키 설정 여부 + 단계별 사용 모델 |
+| POST | `/admin/health/{target}` | 외부 API(LLM·VLM·Modal) 실제 연결 점검 |
+| GET | `/admin/analyses/stats` | 단계별 소요 시간·실패율 통계 |
+| GET | `/admin/analyses` | 전체 회원 세션 목록 (최신순) |
+| GET | `/admin/analyses/{session_id}` | 세션 하나의 실행 기록 + 분석 결과 |
+
+**기타**: `GET /health` 헬스체크. DEBUG 모드일 때만 `/dev/?project=<id>` 에 `backend/dev_static/` 검증용 촬영 페이지가 mount 된다.
 
 ---
 
@@ -379,67 +449,37 @@ uvicorn devtools.server:app --reload --port 8001
 
 ## 진행 상황
 
-### ✅ 완료
-- 인프라: Backend/Frontend 스캐폴드, Postgres docker, requirements 분리
-- DB: SQLAlchemy 모델 + Alembic 초기 마이그레이션 + 2차 마이그레이션(chunk_analyses 추가) 적용
-- 전처리 (STEP 1):
-    - `pipeline/step1_preprocess.py` — ffmpeg 청크 wav 추출 + concat + ffprobe duration
-    - `services/storage.py` — 파일 경로/IO
-    - `schemas/project.py`, `schemas/session.py`
-    - `api/projects.py`, `api/sessions.py`
-    - `api/_deps.py` — 인증 + 소유권 검사 / `api/auth.py` — 회원가입·로그인·갱신·로그아웃
-    - `backend/dev_static/index.html` — 시스템 촬영 검증용 정적 페이지
-    - **STEP 1 end-to-end 검증 통과** (촬영 → 청크/영상 저장 → DB → ffmpeg 전처리 → full_audio.wav)
-- **STEP 2 VLM (Gemini 2.5-flash) 통합** (2026-05-21~22):
-    - `pipeline/step2_video_analysis.py` — Gemini File API 업로드 + 분석 + 결과 dict (MAX_ATTEMPTS=3 재시도)
-    - 모델: `segment_analyses` 컬럼 옵션 B로 refactor + `chunk_analyses` 신규 테이블 (→ 2026-08-18 `video_analyses` 로 대체)
-    - 라우터: `POST /sessions/{id}/analyze/motion` (lazy import — google-genai 없어도 server 동작)
-    - `/end`는 전처리만 책임지도록 복원 (status=preprocessed)
-    - `dev_static/index.html`에 "Analyze motion (VLM)" 버튼 추가
-    - `test_step2.py` 보안 정리 (API 키 .env 이동, Windows 경로 → STEP2_TEST_VIDEO 환경변수)
-    - **STEP 2 end-to-end 검증 통과** (촬영 → /end → /analyze/motion → DB INSERT)
+> 2026-11-27 기준. 세부 결정 근거는 위 섹션들과 `docs/Dev-*.md`, 이력은 git log / PR 참고.
 
-### 🟡 현재 브랜치
-- `test/vlm` — VLM 정적 테스트 도구(`backend/vlm_test/`) + 스마트 청킹. 위 "VLM 정적 테스트 도구" 섹션 참고.
-    - **스마트 청킹 v2 본 파이프라인 역이식 완료** (2026-08-18): `step2_chunking.py` 신규,
-      `/analyze/motion` 이 full_video 기반 동적 청킹으로 전환, gesture 7종 확정.
-    - **`chunk_analyses` → `video_analyses` 스키마 교체** (리비전 `c1a7d3e9f204`).
-      위 "청크의 세 가지 의미" 섹션이 근거.
-    - ✅ 마이그레이션 적용 완료 (`alembic upgrade head`, downgrade 왕복도 확인).
-    - ✅ 5월 녹화본 3개로 청킹 실측: 타임스탬프 샘플링(473점 @0.217초), ffmpeg 추출
-      5개 청크 계획 대비 오차 20ms 이내, 재인코딩 mp4 정상.
-    - ⚠️ **Gemini 까지 태우는 end-to-end 미검증** (과금 발생분이라 사용자가 직접 진행 예정).
-    - ⚠️ `MOTION_THRESH` 는 3.5 그대로 — 위 "임계값 실측" 참고, 결정 대기.
-    - `docs/_CD.md` 신규 추가됨.
-- (이전) `feat/pipeline-step2-vlm` — STEP 2 본 파이프라인 통합 → main 머지 완료
+### ✅ 완료 — 전체 흐름이 운영 중
+- **배포**: https://podium-it.co.kr — 프론트 Vercel(Next.js 14), 백엔드 AWS EC2 Docker(Caddy + FastAPI + PostgreSQL). 배포는 main 기준 (`deploy/`, `docs/_CD.md`)
+- **파이프라인 STEP 1~5 전부 연결** (프론트가 단계를 순서대로 호출, 위 API 표 참고)
+    - STEP 1 전처리: ffmpeg 청크 wav 추출 + concat
+    - STEP 2 동작: 구간 기준 청킹(`step2_segment_chunking.py`, 최대 1분) + Gemini VLM(`gemini-3.8-flash`). 스마트 청킹 v2(`/analyze/motion`)는 남아 있지만 프론트는 안 씀
+    - STEP 3 음성: SeloWhisper(`hf:rearleg/SeloWhisper-ko-disfluency`) STT 를 Modal 서버리스 GPU 에서 실행 + 무음·필러·반복(말더듬) 검출, 말 속도는 음절(SPM) 기준
+    - STEP 4 구간 분리: gpt-4.1 (Gemini 에서 변경, 2026-10-23)
+    - STEP 5 피드백: gpt-4.1 구간별(잘한 점·개선점·등급) + 종합
+- **인증**: JWT(access 60분 / refresh 14일 회전) + 구글 로그인, 이메일 가입 폐지. 첫 로그인 후 프로필(선택 입력)
+- **회차 비교**: 지표 레이더 차트 · 구간 정렬 비교 · AI 비교 피드백(저장, 재분석 감지) · 지난 비교 기록 (`docs/Dev-비교분석.md`)
+- **화면**: 랜딩(돋보기 데모·단 이동·자동 이동), 내 기록(폴더·세션·종합추이), 단일 분석 대시보드(종합 피드백·구간별 지표·영상 타임라인·스크립트·구간별 AI 피드백), 회차 비교, 휴지통, 내 정보, 다크모드
+- **촬영**: 배경 블러(MediaPipe), 전면·후면 카메라 전환, 촬영 후 방향 선택·서버 회전, 영상 다운로드, 녹화 앞뒤 15초 무음 무시
+- **관리자**: 외부 API 연결 점검, 단계별 소요 시간·실패 통계, 세션별 실행 기록 (`analysis_events`)
+- **DB**: 15개 테이블 — `docs/Dev-DB-erd.md`
 
-### ⏭️ 다음 작업 후보
-
-**바로 다음 후보** (1~2일):
-- (선택) VLM 결과 캐시: `/analyze/motion` 재호출 시 `vlm_analysis.json`이 있으면 Gemini 다시 안 부르고 그걸 읽어 DB INSERT만. **VLM 호출 비용 절약 + 디버깅 편의**.
-- (선택) chunk_analyses 응답 스키마 보강 (현재 MotionAnalysisResult는 메타만)
-
-**파이프라인 PoC 마무리**:
-- **사용자**: STEP 3 (Whisper STT + 음성 수치화 — filler/silence/wpm)
-    - Python 3.13 + whisper 이슈 해결 우선 (아래 알려진 이슈 참고)
-    - 함수 단위로 검증 (input: full_audio.wav, output: STT 문장 + voice_raw dict)
-
-**수직 슬라이스 단계** (3주~):
-- 슬라이스 1: 영상 업로드 + STT 자막 표시 (사용자 백 / 팀원 프론트)
-- 슬라이스 2: VLM 동작 분석 결과를 프론트에 표시
-- 슬라이스 3: STEP 4 LLM 구간 분리 (segments + chunk_analyses → segment_analyses 집계)
-- 슬라이스 4: STEP 5 LLM 종합 피드백
-- 슬라이스 5: 회차 비교 + 추세
-
-**후반부**:
-- ~~인증 (JWT 교체)~~ **완료**. 남은 것: `/dev` mount 제거 (본 프론트 촬영 페이지 완성 후)
+### ⏭️ 남은 작업 후보
+- 동작 분석 속도: ffmpeg 청크 추출(`-ss` 위치·해상도 축소)과 Gemini 병렬도 개선은 배포됨. 동시 사용자 재테스트 결과 확인과 동작 분석 세부 시간(`detail`) 기록은 아직
+- STEP 5 규칙 후보 (미결정): 습관 필러 강조, headline 잘한 점/고칠 점 비중을 구간 등급 기반으로, 부정 제스처 판정 기준
+- 비교 화면의 "두 회차의 분석 방식이 달라요" 경고: 화면에서만 숨김 상태 (API `warnings` 는 그대로)
+- 정리: `podium_outline` 테스트 DB·`backend/uploads_outline_test/`, sslip.io 제거, 업로드 속도 개선
+- `/dev` mount 와 `backend/dev_static/` 제거 (본 촬영 페이지가 대체함)
+- `docs/Dev-API명세.md` 를 현재 라우터 기준으로 갱신
 - 폴리싱 + 발표 준비
 
-### ⚠️ 알려진 이슈
-- **Python 3.13 + openai-whisper 빌드 실패** (`ModuleNotFoundError: No module named 'pkg_resources'`).
-  해결 후보: ① `pip install setuptools wheel` 먼저 ② Python 3.11 별도 venv ③ `faster-whisper`로 교체.
-  STEP 3 작업 시작 시 결정.
-- **VLM 결과 캐시 없음** — `/analyze/motion` 호출 시 항상 Gemini 다시 부름 (vlm_analysis.json 있어도 무시). DB INSERT 실패 시 비싼 재호출 발생. 위 "바로 다음 후보" 참고.
+### ⚠️ 알려진 이슈 · 미확인
+- iPhone(WebKit)에서 화면 방향 고정을 켜면 세로 영상으로 녹화됨 → 촬영 후 방향 선택 카드로 대응. 실기기에서 회전 시간·다운로드는 미확인
+- STT 반복 환각 재전사(Modal 배포됨)는 심한 말더듬 영상으로 미검증
+- 음성 분석 Modal `max_containers=3` — 동시 사용자가 많으면 GPU 대기 발생
+- `MOTION_THRESH=3.5`(스마트 청킹 v2 전용)는 시스템 촬영본에 안 맞음 — 현재 흐름(구간 기준 청킹)은 이 값을 쓰지 않음
 
 ---
 
