@@ -548,7 +548,7 @@ uvicorn devtools.server:app --reload --port 8001
 
 ## 진행 상황
 
-> 2026-11-27 기준. 세부 결정 근거는 위 섹션들과 `docs/`, `_refs/Dev-STEP3·4.md`·`_refs/Dev-비교분석.md`(로컬 전용), 이력은 git log / PR 참고.
+> 2026-11-27 기준. 세부 결정 근거는 위 섹션들과 `docs/`, `_refs/Dev-STEP3.md`·`_refs/Dev-STEP4.md`·`_refs/Dev-비교분석.md`(로컬 전용), 이력은 git log / PR 참고.
 
 ### ✅ 완료 — 전체 흐름이 운영 중
 - **배포**: https://podium-it.co.kr — 프론트 Vercel(Next.js 14), 백엔드 AWS EC2 Docker(Caddy + FastAPI + PostgreSQL). 배포는 main 기준 (`deploy/`, 절차는 로컬 전용 `deploy/README.md`)
