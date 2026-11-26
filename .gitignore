@@ -261,3 +261,8 @@ backend/vlm_test/voice_uploads/
 
 # 배포 가이드 (로컬 전용)
 deploy/README.md
+
+# 로컬 자료 (제출 문서·발표 자료·테스트 업로드, GitHub 제외)
+Claude outputs/
+_plans&docs/
+backend/uploads_outline_test/
