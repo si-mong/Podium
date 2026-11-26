@@ -56,12 +56,45 @@
   <sub>첫 화면 — 커서로 돋보기를 움직이면 AI가 발표 장면에서 읽어내는 것들(제스처·시선·목소리)이 보여요</sub>
 </p>
 
-<!-- 캡처본을 docs/images/screenshots/ 에 넣은 뒤, 아래 "캡처 추가 예정"을 <img src="./docs/images/screenshots/파일명.png" width="100%"/> 로 교체 -->
+<details>
+<summary><b>📊 단일 발표 분석</b> — 분석 대시보드에서 구간별 분석 제공</summary>
+<br/>
+<p align="center">
+  <img src="./docs/images/screenshots/single-1.webp" alt="단일 발표 분석 화면 위쪽: 종합 피드백 요약과 발표 길이·필러 단어·설명 제스처·얼굴/머리 만지기 수치, 구간별 필러 단어 빈도 꺾은선 그래프, 구간 표시가 있는 영상 타임라인과 분석 스크립트" width="100%"/>
+  <br/>
+  <sub>종합 피드백 · 구간별 지표 그래프 · 구간별 영상 타임라인과 분석 스크립트</sub>
+</p>
+<p align="center">
+  <img src="./docs/images/screenshots/single-2.webp" alt="단일 발표 분석 화면 아래쪽: 도입·문제제시·해결방안·마무리 구간마다 잘함/보통 등급과 근거 시각이 붙은 잘한 점·개선점 피드백" width="100%"/>
+  <br/>
+  <sub>구간별 AI 피드백 — 구간마다 등급과 근거 시각이 붙은 잘한 점 · 개선점</sub>
+</p>
+</details>
 
-| 단일 발표 분석 | 회차 비교 분석 | 회차별 성장 추이 |
-|:---:|:---:|:---:|
-| 캡처 추가 예정 | 캡처 추가 예정 | 캡처 추가 예정 |
-| 분석 대시보드에서 구간별 분석 제공 | 발표 2개를 선택해 변화 확인 | 누적된 연습에 따른 변화 추이 확인 |
+<details>
+<summary><b>🔍 회차 비교 분석</b> — 발표 2개를 선택해 변화 확인</summary>
+<br/>
+<p align="center">
+  <img src="./docs/images/screenshots/compare-1.webp" alt="회차 비교 화면 위쪽: 2회차와 5회차의 시선 맞춤·필러·무음 비율·말하기 속도·말 더듬·부정적 제스처를 겹쳐 그린 레이더 차트와, 나아진 점·남은 과제를 정리한 AI 비교 피드백" width="100%"/>
+  <br/>
+  <sub>총 지표 비교 레이더 차트 · AI 비교 피드백(나아진 점 / 남은 과제)</sub>
+</p>
+<p align="center">
+  <img src="./docs/images/screenshots/compare-2.webp" alt="회차 비교 화면 아래쪽: 도입 구간끼리 맞대어 지표를 막대로 비교하고, 두 회차 영상과 스크립트를 나란히 보여주며 두 회차에서 같은 문장을 노란색으로 표시" width="100%"/>
+  <br/>
+  <sub>구간별 비교 — 같은 성격의 구간끼리 지표 · 영상 · 스크립트를 나란히</sub>
+</p>
+</details>
+
+<details>
+<summary><b>📈 회차별 성장 추이</b> — 누적된 연습에 따른 변화 추이 확인</summary>
+<br/>
+<p align="center">
+  <img src="./docs/images/screenshots/growth.webp" alt="폴더 화면: 왼쪽에 1·2·4·5회차 발표 세션 목록, 오른쪽에 필러·말하기 속도·무음 비율·말 더듬·일반 제스처·부정적 제스처 탭이 있는 종합추이 꺾은선 그래프" width="100%"/>
+  <br/>
+  <sub>폴더별 발표 세션 목록과 지표별 종합 추이 그래프</sub>
+</p>
+</details>
 
 ---
 
