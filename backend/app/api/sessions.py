@@ -1013,7 +1013,7 @@ def analyze_segment_feedback(
     db: DbSession = Depends(get_db),
     user_id: int = Depends(get_current_user_id),
 ):
-    """구간마다 Gemini 를 따로 호출해 구간별 피드백을 받아 feedbacks 테이블에 저장한다.
+    """구간마다 GPT(gpt-4.1)를 따로 호출해 구간별 피드백을 받아 feedbacks 테이블에 저장한다.
 
     호출 수 = 구간 수 (동시에 최대 4개). 구간 하나에 발표 전체 목차 + 그 구간의 전사문·지표 +
     그 구간과 겹치는 영상 조각 + 그 구간에서 시작한 무음·필러·반복만 보낸다.
