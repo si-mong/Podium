@@ -80,8 +80,8 @@ Podium/
 │   │   │   ├── auth.py                signup / login / refresh / logout / me
 │   │   │   ├── projects.py            프로젝트 CRUD + 휴지통
 │   │   │   └── sessions.py            세션 라이프사이클 + 분석 트리거
-│   │   ├── models/                    SQLAlchemy 10 테이블 (4파일 분할)
-│   │   │   ├── user.py, project.py, session.py, analysis.py, __init__.py
+│   │   ├── models/                    SQLAlchemy 15 테이블 (6파일 분할) — ERD: docs/Dev-DB-erd.md
+│   │   │   ├── user.py, project.py, session.py, analysis.py, comparison.py, analysis_event.py, __init__.py
 │   │   ├── schemas/                   ★
 │   │   │   ├── project.py
 │   │   │   └── session.py
@@ -124,8 +124,7 @@ Podium/
     ├── 프레임워크.md
     ├── 환경세팅.md
     ├── Postgres사용법.md
-    ├── erd.dbml                       dbdiagram.io용
-    └── erd.md                         Mermaid 버전
+    └── (ERD 는 docs/Dev-DB-erd.md 로 이동)
 ```
 
 ---
@@ -202,20 +201,32 @@ alembic current                               # 현재 적용된 버전
 
 ## DB 스키마 핵심 결정
 
-10개 테이블 — `_refs/프로젝트 설명.md` 스키마 그대로 매핑.
+**15개 테이블** (2026-11-27 기준). 전체 ERD(Mermaid)·컬럼·삭제 정책 → **`docs/Dev-DB-erd.md`**. 변경 이력 → `docs/DB변경사항.md`.
+
+| 영역 | 테이블 | 모델 파일 |
+|---|---|---|
+| 인증 | `users`, `oauth_accounts`, `refresh_tokens` | `user.py` |
+| 콘텐츠 | `projects`, `sessions`, `chunks` | `project.py`, `session.py` |
+| 분석 원본 | `video_analyses`, `stt_sentences`, `voice_raws` | `analysis.py` |
+| 구간·종합 | `segments`, `segment_analyses`, `feedbacks`, `session_summaries` | `analysis.py` |
+| 비교 | `session_comparisons` | `comparison.py` |
+| 운영 | `analysis_events` | `analysis_event.py` |
 
 | 결정 | 값 | 이유 |
 |---|---|---|
-| PK 타입 | `BigInteger` autoincrement | 단순함 |
-| 타임스탬프 | `created_at`만 (`server_default=now()`) | 필요한 곳에 `updated_at` 추가 |
-| 외래키 | `ondelete="CASCADE"` (DB) + ORM `cascade="all, delete-orphan"` | 양방향 |
-| 예외: `session_summaries.best/worst_segment_id` | `SET NULL` | segment 지워져도 summary 살아남게 |
-| JSON 컬럼 | PostgreSQL `JSONB` | `silence_segments`, `filler_words`, `llm_feedback` |
+| PK 타입 | `BigInteger` autoincrement (`refresh_tokens` 만 `jti` 문자열) | 단순함 |
+| 타임스탬프 | `timestamptz`, `created_at` 은 `server_default=now()` | 필요한 곳에만 추가 |
+| 소유 데이터 FK | `ondelete="CASCADE"` (DB) + ORM `cascade="all, delete-orphan"` | 회원 → 폴더 → 회차 → 분석 결과 |
+| 기록성 FK | `SET NULL` | `session_summaries.best/worst_segment_id`, `session_comparisons.base/target_session_id`, `analysis_events.session_id/user_id` — 삭제돼도 요약·비교·통계 보존 |
+| 폴더 삭제 | soft delete (`projects.deleted_at`) | 휴지통 복원. 하위 세션엔 아무것도 안 찍음 (`app/api/_deps.py`) |
+| 회차 번호 | `sessions.session_no`, `(project_id, session_no)` 유일 | 앞 회차 지워도 번호 안 당겨지게 |
+| JSON 컬럼 | PostgreSQL `JSONB` | 이벤트 배열·카운트 dict·LLM 출력. 정렬·집계용 값만 일반 컬럼으로 뺌 |
 | 시간 | `Float` (초) | t_start, t_end |
-| status | `String(32)` 기본값 `"processing"` | Enum 정리는 추후 |
+| 카테고리·status | `String` semi-enum (DB enum 안 씀) | 허용 값은 코드에서 관리 → 값 바뀌어도 마이그레이션 불필요 |
 | 1:1 관계 | 부모 ID를 PK로 (별도 PK 없음) | `voice_raws`, `segment_analyses`, `feedbacks`, `session_summaries` |
+| 말 속도 | 음절 기준 SPM (`speaking_rate` 무음 포함 / `articulation_rate` 제외) | 한국어는 어절 수가 띄어쓰기에 따라 흔들림 |
 
-**모델 도메인 분리**: 4분할 (`user.py`, `project.py`, `session.py`, `analysis.py`). 1:1 관계 테이블들은 부모 모델 옆에 묶어둠.
+**모델 도메인 분리**: 6분할 (`user.py`, `project.py`, `session.py`, `analysis.py`, `comparison.py`, `analysis_event.py`). 1:1 관계 테이블들은 부모 모델 옆에 묶어둠.
 
 **파일 저장 구조**: `uploads/<session_id>/...` 평탄형 (project_id 안 끼움). 이유: session_id가 전역 unique → 경로 도출 O(1). 코드 단순.
 
@@ -457,7 +468,7 @@ uvicorn devtools.server:app --reload --port 8001
 |---|---|
 | 환경 세팅 / 트러블슈팅 | `_refs/환경세팅.md` |
 | Postgres / psql / DBeaver 사용 | `_refs/Postgres사용법.md` |
-| ERD (dbdiagram.io / Mermaid) | `_refs/erd.dbml`, `_refs/erd.md` |
+| ERD (Mermaid) / DB 설계 원칙 | `docs/Dev-DB-erd.md` |
 | 프로젝트 전체 기획 + 파이프라인 | `_refs/프로젝트 설명.md` |
 | 기술스택 / 데이터 모델 사양 | `_refs/프레임워크.md` |
 | 중간발표 데모 코드 (참고용) | `_legacy/backend/main.py`, `_legacy/frontend/index.html` |
