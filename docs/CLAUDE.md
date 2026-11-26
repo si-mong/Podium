@@ -539,26 +539,32 @@ uvicorn devtools.server:app --reload --port 8001
     - STEP 2 동작: 구간 기준 청킹(`step2_segment_chunking.py`, 최대 1분) + Gemini VLM(`gemini-3.8-flash`). 스마트 청킹 v2(`/analyze/motion`)는 남아 있지만 프론트는 안 씀
     - STEP 3 음성: SeloWhisper(`hf:rearleg/SeloWhisper-ko-disfluency`) STT 를 Modal 서버리스 GPU 에서 실행 + 무음·필러·반복(말더듬) 검출, 말 속도는 음절(SPM) 기준
     - STEP 4 구간 분리: gpt-4.1 (Gemini 에서 변경, 2026-10-23)
-    - STEP 5 피드백: gpt-4.1 구간별(잘한 점·개선점·등급) + 종합
+    - STEP 5 피드백: gpt-4.1 구간별(잘한 점·개선점·등급) + 종합. 판정은 코드가 하고 LLM 은 문장만 쓴다 —
+      구간 등급(문제 개수), 습관 필러(같은 단어 반복, 2026-11-06), headline 잘한 점/고칠 점 비중(구간 등급 기반),
+      부정 제스처 판정(긍정 제스처가 더 많으면 가벼운 고칠 점으로)
 - **인증**: JWT(access 60분 / refresh 14일 회전) + 구글 로그인, 이메일 가입 폐지. 첫 로그인 후 프로필(선택 입력)
 - **회차 비교**: 지표 레이더 차트 · 구간 정렬 비교 · AI 비교 피드백(저장, 재분석 감지) · 지난 비교 기록 (`docs/Dev-비교분석.md`)
 - **화면**: 랜딩(돋보기 데모·단 이동·자동 이동), 내 기록(폴더·세션·종합추이), 단일 분석 대시보드(종합 피드백·구간별 지표·영상 타임라인·스크립트·구간별 AI 피드백), 회차 비교, 휴지통, 내 정보, 다크모드
-- **촬영**: 배경 블러(MediaPipe), 전면·후면 카메라 전환, 촬영 후 방향 선택·서버 회전, 영상 다운로드, 녹화 앞뒤 15초 무음 무시
+- **촬영**: 배경 블러(MediaPipe), 전면·후면 카메라 전환, 촬영 후 방향 선택·서버 회전, 영상 파일 업로드(mp4·mov·webm), 영상 다운로드, 녹화 앞뒤 15초 무음 무시(`vad.py` `EDGE_IGNORE_SEC`)
 - **관리자**: 외부 API 연결 점검, 단계별 소요 시간·실패 통계, 세션별 실행 기록 (`analysis_events`)
 - **DB**: 15개 테이블 — `docs/Dev-DB-erd.md`
 
 ### ⏭️ 남은 작업 후보
-- 동작 분석 속도: ffmpeg 청크 추출(`-ss` 위치·해상도 축소)과 Gemini 병렬도 개선은 배포됨. 동시 사용자 재테스트 결과 확인과 동작 분석 세부 시간(`detail`) 기록은 아직
-- STEP 5 규칙 후보 (미결정): 습관 필러 강조, headline 잘한 점/고칠 점 비중을 구간 등급 기반으로, 부정 제스처 판정 기준
-- 비교 화면의 "두 회차의 분석 방식이 달라요" 경고: 화면에서만 숨김 상태 (API `warnings` 는 그대로)
-- 정리: `podium_outline` 테스트 DB·`backend/uploads_outline_test/`, sslip.io 제거, 업로드 속도 개선
+- **동작 분석 속도**: ffmpeg 청크 추출(`-ss` 위치·해상도 축소)과 Gemini 동시 요청 수 개선은 머지·배포됨(2026-11-06~08).
+  남은 것: 동시 사용자 재테스트 결과 확인, 동작 분석에도 세부 시간 기록(`analysis_events.detail` 은 지금 음성 분석만 — `services/analysis_log.py` `_detail`)
+- **목차 기반 구간 분리** (`feat/segment-outline`, 미머지): 발표 목차를 입력하면 목차대로 구간을 나눈다.
+  머지하려면 마이그레이션 `c8e4a2f6d1b9` 의 `down_revision` 을 `b5d2e8f1a3c7` → 현재 head `b8d4f2a6c9e1` 로 바꿔야 한다
+- 비교 화면의 "두 회차의 분석 방식이 달라요" 경고: 화면에서만 숨김 상태 (API `warnings` 는 그대로, `CompareView.tsx` 에서 표시만 되살리면 됨)
+- 정리: `podium_outline` 테스트 DB·`backend/uploads_outline_test/` (outline 브랜치 결정 후), EC2 API 주소에 sslip.io 를 쓰고 있다면 도메인으로 교체 (저장소 밖이라 미확인), 업로드 속도 개선
 - `/dev` mount 와 `backend/dev_static/` 제거 (본 촬영 페이지가 대체함)
+- 그 밖의 미머지 브랜치: `feat/step4-labels`(devtools STEP4 페이지 수정), `feat/devtools-ui`(전체 파이프라인 테스트 페이지), `feat/landing-stage-3d`(랜딩 3D 시안) — 머지할지 정리할지 결정 필요
 - 폴리싱 + 발표 준비
 
 ### ⚠️ 알려진 이슈 · 미확인
 - iPhone(WebKit)에서 화면 방향 고정을 켜면 세로 영상으로 녹화됨 → 촬영 후 방향 선택 카드로 대응. 실기기에서 회전 시간·다운로드는 미확인
 - STT 반복 환각 재전사(Modal 배포됨)는 심한 말더듬 영상으로 미검증
-- 음성 분석 Modal `max_containers=3` — 동시 사용자가 많으면 GPU 대기 발생
+- 음성 분석 Modal `max_containers=3` (GPU L4 → A10G → T4 순) — 동시 사용자가 많으면 GPU 대기 발생
+- 분석이 전부 **동기 호출**이라 요청이 수 분간 열려 있다. Caddy `response_header_timeout 20m` 로 버티는 중 (백그라운드 처리·진행률 API 없음)
 - `MOTION_THRESH=3.5`(스마트 청킹 v2 전용)는 시스템 촬영본에 안 맞음 — 현재 흐름(구간 기준 청킹)은 이 값을 쓰지 않음
 
 ---
