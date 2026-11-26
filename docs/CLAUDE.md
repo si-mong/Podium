@@ -60,7 +60,7 @@ STEP 2 가 STEP 4 뒤로 갔다. 구간과 영상 조각 경계가 맞아야 구
 
 ## 기술 스택
 
-- **Backend**: Python 3.11, FastAPI + SQLAlchemy 2.0 + Alembic + PostgreSQL 16 (psycopg 3)
+- **Backend**: Python 3.11+ (배포 이미지 3.13), FastAPI + SQLAlchemy 2.0 + Alembic + PostgreSQL 16 (psycopg 3)
 - **Frontend**: Next.js 14 (App Router, TS, Tailwind), Pretendard, lucide-react, MediaPipe(배경 블러)
 - **AI/파이프라인** (`requirements-pipeline.txt`):
     - STT: transformers 로 SeloWhisper(`rearleg/SeloWhisper-ko-disfluency`, 비유창성 태그 모델), faster-whisper 백엔드도 있음. Modal 서버리스 GPU 로 원격 실행 (`modal_stt.py`)
@@ -270,10 +270,10 @@ Podium/
 
 ### 처음 한 번 (로컬 세팅)
 ```bash
-# 시스템 의존성: Docker, Python 3.11, Node 18+, ffmpeg
+# 시스템 의존성: Docker, Python 3.11+, Node 18+, ffmpeg
 
 # Backend (cwd = backend/)
-python3.11 -m venv .venv && source .venv/bin/activate
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt -r requirements-pipeline.txt   # 배포 이미지와 같은 조합 (PyTorch 포함, 무거움)
 cp .env.example .env      # DEBUG=true. 분석까지 돌리려면 GEMINI_API_KEY·OPENAI_API_KEY 채우기
 alembic upgrade head      # Postgres 가 떠 있어야 함 (아래 "환경 시작" 1번)
