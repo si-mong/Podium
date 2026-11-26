@@ -8,7 +8,7 @@
 
 **Podium** — 발표 영상을 시스템 내에서 촬영하면 VLM/LLM이 동작·발화·내용을 구간별로 분석하고 피드백을 제공하는 캡스톤 디자인 프로젝트 (2026 CBNU).
 
-상세 기획 / 파이프라인 / DB 스키마 → `_refs/프로젝트 설명.md`, `_refs/프레임워크.md` (둘 다 gitignored, 로컬 전용)
+상세 기획 / 파이프라인 / DB 스키마 → `_refs/PJ-프로젝트 설명.md`, `_refs/PJ-프레임워크.md` (둘 다 gitignored, 로컬 전용)
 
 ---
 
@@ -67,65 +67,106 @@ STEP 1 (청크) ─┬─> STEP 2 VLM (청크별)
 
 ## 폴더 구조 (현재 상태)
 
+2026-11-27 기준. git 에 올라가는 것 위주이며, 로컬 전용(gitignored) 폴더는 맨 아래에 따로 적었다.
+
 ```
 Podium/
 ├── backend/
 │   ├── app/
-│   │   ├── main.py                    FastAPI 엔트리 (lifespan, CORS, router include, DEBUG시 /legacy mount)
+│   │   ├── main.py                    FastAPI 엔트리 (CORS, router include, DEBUG 시 /dev mount)
 │   │   ├── core/
-│   │   │   ├── config.py              pydantic-settings Settings
-│   │   │   └── database.py            engine, SessionLocal, Base, get_db
-│   │   ├── api/                       ★
-│   │   │   ├── _deps.py               ★ 인증(Bearer) + 소유권 검사 공용 의존성
-│   │   │   ├── auth.py                signup / login / refresh / logout / me
-│   │   │   ├── projects.py            프로젝트 CRUD + 휴지통
-│   │   │   └── sessions.py            세션 라이프사이클 + 분석 트리거
-│   │   ├── models/                    SQLAlchemy 15 테이블 (6파일 분할) — ERD: docs/Dev-DB-erd.md
-│   │   │   ├── user.py, project.py, session.py, analysis.py, comparison.py, analysis_event.py, __init__.py
-│   │   ├── schemas/                   ★
-│   │   │   ├── project.py
-│   │   │   └── session.py
-│   │   ├── services/                  ★
-│   │   │   └── storage.py             세션별 파일 경로/IO 헬퍼
-│   │   └── pipeline/                  ★
-│   │       ├── step1_preprocess.py    ffmpeg: 청크 wav 추출 + concat + ffprobe duration
-│   │       ├── step2_chunking.py      스마트 청킹 v2: motion 시계열 → 동적 청크 계획 → ffmpeg 추출
-│   │       └── step2_video_analysis.py  Gemini VLM 동작 분석 (청크 병렬)
-│   ├── alembic/
-│   │   ├── env.py                     settings.database_url + Base.metadata 연결
-│   │   └── versions/
-│   │       ├── 444442f442c2_create_initial_tables.py    첫 마이그레이션 (10 테이블)
-│   │       ├── b856588e40a8_add_chunk_analyses_...py     chunk_analyses 추가
-│   │       └── c1a7d3e9f204_replace_chunk_analyses_...py chunk_analyses → video_analyses
-│   ├── alembic.ini                    sqlalchemy.url 비움 (env.py에서 동적 로드)
-│   ├── uploads/<session_id>/          영상/오디오 저장 (gitignored, .gitkeep만 트래킹)
-│   │   ├── chunks/chunk_NNN.webm      업로드 청크 (30초 고정)
-│   │   ├── audio/chunk_NNN.wav
-│   │   ├── vlm_chunks/chunk_NNN.mp4   스마트 청킹 산출물 (재분석 시 덮어씀)
-│   │   ├── full_video.webm            ← 스마트 청킹의 입력
-│   │   ├── full_audio.wav
-│   │   └── vlm_analysis.json
-│   ├── dev_static/                    ★ DEBUG일 때 /dev로 임시 mount되는 검증용 정적 페이지 (시스템 촬영). Next.js 촬영 페이지 생기면 제거
-│   │   └── index.html
-│   ├── requirements.txt               API 서버용
-│   ├── requirements-pipeline.txt      AI 패키지 (파이프라인 작업 시 별도 설치)
-│   └── .env.example                   DEBUG=true 기본
+│   │   │   ├── config.py              pydantic-settings Settings (.env)
+│   │   │   ├── database.py            engine, SessionLocal, Base, get_db
+│   │   │   └── security.py            비밀번호 해싱 · JWT(access/refresh/영상 티켓) 발급·검증
+│   │   ├── api/                       라우터 — 엔드포인트 목록은 아래 "API 엔드포인트"
+│   │   │   ├── _deps.py               인증(Bearer) + 소유권·휴지통 검사, require_admin
+│   │   │   ├── auth.py                로그인(DEBUG 전용)·갱신·로그아웃·내 정보·프로필
+│   │   │   ├── auth_google.py         구글 로그인 (OAuth + PKCE, 1회용 코드 교환)
+│   │   │   ├── projects.py            폴더 CRUD + 휴지통 + 종합 추이
+│   │   │   ├── sessions.py            촬영·업로드·영상 + 분석 단계(STEP 1~5) + 결과 조회
+│   │   │   ├── compare.py             회차 비교 + AI 비교 피드백
+│   │   │   └── admin.py               외부 API 연결 점검 + 분석 실행 기록
+│   │   ├── models/                    SQLAlchemy 15 테이블 (6파일) — ERD: docs/Dev-DB-erd.md
+│   │   │   └── user.py, project.py, session.py, analysis.py, comparison.py, analysis_event.py
+│   │   ├── schemas/                   요청·응답 스키마 — auth.py, project.py, session.py, compare.py
+│   │   ├── services/
+│   │   │   ├── storage.py             세션별 파일 경로/IO 헬퍼
+│   │   │   ├── streaming.py           HTTP Range 응답 (영상 구간 재생)
+│   │   │   ├── compare.py             회차 비교 계산 (지표 비교 ①, 구간 정렬 ②)
+│   │   │   └── analysis_log.py        분석 단계 실행 기록 (@tracked → analysis_events)
+│   │   ├── pipeline/                  AI 분석 — 라우터 안에서 lazy import (무거운 의존성 없이도 서버 기동)
+│   │   │   ├── step1_preprocess.py    STEP 1 ffmpeg: 오디오 추출 + full_audio.wav
+│   │   │   ├── step2_segment_chunking.py  STEP 2 구간 기준 청킹 (최대 1분) ← 현재 흐름
+│   │   │   ├── step2_chunking.py      STEP 2 스마트 청킹 v2 (구 /analyze/motion 전용)
+│   │   │   ├── motion_config.py       스마트 청킹 임계값 저장소
+│   │   │   ├── step2_video_analysis.py  STEP 2 Gemini VLM 동작 분석 (청크 병렬)
+│   │   │   ├── step3_voice_analysis.py  STEP 3 진입점 → voice/
+│   │   │   ├── voice/                 STEP 3 코어: vad(무음) · stt / stt_hf / stt_remote(Modal) · filler · stutter(반복) · analyze
+│   │   │   ├── step4_segmentation.py  STEP 4 LLM 구간 분리 (gpt-4.1, 라벨 9종)
+│   │   │   ├── step4_aggregate.py     STEP 4-b 구간별 집계 (음성·영상 지표)
+│   │   │   ├── step5_feedback.py      STEP 5 구간별 + 종합 피드백 (gpt-4.1)
+│   │   │   └── compare_feedback.py    AI 비교 피드백 (gpt-4.1)
+│   │   └── scripts/
+│   │       └── set_admin.py           관리자 지정/해제 (python -m app.scripts.set_admin)
+│   ├── alembic/versions/              마이그레이션 (리비전 목록은 docs/DB변경사항.md)
+│   ├── alembic.ini                    sqlalchemy.url 비움 (env.py 에서 settings 로 로드)
+│   ├── modal_stt.py                   STEP 3 STT 를 Modal 서버리스 GPU 앱으로 배포 (modal deploy)
+│   ├── Dockerfile                     배포 이미지 — 시작 시 alembic upgrade head 후 uvicorn
+│   ├── requirements.txt               API 서버
+│   ├── requirements-pipeline.txt      파이프라인 (PyTorch 등). 배포 이미지는 둘 다 설치
+│   ├── requirements-vlm.txt           vlm_test 전용
+│   ├── .env.example
+│   ├── devtools/server.py             개발 테스트 서버 (:8001) — /vlm, /voice 를 한 서버로
+│   ├── vlm_test/                      STEP 2 VLM·청킹 실험 도구 (DB 안 씀)
+│   ├── stt_test/                      STEP 3 STT 평가·실험 도구 (DB 안 씀)
+│   ├── dev_static/index.html          DEBUG 일 때 /dev 로 뜨는 초기 촬영 검증 페이지 (제거 예정)
+│   └── uploads/<session_id>/          업로드·산출물 (gitignored, .gitkeep 만 트래킹)
+│       ├── chunks/chunk_NNN.webm      녹화 중 30초 청크 (파일 업로드면 없음)
+│       ├── audio/chunk_NNN.wav
+│       ├── full_video.webm|mp4|mov    전체 영상 (회전하면 full_video.mp4)
+│       ├── full_audio.wav
+│       ├── vlm_chunks/                STEP 2 청크 영상 (재분석 시 덮어씀)
+│       └── vlm_analysis.json          STEP 2 VLM 원본 응답
 │
-├── frontend/                          Next.js 기본 스캐폴드만 (페이지 미작성)
+├── frontend/                          Next.js 14 (App Router, TS, Tailwind) — Vercel 배포
+│   ├── src/app/
+│   │   ├── page.tsx                   랜딩 (돋보기 데모, 단 이동)
+│   │   ├── home/                      로그인 후 홈
+│   │   ├── login/, signup/            로그인 (signup 은 구글 로그인 안내만)
+│   │   ├── auth/callback/             구글 로그인 1회용 코드 → 토큰 교환
+│   │   ├── profile/                   첫 로그인 프로필 / 내 정보
+│   │   ├── record/                    촬영·업로드 (배경 블러, 방향 확인 OrientationCheck)
+│   │   ├── dashboard/                 내 기록 (폴더·세션·종합추이) + SingleView(단일 분석) + CompareView(회차 비교) + InteractiveScript
+│   │   ├── admin/                     관리자 (연결 점검, 분석 실행 기록)
+│   │   ├── privacy/, terms/           개인정보 처리방침, 이용약관
+│   │   └── layout.tsx, globals.css, robots.ts, sitemap.ts, fonts/
+│   ├── src/components/                LoupeHero, SegmentMetrics, ServiceGuide, UsageSteps, ThemeToggle, GoogleLogo
+│   ├── src/utils/
+│   │   ├── api.ts                     apiFetch (토큰 자동 첨부, 401 시 갱신 후 재시도), API_BASE
+│   │   ├── auth.ts                    토큰 저장소
+│   │   ├── analysis.ts                분석 단계 순서대로 호출 (/end → voice → segments → motion → feedback)
+│   │   └── theme.ts                   다크모드
+│   └── .env.local.example             NEXT_PUBLIC_API_URL
 │
-├── docker-compose.yml                 Postgres 16 (:5432, podium/podium/podium)
-├── CLAUDE.md
+├── deploy/                            EC2 배포 — docker-compose.prod.yml (Caddy + api + postgres), Caddyfile, .env.example
+│                                      (deploy/README.md 배포 가이드는 로컬 전용)
+├── docs/                              개발 문서 — CLAUDE.md, Dev-API명세, Dev-DB-erd, DB변경사항, Dev-STEP3/4,
+│                                      Dev-비교분석, Design-시스템흐름, 개발가이드, _CD(배포), images/(README 이미지)
+├── docker-compose.yml                 로컬 Postgres 16 (:5432, podium/podium/podium)
 ├── README.md
-├── .gitignore
-│
-├── _legacy/                           중간발표 데모 (gitignored, 참고용)
-└── _refs/                             기획 문서 + 가이드 (gitignored)
-    ├── 프로젝트 설명.md
-    ├── 프레임워크.md
-    ├── 환경세팅.md
-    ├── Postgres사용법.md
-    └── (ERD 는 docs/Dev-DB-erd.md 로 이동)
+└── .gitignore
 ```
+
+**로컬 전용 (gitignored)**
+
+| 경로 | 내용 |
+|---|---|
+| `_refs/` | 기획·회의·블로그 문서. 주요: `PJ-프로젝트 설명.md`, `PJ-프레임워크.md`, `Dev-환경세팅.md` |
+| `_legacy/` | 중간발표 데모 (참고용) |
+| `_plans&docs/` | 제출 문서(hwp·docx), WBS, 포스터 |
+| `Claude outputs/` | 발표 구성안 등 산출물 |
+| `backend/uploads_outline_test/` | outline 테스트용 업로드 (정리 예정) |
+| `backend/.venv/`, `frontend/node_modules/`, `.env`, `.env.local` | 개발 환경 |
 
 ---
 
@@ -346,7 +387,7 @@ uvicorn devtools.server:app --reload --port 8001
 - **lazy import**: `from app.pipeline import step2_chunking, step2_video_analysis`를 라우터 함수 안에서 호출 → google-genai / opencv 미설치인 API 서버도 정상 기동.
 - **VLM = Gemini 2.5-flash** (OpenAI GPT-4o 아님). `GEMINI_API_KEY` 필요.
 - **카테고리 enum**: posture/eye_contact/gesture는 semi-enum 자유 텍스트 (프롬프트에서 4종/3종/4종 옵션 강제).
-- 자세한 비교/결정 근거 → `_refs/카테고리 enum 저장 방침.md`
+- 자세한 비교/결정 근거 → `docs/Dev-DB-카테고리 enum 저장 방침.md`
 
 ### ★ "청크"의 세 가지 의미 — 층 분리 (2026-08-18)
 
@@ -545,9 +586,9 @@ uvicorn devtools.server:app --reload --port 8001
 
 | 알고 싶은 것 | 어디 |
 |---|---|
-| 환경 세팅 / 트러블슈팅 | `_refs/환경세팅.md` |
-| Postgres / psql / DBeaver 사용 | `_refs/Postgres사용법.md` |
+| 환경 세팅 / 트러블슈팅 | `_refs/Dev-환경세팅.md` (위 "자주 쓰는 명령어"도 참고) |
+| Postgres / psql / DBeaver 사용 | `docs/Dev-DB-Postgres사용법.md` |
 | ERD (Mermaid) / DB 설계 원칙 | `docs/Dev-DB-erd.md` |
-| 프로젝트 전체 기획 + 파이프라인 | `_refs/프로젝트 설명.md` |
-| 기술스택 / 데이터 모델 사양 | `_refs/프레임워크.md` |
+| 프로젝트 전체 기획 + 파이프라인 | `_refs/PJ-프로젝트 설명.md` |
+| 기술스택 / 데이터 모델 사양 | `_refs/PJ-프레임워크.md` |
 | 중간발표 데모 코드 (참고용) | `_legacy/backend/main.py`, `_legacy/frontend/index.html` |
