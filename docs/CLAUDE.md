@@ -591,4 +591,4 @@ uvicorn devtools.server:app --reload --port 8001
 | ERD (Mermaid) / DB 설계 원칙 | `docs/Dev-DB-erd.md` |
 | 프로젝트 전체 기획 + 파이프라인 | `_refs/PJ-프로젝트 설명.md` |
 | 기술스택 / 데이터 모델 사양 | `_refs/PJ-프레임워크.md` |
-| 중간발표 데모 코드 (참고용) | `_legacy/backend/main.py`, `_legacy/frontend/index.html` |
+| 중간발표 데모 코드 (참고용) | `_legacy/backend/main.py` (`_legacy/frontend/` 는 비어 있음) |
