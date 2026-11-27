@@ -207,3 +207,59 @@ npm run dev
 
 - 팀원용 빠른 시작 / 폴더 구조 / 진행 상황 / 컨벤션 → [`docs/개발가이드.md`](./docs/개발가이드.md)
 - 상세 컨텍스트 / 결정사항 / 임시 코드 → [`docs/CLAUDE.md`](./docs/CLAUDE.md)
+
+---
+
+## 오픈소스 라이선스
+
+Podium 은 아래 오픈소스와 외부 서비스를 사용합니다. 각 구성 요소의 저작권과 라이선스는 원저작자에게 있습니다.
+
+<details>
+<summary><b>사용한 오픈소스 목록</b></summary>
+<br/>
+
+**AI 모델**
+
+| 이름 | 용도 | 라이선스 |
+|---|---|---|
+| [SeloWhisper-ko-disfluency](https://huggingface.co/rearleg/SeloWhisper-ko-disfluency) | 한국어 STT + 필러·반복 태그 (Whisper large-v3-turbo 파인튜닝) | MIT |
+| [OpenAI Whisper](https://github.com/openai/whisper) | SeloWhisper 의 기반 모델 | MIT |
+
+**Backend**
+
+| 이름 | 용도 | 라이선스 |
+|---|---|---|
+| [FastAPI](https://github.com/fastapi/fastapi) · [Uvicorn](https://github.com/encode/uvicorn) | API 서버 | MIT · BSD-3-Clause |
+| [Pydantic](https://github.com/pydantic/pydantic) | 요청·설정 검증 | MIT |
+| [SQLAlchemy](https://github.com/sqlalchemy/sqlalchemy) · [Alembic](https://github.com/sqlalchemy/alembic) | ORM · 마이그레이션 | MIT |
+| [psycopg](https://github.com/psycopg/psycopg) | PostgreSQL 드라이버 | LGPL-3.0 |
+| [python-jose](https://github.com/mpdavis/python-jose) · [bcrypt](https://github.com/pyca/bcrypt) | JWT · 비밀번호 해싱 | MIT · Apache-2.0 |
+| [PyTorch](https://github.com/pytorch/pytorch) · [Transformers](https://github.com/huggingface/transformers) | STT 모델 실행 | BSD-3-Clause · Apache-2.0 |
+| [faster-whisper](https://github.com/SYSTRAN/faster-whisper) | STT 보조 백엔드 | MIT |
+| [librosa](https://github.com/librosa/librosa) | 음향 분석 | ISC |
+| [OpenCV](https://github.com/opencv/opencv-python) | 영상 프레임 처리 | Apache-2.0 |
+| [FFmpeg](https://ffmpeg.org) | 오디오 추출·영상 자르기·회전 (별도 프로그램으로 호출) | LGPL-2.1+ / GPL-2.0+ (빌드에 따라) |
+| [openai-python](https://github.com/openai/openai-python) · [google-genai](https://github.com/googleapis/python-genai) · [Modal](https://github.com/modal-labs/modal-client) | 외부 API SDK | Apache-2.0 |
+| [httpx](https://github.com/encode/httpx) · [Requests](https://github.com/psf/requests) | HTTP 클라이언트 | BSD-3-Clause · Apache-2.0 |
+
+**Frontend**
+
+| 이름 | 용도 | 라이선스 |
+|---|---|---|
+| [Next.js](https://github.com/vercel/next.js) · [React](https://github.com/facebook/react) | 웹 프레임워크 | MIT |
+| [Tailwind CSS](https://github.com/tailwindlabs/tailwindcss) | 스타일 | MIT |
+| [Recharts](https://github.com/recharts/recharts) | 그래프 | MIT |
+| [Lucide](https://github.com/lucide-icons/lucide) | 아이콘 | ISC |
+| [MediaPipe](https://github.com/google-ai-edge/mediapipe) | 촬영 배경 블러 | Apache-2.0 |
+| [Pretendard](https://github.com/orioncactus/pretendard) · [Geist](https://github.com/vercel/geist-font) | 글꼴 | SIL OFL 1.1 |
+
+**Infra**
+
+| 이름 | 용도 | 라이선스 |
+|---|---|---|
+| [PostgreSQL](https://www.postgresql.org) | 데이터베이스 | PostgreSQL License |
+| [Caddy](https://github.com/caddyserver/caddy) | 웹 서버 · 자동 HTTPS | Apache-2.0 |
+
+</details>
+
+**외부 API** — OpenAI(GPT-4.1), Google Gemini, Modal, Google 로그인은 오픈소스가 아니라 각 서비스의 이용약관에 따라 사용합니다.
